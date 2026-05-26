@@ -1,0 +1,852 @@
+"""
+キャラクター詳細・編集ページ。
+
+Markdown シートの表示・直接編集、タグ編集、メディア参照、
+修正/関連キャラ生成への送信、削除機能を提供する。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+from pathlib import Path
+
+from nicegui import app, ui
+from nicegui.events import MouseEventArguments
+
+from ...app_context import get_context
+from ...core.character.schemas import CharacterImageAsset, CharacterTTSSettings, FaceRect
+from ...core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
+from ...services.character_generation import parse_markdown_to_sheet
+from ...services.tts import TTSServiceError
+from ..layout import page_layout
+
+
+@ui.page("/characters/{character_id}")
+async def character_detail_page(character_id: str) -> None:
+    ctx = get_context()
+    sheet = await ctx.characters.get(character_id)
+
+    if sheet is None:
+        with page_layout("キャラクターが見つかりません"):
+            ui.label("指定されたキャラクターは存在しません。").classes("text-grey-6")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/characters")).props("flat color=primary")
+        return
+
+    with page_layout(sheet.name):
+        with ui.row().classes("items-center gap-2 mb-4 flex-wrap"):
+            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/characters")).props("flat round")
+            ui.label(sheet.name).classes("text-2xl font-bold flex-1")
+
+            favorite_btn = ui.button(
+                icon="star" if sheet.is_favorite else "star_border",
+                on_click=lambda: _toggle_favorite(),
+            ).props("flat round").style(
+                f"color: {'#D9A441' if sheet.is_favorite else '#AAA8A0'};"
+            )
+            with favorite_btn:
+                favorite_tooltip = ui.tooltip(
+                    "お気に入りを解除" if sheet.is_favorite else "お気に入りに追加"
+                )
+
+            with ui.button_group().props("flat"):
+                ui.button(
+                    "チャット",
+                    icon="forum",
+                    on_click=lambda: ui.navigate.to(f"/characters/{character_id}/chat"),
+                ).props("flat color=primary size=sm").tooltip("このキャラクターとチャットする")
+                ui.button(
+                    "修正に送る",
+                    icon="edit",
+                    on_click=lambda: _send_to_generation("modify"),
+                ).props("flat color=primary size=sm").tooltip("このシートをベースに修正生成する")
+                ui.button(
+                    "関連キャラ作成",
+                    icon="person_add",
+                    on_click=lambda: _send_to_generation("related"),
+                ).props("flat color=secondary size=sm").tooltip("このシートをベースに関連キャラを生成する")
+
+            ui.button(
+                icon="download",
+                on_click=lambda: ui.download(sheet.raw_markdown.encode("utf-8"), f"{sheet.name}.md"),
+            ).props("flat round").tooltip("Markdownをダウンロード")
+            ui.button(
+                icon="content_copy",
+                on_click=lambda: _copy_to_clipboard(),
+            ).props("flat round").tooltip("Markdownをコピー")
+            ui.button(
+                icon="delete",
+                on_click=lambda: _confirm_delete(),
+            ).props("flat round color=negative").tooltip("削除")
+
+        def _send_to_generation(mode: str) -> None:
+            app.storage.user["gen_mode"] = mode
+            app.storage.user["gen_char_id"] = character_id
+            ui.navigate.to("/")
+
+        async def _toggle_favorite() -> None:
+            saved = await ctx.characters.set_favorite(character_id, not sheet.is_favorite)
+            sheet.is_favorite = saved.is_favorite
+            favorite_btn.set_icon("star" if sheet.is_favorite else "star_border")
+            favorite_btn.style(f"color: {'#D9A441' if sheet.is_favorite else '#AAA8A0'};")
+            favorite_tooltip.set_text(
+                "お気に入りを解除" if sheet.is_favorite else "お気に入りに追加"
+            )
+            ui.notify(
+                "お気に入りに追加しました" if sheet.is_favorite else "お気に入りを解除しました",
+                type="positive",
+            )
+
+        with ui.card().classes("w-full mb-4"):
+            with ui.row().classes("gap-6 flex-wrap"):
+                for label, value in sheet.to_display_dict().items():
+                    if value:
+                        with ui.column().classes("gap-0"):
+                            ui.label(label).classes("text-xs text-grey-6")
+                            ui.label(value).classes("text-sm font-medium")
+
+            if sheet.tags:
+                with ui.row().classes("gap-2 mt-3 flex-wrap"):
+                    for tag in sheet.tags:
+                        ui.badge(tag).props("outline color=primary")
+
+        with ui.row().classes("items-center gap-2 mb-4"):
+            ui.label("タグ:").classes("text-sm font-medium")
+            tags_row = ui.row().classes("gap-2 flex-wrap items-center")
+            with tags_row:
+                _render_tags(sheet, tags_row, ctx)
+
+        if sheet.generation_meta.model_id:
+            with ui.expansion("生成情報", icon="info").props("dense").classes("w-full mb-4"):
+                meta = sheet.generation_meta
+                with ui.grid(columns=2).classes("gap-x-4 gap-y-1 text-sm"):
+                    ui.label("プロファイル:").classes("text-grey-6")
+                    ui.label(meta.llm_profile_name or "-")
+                    ui.label("モデル:").classes("text-grey-6")
+                    ui.label(meta.model_id or "-")
+                    ui.label("Temperature:").classes("text-grey-6")
+                    ui.label(str(meta.temperature) if meta.temperature is not None else "N/A (reasoning)")
+                    ui.label("品質:").classes("text-grey-6")
+                    _quality_label(meta.quality_status)
+                    ui.label("ツール呼び出し:").classes("text-grey-6")
+                    ui.label(f"{meta.tool_count} 件")
+
+        edit_mode = {"active": False}
+
+        with ui.row().classes("w-full items-start gap-4 flex-col lg:flex-row"):
+            with ui.column().classes("w-full lg:flex-1 min-w-0"):
+                with ui.card().classes("w-full"):
+                    with ui.row().classes("items-center justify-between mb-2"):
+                        ui.label("キャラクターシート").classes("text-base font-semibold")
+                        with ui.row().classes("gap-1"):
+                            toggle_raw_btn = ui.button("Markdown表示", on_click=lambda: _toggle_raw()).props(
+                                "flat size=sm"
+                            )
+                            edit_btn = ui.button("編集", icon="edit", on_click=lambda: _enter_edit()).props(
+                                "flat size=sm color=primary"
+                            )
+                            save_edit_btn = ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
+                                "unelevated size=sm color=primary"
+                            ).classes("hidden")
+                            cancel_edit_btn = ui.button("キャンセル", on_click=lambda: _cancel_edit()).props(
+                                "flat size=sm"
+                            ).classes("hidden")
+
+                    sheet_container = ui.element("div").classes("w-full")
+                    edit_area: dict[str, Any] = {"ref": None}
+                    view_mode = {"raw": False}
+
+                    with sheet_container:
+                        ui.markdown(sheet.raw_markdown).classes("prose prose-sm max-w-none")
+
+            media_panel = ui.column().classes("w-full lg:w-[360px] gap-4 shrink-0")
+
+        def _refresh_media_panel() -> None:
+            media_panel.clear()
+            with media_panel:
+                _render_media_panel(sheet, ctx, character_id, _refresh_media_panel)
+
+        _refresh_media_panel()
+
+        def _toggle_raw() -> None:
+            if edit_mode["active"]:
+                return
+            view_mode["raw"] = not view_mode["raw"]
+            sheet_container.clear()
+            with sheet_container:
+                if view_mode["raw"]:
+                    ui.code(sheet.raw_markdown, language="markdown").classes("w-full text-xs")
+                    toggle_raw_btn.set_text("レンダリング表示")
+                else:
+                    ui.markdown(sheet.raw_markdown).classes("prose prose-sm max-w-none")
+                    toggle_raw_btn.set_text("Markdown表示")
+
+        def _enter_edit() -> None:
+            edit_mode["active"] = True
+            sheet_container.clear()
+            with sheet_container:
+                ta = ui.textarea(value=sheet.raw_markdown).classes("w-full font-mono text-sm").props(
+                    "rows=30 outlined"
+                )
+                edit_area["ref"] = ta
+                with ui.row().classes("justify-end gap-2 mt-2"):
+                    ui.button("キャンセル", on_click=lambda: _cancel_edit()).props("flat size=sm")
+                    ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
+                        "unelevated size=sm color=primary"
+                    )
+            toggle_raw_btn.classes("hidden")
+            edit_btn.classes("hidden")
+            save_edit_btn.classes(remove="hidden")
+            cancel_edit_btn.classes(remove="hidden")
+
+        async def _save_edit() -> None:
+            ta = edit_area["ref"]
+            if ta is None:
+                return
+            new_md = ta.value.strip()
+            if not new_md:
+                ui.notify("シートが空です", type="warning")
+                return
+            updated = parse_markdown_to_sheet(new_md, sheet.id)
+            updated.tags = sheet.tags
+            updated.media = sheet.media
+            updated.is_favorite = sheet.is_favorite
+            updated.generation_meta = sheet.generation_meta
+            updated.created_at = sheet.created_at
+            saved = await ctx.characters.save(updated)
+            sheet.raw_markdown = new_md
+            sheet.name = saved.name
+            sheet.tags = saved.tags
+            sheet.media = saved.media
+            ui.notify(f"「{saved.name}」を保存しました", type="positive")
+            _cancel_edit()
+
+        def _cancel_edit() -> None:
+            edit_mode["active"] = False
+            sheet_container.clear()
+            with sheet_container:
+                if view_mode["raw"]:
+                    ui.code(sheet.raw_markdown, language="markdown").classes("w-full text-xs")
+                else:
+                    ui.markdown(sheet.raw_markdown).classes("prose prose-sm max-w-none")
+            toggle_raw_btn.classes(remove="hidden")
+            edit_btn.classes(remove="hidden")
+            save_edit_btn.classes("hidden")
+            cancel_edit_btn.classes("hidden")
+
+        def _copy_to_clipboard() -> None:
+            ui.run_javascript(f"navigator.clipboard.writeText({repr(sheet.raw_markdown)})")
+            ui.notify("コピーしました", type="positive")
+
+        def _confirm_delete() -> None:
+            with ui.dialog() as dlg, ui.card():
+                ui.label(f"「{sheet.name}」を削除しますか？").classes("text-base font-medium mb-2")
+                ui.label("この操作は取り消せません。").classes("text-sm text-grey-6")
+                with ui.row().classes("justify-end gap-2 mt-4"):
+                    ui.button("キャンセル", on_click=dlg.close).props("flat")
+                    ui.button("削除", on_click=lambda: _do_delete(dlg)).props("color=negative unelevated")
+            dlg.open()
+
+        async def _do_delete(dlg) -> None:
+            await ctx.characters.delete(character_id)
+            ui.notify(f"「{sheet.name}」を削除しました", type="positive")
+            dlg.close()
+            ui.navigate.to("/characters")
+
+
+def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
+    with ui.card().classes("w-full"):
+        with ui.row().classes("items-center gap-2 mb-2"):
+            ui.icon("image").style("color: #6E9572;")
+            ui.label("画像").classes("text-base font-semibold")
+
+        image = sheet.media.primary_image()
+        image_path = ctx.characters.media_path(image.path) if image else None
+        if image and image_path:
+            _render_image_editor(sheet, ctx, character_id, image, image_path, refresh_fn)
+            if image.original_name:
+                ui.label(image.original_name).classes("text-xs text-grey-6 break-all")
+        else:
+            with ui.element("div").classes(
+                "w-full aspect-[4/3] rounded-md border border-dashed border-grey-4 "
+                "bg-grey-2 flex items-center justify-center"
+            ):
+                ui.icon("image").classes("text-4xl text-grey-5")
+
+        async def _on_image_upload(e) -> None:
+            try:
+                saved = await ctx.characters.save_image(character_id, e.file)
+                sheet.media = saved.media
+                ui.notify("画像を保存しました", type="positive")
+                refresh_fn()
+            except Exception as err:
+                ui.notify(f"画像の保存に失敗しました: {err}", type="negative")
+
+        ui.upload(
+            label="画像をアップロード",
+            on_upload=_on_image_upload,
+            auto_upload=True,
+            max_file_size=20 * 1024 * 1024,
+        ).props("accept=image/* flat bordered").classes("w-full")
+
+    with ui.card().classes("w-full"):
+        with ui.row().classes("items-center gap-2 mb-2"):
+            ui.icon("graphic_eq").style("color: #6E9572;")
+            ui.label("音声").classes("text-base font-semibold")
+
+        voice = sheet.media.primary_voice()
+        voice_path = ctx.characters.media_path(voice.path) if voice else None
+        if voice and voice_path:
+            ui.audio(voice_path).classes("w-full")
+            if voice.original_name:
+                ui.label(voice.original_name).classes("text-xs text-grey-6 break-all")
+        else:
+            with ui.element("div").classes(
+                "w-full min-h-[88px] rounded-md border border-dashed border-grey-4 "
+                "bg-grey-2 flex items-center justify-center"
+            ):
+                ui.icon("volume_up").classes("text-4xl text-grey-5")
+
+        async def _on_voice_upload(e) -> None:
+            try:
+                saved = await ctx.characters.save_voice(character_id, e.file)
+                sheet.media = saved.media
+                ui.notify("音声を保存しました", type="positive")
+                refresh_fn()
+            except Exception as err:
+                ui.notify(f"音声の保存に失敗しました: {err}", type="negative")
+
+        ui.upload(
+            label="音声をアップロード",
+            on_upload=_on_voice_upload,
+            auto_upload=True,
+            max_file_size=50 * 1024 * 1024,
+        ).props("accept=audio/* flat bordered").classes("w-full")
+
+        if voice and voice_path:
+            _render_tts_controls(sheet, ctx, character_id, voice, voice_path, refresh_fn)
+            return
+
+
+def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path, refresh_fn) -> None:
+    ui.separator().classes("my-3")
+    endpoints = ctx.tts.get_endpoints()
+    if not endpoints:
+        ui.label("設定でTTS APIを登録してください。").classes("text-sm text-grey-6")
+        return
+
+    current_settings = sheet.media.tts
+    selected_id = current_settings.endpoint_id or ctx.tts.default_endpoint_id()
+    if selected_id not in {endpoint.id for endpoint in endpoints}:
+        selected_id = ctx.tts.default_endpoint_id()
+    selected_endpoint = next(
+        (endpoint for endpoint in endpoints if endpoint.id == selected_id),
+        endpoints[0],
+    )
+
+    endpoint_options = {
+        endpoint.id: f"{endpoint.name} ({_tts_provider_label(endpoint.provider)})"
+        for endpoint in endpoints
+    }
+    endpoint_select = ui.select(
+        options=endpoint_options,
+        value=selected_endpoint.id,
+        label="使用TTS API",
+    ).props("outlined").classes("w-full")
+
+    async def _change_endpoint() -> None:
+        saved = await ctx.characters.update_tts_settings(
+            character_id,
+            current_settings.model_copy(update={"endpoint_id": endpoint_select.value or ""}),
+        )
+        sheet.media = saved.media
+        refresh_fn()
+
+    async def _on_endpoint_change(_) -> None:
+        await _change_endpoint()
+
+    endpoint_select.on_value_change(_on_endpoint_change)
+
+    voice_id_input = None
+    if selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
+        default_voice_id = ctx.tts.voice_id_for_character(character_id, current_settings.voice_id)
+        voice_id_input = ui.input(
+            label="Voice ID",
+            value=current_settings.voice_id,
+            placeholder=default_voice_id,
+        ).props("outlined clearable").classes("w-full")
+        ui.label(f"既定値: {default_voice_id}").classes("text-xs text-grey-6 font-mono break-all")
+        with ui.row().classes("gap-2 w-full"):
+            register_btn = ui.button("Irodoriに登録", icon="cloud_upload").props(
+                "outline color=primary"
+            ).classes("flex-1")
+            delete_btn = ui.button("Irodoriから削除", icon="delete_outline").props(
+                "outline color=negative"
+            ).classes("flex-1")
+
+    chunking_checkbox = ui.checkbox(
+        "長文を分割",
+        value=current_settings.chunking_enabled,
+    ).classes("mt-2")
+    chunk_min_input = ui.number(
+        label="分割最小文字数",
+        value=current_settings.chunk_min_chars,
+        min=1,
+    ).props("outlined dense").classes("w-full")
+
+    tts_text = ui.textarea(
+        label="読み上げテキスト",
+        value=sheet.self_intro,
+        placeholder="読み上げるテキスト",
+    ).props("outlined rows=4").classes("w-full mt-2")
+    with ui.row().classes("gap-2 w-full"):
+        save_settings_btn = ui.button("TTS設定を保存", icon="save").props("outline color=primary")
+        synth_btn = ui.button("読み上げ", icon="play_arrow").props(
+            "color=primary unelevated"
+        ).classes("flex-1")
+    tts_status = ui.label("").classes("text-xs text-grey-6")
+    preview_container = ui.column().classes("w-full gap-2")
+
+    def _current_tts_settings() -> CharacterTTSSettings:
+        raw_chunk_min = chunk_min_input.value or 80
+        try:
+            chunk_min_chars = max(1, int(raw_chunk_min))
+        except (TypeError, ValueError):
+            chunk_min_chars = 80
+        return CharacterTTSSettings(
+            endpoint_id=endpoint_select.value or "",
+            voice_id=(voice_id_input.value or "").strip() if voice_id_input else current_settings.voice_id,
+            chunking_enabled=bool(chunking_checkbox.value),
+            chunk_min_chars=chunk_min_chars,
+        )
+
+    async def _save_tts_settings(*, notify: bool = True) -> CharacterTTSSettings:
+        settings = _current_tts_settings()
+        saved = await ctx.characters.update_tts_settings(character_id, settings)
+        sheet.media = saved.media
+        if notify:
+            ui.notify("TTS設定を保存しました", type="positive")
+        return settings
+
+    async def _register_tts_voice() -> None:
+        settings = await _save_tts_settings(notify=False)
+        register_btn.disable()
+        try:
+            await ctx.tts.register_voice(
+                character_id,
+                voice_path,
+                endpoint_id=settings.endpoint_id,
+                voice_id=settings.voice_id,
+                filename=voice.original_name,
+                content_type=voice.content_type,
+            )
+            ui.notify("Irodori-TTS-Serverに登録しました", type="positive")
+        except TTSServiceError as err:
+            ui.notify(f"登録に失敗しました: {err}", type="negative")
+        except Exception as err:
+            ui.notify(f"登録に失敗しました: {err}", type="negative")
+        finally:
+            register_btn.enable()
+
+    async def _delete_tts_voice() -> None:
+        settings = await _save_tts_settings(notify=False)
+        delete_btn.disable()
+        try:
+            deleted = await ctx.tts.delete_voice(
+                character_id,
+                endpoint_id=settings.endpoint_id,
+                voice_id=settings.voice_id,
+            )
+            if deleted:
+                ui.notify("Irodori-TTS-Serverから削除しました", type="positive")
+            else:
+                ui.notify("Irodori-TTS-Serverに登録されていません", type="info")
+        except TTSServiceError as err:
+            ui.notify(f"削除に失敗しました: {err}", type="negative")
+        except Exception as err:
+            ui.notify(f"削除に失敗しました: {err}", type="negative")
+        finally:
+            delete_btn.enable()
+
+    async def _synthesize_tts() -> None:
+        text = (tts_text.value or "").strip()
+        if not text:
+            ui.notify("読み上げるテキストを入力してください", type="warning")
+            return
+
+        settings = await _save_tts_settings(notify=False)
+        synth_btn.disable()
+        tts_status.set_text("生成中...")
+        preview_container.clear()
+        try:
+            audio = await ctx.tts.synthesize(
+                character_id,
+                voice_path,
+                text,
+                endpoint_id=settings.endpoint_id,
+                voice_id=settings.voice_id,
+                filename=voice.original_name,
+                content_type=voice.content_type,
+                chunking_enabled=settings.chunking_enabled,
+                chunk_min_chars=settings.chunk_min_chars,
+            )
+            preview_path = ctx.characters.save_tts_preview(character_id, audio)
+            preview_container.clear()
+            with preview_container:
+                ui.audio(preview_path).classes("w-full")
+            tts_status.set_text("")
+            ui.notify("読み上げ音声を生成しました", type="positive")
+        except TTSServiceError as err:
+            tts_status.set_text("")
+            ui.notify(f"読み上げに失敗しました: {err}", type="negative")
+        except Exception as err:
+            tts_status.set_text("")
+            ui.notify(f"読み上げに失敗しました: {err}", type="negative")
+        finally:
+            synth_btn.enable()
+
+    save_settings_btn.on("click", lambda: _save_tts_settings())
+    if selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
+        register_btn.on("click", _register_tts_voice)
+        delete_btn.on("click", _delete_tts_voice)
+    synth_btn.on("click", _synthesize_tts)
+
+
+def _tts_provider_label(provider: str) -> str:
+    if provider == TTS_PROVIDER_IRODORI_GRADIO:
+        return "Irodori-TTS Gradio / 07dfa74"
+    if provider == TTS_PROVIDER_IRODORI_SERVER:
+        return "Irodori-TTS-Server"
+    return provider
+
+
+def _image_size(image: CharacterImageAsset, image_path: Path | None = None) -> tuple[int, int] | None:
+    if image.width > 0 and image.height > 0:
+        return image.width, image.height
+    if image_path is not None:
+        return _read_image_size(image_path)
+    return None
+
+
+def _image_frame_style(size: tuple[int, int] | None) -> str:
+    max_height = "calc(100vh - 220px)"
+    base = f"margin-left: auto; margin-right: auto; max-height: {max_height};"
+    if size is None:
+        return f"{base} aspect-ratio: 1 / 1; width: min(100%, {max_height});"
+    width, height = size
+    return f"{base} aspect-ratio: {width} / {height}; width: min(100%, calc({max_height} * {width} / {height}));"
+
+
+def _read_image_size(path: Path) -> tuple[int, int] | None:
+    try:
+        with path.open("rb") as f:
+            head = f.read(32)
+            if head.startswith(b"\x89PNG\r\n\x1a\n") and len(head) >= 24:
+                return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+            if head[:6] in (b"GIF87a", b"GIF89a") and len(head) >= 10:
+                return int.from_bytes(head[6:8], "little"), int.from_bytes(head[8:10], "little")
+            if head.startswith(b"\xff\xd8"):
+                f.seek(2)
+                return _read_jpeg_size(f)
+    except OSError:
+        return None
+    return None
+
+
+def _read_jpeg_size(f) -> tuple[int, int] | None:
+    while True:
+        marker_start = f.read(1)
+        if not marker_start:
+            return None
+        if marker_start != b"\xff":
+            continue
+        marker = f.read(1)
+        while marker == b"\xff":
+            marker = f.read(1)
+        if not marker or marker in (b"\xd8", b"\xd9"):
+            continue
+        length_bytes = f.read(2)
+        if len(length_bytes) != 2:
+            return None
+        length = int.from_bytes(length_bytes, "big")
+        if marker[0] in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+            data = f.read(5)
+            if len(data) != 5:
+                return None
+            return int.from_bytes(data[3:5], "big"), int.from_bytes(data[1:3], "big")
+        f.seek(max(length - 2, 0), 1)
+
+
+def _render_image_editor(sheet, ctx, character_id: str, image: CharacterImageAsset, image_path, refresh_fn) -> None:
+    size = _image_size(image, image_path)
+    ui.interactive_image(
+        image_path,
+        size=size,
+        events=[],
+        sanitize=False,
+    ).classes("rounded-md overflow-hidden border bg-grey-2").style(_image_frame_style(size))
+
+    with ui.row().classes("gap-2 mt-2 flex-wrap"):
+        ui.button(
+            "顔範囲を設定",
+            icon="crop_free",
+            on_click=lambda: _open_face_rect_dialog(sheet, ctx, character_id, image, image_path, refresh_fn),
+        ).props("flat color=primary")
+        ui.button(
+            "バストショット範囲を設定",
+            icon="crop_portrait",
+            on_click=lambda: _open_bust_rect_dialog(sheet, ctx, character_id, image, image_path, refresh_fn),
+        ).props("flat color=secondary")
+
+
+def _open_face_rect_dialog(sheet, ctx, character_id: str, image: CharacterImageAsset, image_path, refresh_fn) -> None:
+    _open_image_rect_dialog(
+        sheet,
+        ctx,
+        character_id,
+        image,
+        image_path,
+        refresh_fn,
+        rect_kind="face",
+        rect=image.face_rect,
+        title="顔範囲を設定",
+        tooltip="ドラッグで顔範囲を指定",
+        too_small_message="顔範囲が小さすぎます",
+        saved_message="顔範囲を保存しました",
+        color="#6E9572",
+    )
+
+
+def _open_bust_rect_dialog(sheet, ctx, character_id: str, image: CharacterImageAsset, image_path, refresh_fn) -> None:
+    _open_image_rect_dialog(
+        sheet,
+        ctx,
+        character_id,
+        image,
+        image_path,
+        refresh_fn,
+        rect_kind="bust",
+        rect=image.bust_rect,
+        title="バストショット範囲を設定",
+        tooltip="ドラッグでバストショット範囲を指定",
+        too_small_message="バストショット範囲が小さすぎます",
+        saved_message="バストショット範囲を保存しました",
+        color="#3A7CA5",
+    )
+
+
+def _open_image_rect_dialog(
+    sheet,
+    ctx,
+    character_id: str,
+    image: CharacterImageAsset,
+    image_path,
+    refresh_fn,
+    *,
+    rect_kind: str,
+    rect: FaceRect,
+    title: str,
+    tooltip: str,
+    too_small_message: str,
+    saved_message: str,
+    color: str,
+) -> None:
+    size = _image_size(image, image_path)
+    state: dict[str, Any] = {
+        "width": size[0] if size else image.width,
+        "height": size[1] if size else image.height,
+        "start": None,
+        "dragging": False,
+        "draft": rect.model_copy(),
+    }
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl"):
+        with ui.row().classes("items-center justify-between w-full mb-2"):
+            ui.label(title).classes("text-base font-semibold")
+            ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+
+        editor = ui.interactive_image(
+            image_path,
+            content=_rect_overlay(state["draft"], state["width"], state["height"], color),
+            size=size,
+            events=["mousedown", "mousemove", "mouseup", "mouseleave"],
+            sanitize=False,
+        ).classes("rounded-md overflow-hidden border bg-grey-2 cursor-crosshair").style(_image_frame_style(size))
+        editor.tooltip(tooltip)
+
+        def _on_loaded(e) -> None:
+            args = e.args or {}
+            state["width"] = int(args.get("width") or image.width or 0)
+            state["height"] = int(args.get("height") or image.height or 0)
+            if state["width"] > 0 and state["height"] > 0:
+                image.width = state["width"]
+                image.height = state["height"]
+                editor.style(_image_frame_style((state["width"], state["height"])))
+            editor.set_content(_rect_overlay(state["draft"], state["width"], state["height"], color))
+
+        async def _on_mouse(e: MouseEventArguments) -> None:
+            width = int(state["width"] or 0)
+            height = int(state["height"] or 0)
+            if width <= 0 or height <= 0:
+                return
+
+            x = min(max(float(e.image_x), 0.0), float(width))
+            y = min(max(float(e.image_y), 0.0), float(height))
+
+            if e.type == "mousedown" and e.button == 0:
+                state["start"] = (x, y)
+                state["dragging"] = True
+                state["draft"] = _rect_from_points((x, y), (x, y), width, height)
+                editor.set_content(_rect_overlay(state["draft"], width, height, color))
+                return
+
+            if e.type == "mousemove" and state["dragging"]:
+                start = state["start"]
+                if start is None:
+                    return
+                state["draft"] = _rect_from_points(start, (x, y), width, height)
+                editor.set_content(_rect_overlay(state["draft"], width, height, color))
+                return
+
+            if e.type == "mouseup" and state["dragging"]:
+                state["dragging"] = False
+                start = state["start"]
+                state["start"] = None
+                if start is None:
+                    return
+                state["draft"] = _rect_from_points(start, (x, y), width, height)
+                editor.set_content(_rect_overlay(state["draft"], width, height, color))
+                return
+
+            if e.type == "mouseleave" and state["dragging"]:
+                state["dragging"] = False
+                state["start"] = None
+                editor.set_content(_rect_overlay(state["draft"], width, height, color))
+
+        async def _save() -> None:
+            width = int(state["width"] or 0)
+            height = int(state["height"] or 0)
+            rect = state["draft"]
+            if width <= 0 or height <= 0:
+                ui.notify("画像サイズを取得できませんでした", type="warning")
+                return
+            if rect.width < 0.02 or rect.height < 0.02:
+                ui.notify(too_small_message, type="warning")
+                return
+            if rect_kind == "face":
+                saved = await ctx.characters.update_face_rect(
+                    character_id,
+                    rect,
+                    image_width=width,
+                    image_height=height,
+                )
+            elif rect_kind == "bust":
+                saved = await ctx.characters.update_bust_rect(
+                    character_id,
+                    rect,
+                    image_width=width,
+                    image_height=height,
+                )
+            else:
+                ui.notify("未対応の範囲種別です", type="negative")
+                return
+            sheet.media = saved.media
+            ui.notify(saved_message, type="positive")
+            dlg.close()
+            refresh_fn()
+
+        def _reset() -> None:
+            state["draft"] = FaceRect()
+            editor.set_content(_rect_overlay(state["draft"], state["width"], state["height"], color))
+
+        editor.on("loaded", _on_loaded)
+        editor.on_mouse(_on_mouse)
+
+        with ui.row().classes("justify-end gap-2 mt-3"):
+            ui.button("リセット", icon="restart_alt", on_click=_reset).props("flat")
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            ui.button("保存", icon="save", on_click=_save).props("color=primary unelevated")
+
+    dlg.open()
+
+
+def _rect_from_points(start: tuple[float, float], end: tuple[float, float], width: int, height: int) -> FaceRect:
+    left = min(start[0], end[0])
+    top = min(start[1], end[1])
+    right = max(start[0], end[0])
+    bottom = max(start[1], end[1])
+    return FaceRect(
+        x=left / width,
+        y=top / height,
+        width=(right - left) / width,
+        height=(bottom - top) / height,
+    )
+
+
+def _rect_overlay(rect: FaceRect, width: int, height: int, color: str) -> str:
+    if width <= 0 or height <= 0:
+        return ""
+    x = rect.x * width
+    y = rect.y * height
+    w = rect.width * width
+    h = rect.height * height
+    if w <= 0 or h <= 0:
+        return ""
+    stroke = max(2.0, min(width, height) * 0.006)
+    handle = stroke * 2.5
+    return f"""
+        <rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}"
+              fill="{color}" fill-opacity="0.15" stroke="{color}"
+              stroke-width="{stroke:.2f}" vector-effect="non-scaling-stroke" />
+        <circle cx="{x:.2f}" cy="{y:.2f}" r="{handle:.2f}" fill="{color}" />
+        <circle cx="{x + w:.2f}" cy="{y:.2f}" r="{handle:.2f}" fill="{color}" />
+        <circle cx="{x:.2f}" cy="{y + h:.2f}" r="{handle:.2f}" fill="{color}" />
+        <circle cx="{x + w:.2f}" cy="{y + h:.2f}" r="{handle:.2f}" fill="{color}" />
+    """
+
+
+def _render_tags(sheet, container, ctx) -> None:
+    container.clear()
+    with container:
+        for tag in list(sheet.tags):
+
+            def _make_remove(t: str):
+                async def _remove() -> None:
+                    if t in sheet.tags:
+                        sheet.tags.remove(t)
+                        await ctx.characters.save(sheet)
+                        _render_tags(sheet, container, ctx)
+
+                return _remove
+
+            with ui.row().classes("items-center gap-0"):
+                ui.badge(tag).props("outline color=primary").classes("text-xs px-2 py-1")
+                ui.button(icon="close", on_click=_make_remove(tag)).props("flat round dense size=xs").classes(
+                    "text-grey-5"
+                )
+
+        def _open_tag_dialog() -> None:
+            with ui.dialog() as dlg, ui.card().classes("min-w-[300px]"):
+                ui.label("タグを追加").classes("text-base font-semibold mb-2")
+                new_tag = ui.input(label="タグ名").classes("w-full")
+
+                async def _add() -> None:
+                    tag = new_tag.value.strip()
+                    if tag and tag not in sheet.tags:
+                        sheet.tags.append(tag)
+                        await ctx.characters.save(sheet)
+                        _render_tags(sheet, container, ctx)
+                        ui.notify(f"タグ「{tag}」を追加しました", type="positive")
+                    dlg.close()
+
+                with ui.row().classes("justify-end gap-2 mt-3"):
+                    ui.button("キャンセル", on_click=dlg.close).props("flat")
+                    ui.button("追加", on_click=_add).props("color=primary unelevated")
+            dlg.open()
+
+        ui.button(icon="add", on_click=_open_tag_dialog).props("flat round dense color=primary").tooltip("タグを追加")
+
+
+def _quality_label(status: str) -> None:
+    labels = {"complete": ("良好", "positive"), "partial": ("部分的", "warning"), "failed": ("低い", "negative")}
+    label, color = labels.get(status, ("不明", "grey"))
+    ui.badge(label).props(f"color={color}")

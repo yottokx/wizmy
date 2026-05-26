@@ -1,0 +1,418 @@
+"""
+API設定の永続化ストア（JSON ファイルベース）。
+
+エンドポイント・LLMプロファイル・キャラ生成プリセット・ボルトデータを
+単一の JSON ファイルで管理する。
+人間が読めることとエクスポート/バックアップの容易さを重視してJSONを採用。
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from pathlib import Path
+from typing import Any
+
+from ..core.chat.schemas import ChatMode, UserPersona, default_chat_modes
+from ..core.llm.schemas import AppLLMConfig, Endpoint, GenerationPreset, LLMProfile
+from ..core.tts.schemas import TTSConfig, TTSEndpoint
+from .key_vault import KeyVault, VaultData
+
+_DEFAULT_ENDPOINT_ID = "ep-ollama-local"
+_DEFAULT_PROFILE_ID = "profile-ollama-local"
+
+
+def _new_id() -> str:
+    return str(uuid.uuid4())[:8]
+
+
+def _default_data() -> dict:
+    return {
+        "endpoints": [],
+        "llm_profiles": [],
+        "generation_presets": [],
+        "chat_modes": [mode.model_dump() for mode in default_chat_modes()],
+        "user_personas": [],
+        "app_llm_config": {
+            "generation_profile_id": "",
+            "chat_profile_id": "",
+        },
+        "tts_config": {
+            "endpoints": [],
+            "default_endpoint_id": "",
+        },
+        "vault_salt": "",
+        "vault_verifier": "",
+        "vault_keys": {},
+    }
+
+
+def _ordered_records(records: list[dict], ordered_ids: list[str]) -> list[dict]:
+    by_id = {record.get("id"): record for record in records}
+    seen = set()
+    ordered: list[dict] = []
+    for record_id in ordered_ids:
+        if record_id in by_id and record_id not in seen:
+            ordered.append(by_id[record_id])
+            seen.add(record_id)
+    ordered.extend(record for record in records if record.get("id") not in seen)
+    return ordered
+
+
+def _with_defaults(data: dict) -> dict:
+    defaults = _default_data()
+    merged = {**defaults, **data}
+    app_llm_config = data.get("app_llm_config") or {}
+    merged["app_llm_config"] = {
+        **defaults["app_llm_config"],
+        **app_llm_config,
+    }
+    if "chat_profile_id" not in app_llm_config:
+        merged["app_llm_config"]["chat_profile_id"] = merged["app_llm_config"].get(
+            "generation_profile_id", ""
+        )
+    merged["tts_config"] = {
+        **defaults["tts_config"],
+        **(data.get("tts_config") or {}),
+    }
+    return merged
+
+
+class ApiConfigStore:
+    """API設定の読み書きを担うストア。"""
+
+    def __init__(self, config_path: Path) -> None:
+        self._path = config_path
+        self._data: dict[str, Any] = {}
+        self._vault: KeyVault | None = None
+        self.load()
+
+    def load(self) -> None:
+        if self._path.exists():
+            try:
+                raw = json.loads(self._path.read_text(encoding="utf-8"))
+                self._data = self._migrate(raw)
+            except Exception:
+                self._data = _default_data()
+        else:
+            self._data = _default_data()
+
+        self._cleanup_defaults()
+        vault_data = VaultData.from_dict(self._data)
+        self._vault = KeyVault(vault_data)
+
+    def _cleanup_defaults(self) -> None:
+        """初期デフォルト値として自動生成されたモデル未設定プロファイルを除去する。"""
+        profiles = self._data.get("llm_profiles", [])
+        cleaned = [
+            p for p in profiles
+            if not (p.get("id") == _DEFAULT_PROFILE_ID and p.get("model_id", "") == "")
+        ]
+        if len(cleaned) != len(profiles):
+            self._data["llm_profiles"] = cleaned
+            cfg = self._data.get("app_llm_config", {})
+            if cfg.get("generation_profile_id") == _DEFAULT_PROFILE_ID:
+                cfg["generation_profile_id"] = cleaned[0]["id"] if cleaned else ""
+            if cfg.get("chat_profile_id") == _DEFAULT_PROFILE_ID:
+                cfg["chat_profile_id"] = cfg.get("generation_profile_id") or (
+                    cleaned[0]["id"] if cleaned else ""
+                )
+
+        cfg = self._data.setdefault("app_llm_config", {})
+        valid_ids = [p.get("id") for p in self._data.get("llm_profiles", []) if p.get("id")]
+        fallback_id = valid_ids[0] if valid_ids else ""
+        if cfg.get("generation_profile_id") and cfg.get("generation_profile_id") not in valid_ids:
+            cfg["generation_profile_id"] = fallback_id
+        if cfg.get("chat_profile_id") and cfg.get("chat_profile_id") not in valid_ids:
+            cfg["chat_profile_id"] = cfg.get("generation_profile_id") or fallback_id
+
+    def save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if self._vault:
+            self._data.update(self._vault.data.to_dict())
+        self._path.write_text(
+            json.dumps(self._data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _migrate(self, data: dict) -> dict:
+        """旧Streamlit版フォーマットから新フォーマットへ変換する。"""
+        if "llm_profiles" in data:
+            return _with_defaults(data)
+
+        url_to_ep: dict[str, dict] = {}
+        new_profiles: list[dict] = []
+
+        for p in data.get("presets", []):
+            provider = p.get("provider", "ollama")
+            url = p.get("endpoint", "http://localhost:11434").rstrip("/")
+            ep_type = "ollama" if provider == "ollama" else "openai_compat"
+
+            if url not in url_to_ep:
+                url_to_ep[url] = {
+                    "id": _new_id(),
+                    "name": p.get("name", url),
+                    "type": ep_type,
+                    "base_url": url,
+                }
+
+            new_profiles.append({
+                "id": p.get("id", _new_id()),
+                "name": p.get("name", ""),
+                "endpoint_id": url_to_ep[url]["id"],
+                "model_id": p.get("model", ""),
+                "temperature": p.get("temperature", 0.8),
+                "reasoning_enabled": p.get("reasoning", False),
+                "max_tokens": None,
+                "extra_params": {},
+            })
+
+        migrated: dict[str, Any] = {
+            "endpoints": list(url_to_ep.values()) or _default_data()["endpoints"],
+            "llm_profiles": new_profiles or _default_data()["llm_profiles"],
+            "generation_presets": data.get("generation_presets", []),
+            "app_llm_config": {
+                "generation_profile_id": (
+                    data.get("selected_preset_id", "") or _DEFAULT_PROFILE_ID
+                ),
+            },
+        }
+        for key in ("vault_salt", "vault_verifier", "vault_keys"):
+            migrated[key] = data.get(key, "" if key != "vault_keys" else {})
+        return _with_defaults(migrated)
+
+    # ─── エンドポイント ───
+
+    def get_endpoints(self) -> list[Endpoint]:
+        return [Endpoint(**ep) for ep in self._data.get("endpoints", [])]
+
+    def get_endpoint(self, endpoint_id: str) -> Endpoint | None:
+        for ep in self._data.get("endpoints", []):
+            if ep["id"] == endpoint_id:
+                return Endpoint(**ep)
+        return None
+
+    def upsert_endpoint(self, endpoint: Endpoint) -> None:
+        endpoints = self._data.setdefault("endpoints", [])
+        for i, ep in enumerate(endpoints):
+            if ep["id"] == endpoint.id:
+                endpoints[i] = endpoint.model_dump()
+                return
+        endpoints.append(endpoint.model_dump())
+
+    def delete_endpoint(self, endpoint_id: str) -> None:
+        self._data["endpoints"] = [
+            ep for ep in self._data.get("endpoints", []) if ep["id"] != endpoint_id
+        ]
+        if self._vault:
+            self._vault.delete_key(endpoint_id)
+
+    def reorder_endpoints(self, ordered_ids: list[str]) -> None:
+        endpoints = self._data.setdefault("endpoints", [])
+        self._data["endpoints"] = _ordered_records(endpoints, ordered_ids)
+
+    # ─── LLMプロファイル ───
+
+    def get_llm_profiles(self) -> list[LLMProfile]:
+        return [LLMProfile(**p) for p in self._data.get("llm_profiles", [])]
+
+    def get_llm_profile(self, profile_id: str) -> LLMProfile | None:
+        for p in self._data.get("llm_profiles", []):
+            if p["id"] == profile_id:
+                return LLMProfile(**p)
+        return None
+
+    def upsert_llm_profile(self, profile: LLMProfile) -> None:
+        profiles = self._data.setdefault("llm_profiles", [])
+        for i, p in enumerate(profiles):
+            if p["id"] == profile.id:
+                profiles[i] = profile.model_dump()
+                return
+        profiles.append(profile.model_dump())
+
+    def delete_llm_profile(self, profile_id: str) -> None:
+        self._data["llm_profiles"] = [
+            p for p in self._data.get("llm_profiles", []) if p["id"] != profile_id
+        ]
+        cfg = self._data.setdefault("app_llm_config", {})
+        remaining_ids = [p.get("id") for p in self._data.get("llm_profiles", []) if p.get("id")]
+        fallback_id = remaining_ids[0] if remaining_ids else ""
+        if cfg.get("generation_profile_id") == profile_id:
+            cfg["generation_profile_id"] = fallback_id
+        if cfg.get("chat_profile_id") == profile_id:
+            cfg["chat_profile_id"] = cfg.get("generation_profile_id") or fallback_id
+
+    def move_llm_profile(self, profile_id: str, direction: int) -> None:
+        """プロファイルを上(direction=-1)または下(direction=1)に移動する。"""
+        profiles = self._data.setdefault("llm_profiles", [])
+        idx = next((i for i, p in enumerate(profiles) if p["id"] == profile_id), None)
+        if idx is None:
+            return
+        new_idx = idx + direction
+        if 0 <= new_idx < len(profiles):
+            profiles[idx], profiles[new_idx] = profiles[new_idx], profiles[idx]
+
+    def reorder_llm_profiles(self, ordered_ids: list[str]) -> None:
+        profiles = self._data.setdefault("llm_profiles", [])
+        self._data["llm_profiles"] = _ordered_records(profiles, ordered_ids)
+
+    # ─── キャラ生成プリセット ───
+
+    def get_generation_presets(self) -> list[GenerationPreset]:
+        return [GenerationPreset(**p) for p in self._data.get("generation_presets", [])]
+
+    def get_generation_preset(self, preset_id: str) -> GenerationPreset | None:
+        for p in self._data.get("generation_presets", []):
+            if p["id"] == preset_id:
+                return GenerationPreset(**p)
+        return None
+
+    def upsert_generation_preset(self, preset: GenerationPreset) -> None:
+        presets = self._data.setdefault("generation_presets", [])
+        for i, p in enumerate(presets):
+            if p["id"] == preset.id:
+                presets[i] = preset.model_dump()
+                return
+        presets.append(preset.model_dump())
+
+    def delete_generation_preset(self, preset_id: str) -> None:
+        self._data["generation_presets"] = [
+            p for p in self._data.get("generation_presets", []) if p["id"] != preset_id
+        ]
+
+    def reorder_generation_presets(self, ordered_ids: list[str]) -> None:
+        presets = self._data.setdefault("generation_presets", [])
+        self._data["generation_presets"] = _ordered_records(presets, ordered_ids)
+
+    # ─── チャットモード ───
+
+    def get_chat_modes(self) -> list[ChatMode]:
+        return [ChatMode(**mode) for mode in self._data.get("chat_modes", [])]
+
+    def get_chat_mode(self, mode_id: str) -> ChatMode | None:
+        for mode in self._data.get("chat_modes", []):
+            if mode["id"] == mode_id:
+                return ChatMode(**mode)
+        return None
+
+    def upsert_chat_mode(self, mode: ChatMode) -> None:
+        modes = self._data.setdefault("chat_modes", [])
+        for index, current in enumerate(modes):
+            if current["id"] == mode.id:
+                modes[index] = mode.model_dump()
+                return
+        modes.append(mode.model_dump())
+
+    def delete_chat_mode(self, mode_id: str) -> None:
+        self._data["chat_modes"] = [
+            mode for mode in self._data.get("chat_modes", []) if mode["id"] != mode_id
+        ]
+
+    def reorder_chat_modes(self, ordered_ids: list[str]) -> None:
+        modes = self._data.setdefault("chat_modes", [])
+        self._data["chat_modes"] = _ordered_records(modes, ordered_ids)
+
+    # ─── ユーザーペルソナ ───
+
+    def get_user_personas(self) -> list[UserPersona]:
+        return [UserPersona(**persona) for persona in self._data.get("user_personas", [])]
+
+    def get_user_persona(self, persona_id: str) -> UserPersona | None:
+        for persona in self._data.get("user_personas", []):
+            if persona["id"] == persona_id:
+                return UserPersona(**persona)
+        return None
+
+    def upsert_user_persona(self, persona: UserPersona) -> None:
+        personas = self._data.setdefault("user_personas", [])
+        for index, current in enumerate(personas):
+            if current["id"] == persona.id:
+                personas[index] = persona.model_dump()
+                return
+        personas.append(persona.model_dump())
+
+    def delete_user_persona(self, persona_id: str) -> None:
+        self._data["user_personas"] = [
+            persona for persona in self._data.get("user_personas", []) if persona["id"] != persona_id
+        ]
+
+    def reorder_user_personas(self, ordered_ids: list[str]) -> None:
+        personas = self._data.setdefault("user_personas", [])
+        self._data["user_personas"] = _ordered_records(personas, ordered_ids)
+
+    # ─── 生成選択肢 ───
+
+    def get_option_lists(self) -> dict[str, list[str]]:
+        """世界観・年齢帯・性別の選択肢リストを取得する。未設定ならデフォルトを返す。"""
+        from ..core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS, WORLD_OPTIONS
+        stored = self._data.get("generation_option_lists", {})
+        return {
+            "world": list(stored.get("world", WORLD_OPTIONS)),
+            "age":   list(stored.get("age",   AGE_OPTIONS)),
+            "gender": list(stored.get("gender", GENDER_OPTIONS)),
+        }
+
+    def save_option_lists(self, lists: dict[str, list[str]]) -> None:
+        """世界観・年齢帯・性別の選択肢リストを保存する。"""
+        self._data["generation_option_lists"] = {k: list(v) for k, v in lists.items()}
+        self.save()
+
+    # ─── アプリLLM設定 ───
+
+    def get_app_llm_config(self) -> AppLLMConfig:
+        return AppLLMConfig(**self._data.get("app_llm_config", {}))
+
+    def save_app_llm_config(self, config: AppLLMConfig) -> None:
+        self._data["app_llm_config"] = config.model_dump()
+
+    # ─── TTS設定 ───
+
+    def get_tts_config(self) -> TTSConfig:
+        return TTSConfig(**self._data.get("tts_config", {}))
+
+    def save_tts_config(self, config: TTSConfig) -> None:
+        self._data["tts_config"] = config.model_dump()
+
+    def get_tts_endpoint(self, endpoint_id: str) -> TTSEndpoint | None:
+        for endpoint in self.get_tts_config().endpoints:
+            if endpoint.id == endpoint_id:
+                return endpoint
+        return None
+
+    def upsert_tts_endpoint(self, endpoint: TTSEndpoint) -> None:
+        config = self.get_tts_config()
+        endpoints = list(config.endpoints)
+        for index, current in enumerate(endpoints):
+            if current.id == endpoint.id:
+                endpoints[index] = endpoint
+                break
+        else:
+            endpoints.append(endpoint)
+        if not config.default_endpoint_id:
+            config.default_endpoint_id = endpoint.id
+        config.endpoints = endpoints
+        self.save_tts_config(config)
+
+    def delete_tts_endpoint(self, endpoint_id: str) -> None:
+        config = self.get_tts_config()
+        config.endpoints = [ep for ep in config.endpoints if ep.id != endpoint_id]
+        if config.default_endpoint_id == endpoint_id:
+            config.default_endpoint_id = config.endpoints[0].id if config.endpoints else ""
+        self.save_tts_config(config)
+
+    def reorder_tts_endpoints(self, ordered_ids: list[str]) -> None:
+        config = self.get_tts_config()
+        records = [endpoint.model_dump() for endpoint in config.endpoints]
+        config.endpoints = [TTSEndpoint(**record) for record in _ordered_records(records, ordered_ids)]
+        self.save_tts_config(config)
+
+    # ─── キーボルト ───
+
+    @property
+    def vault(self) -> KeyVault:
+        if self._vault is None:
+            raise RuntimeError("ボルトが初期化されていません。")
+        return self._vault
+
+    def new_id(self) -> str:
+        return _new_id()

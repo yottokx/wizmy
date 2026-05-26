@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments and package caches
+.venv/
+venv/
+env/
+.uv-cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Build and coverage output
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Local app state and secrets
+.nicegui/
+.local-notes/
+data/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.code-workspace
+.vscode/
+.idea/
