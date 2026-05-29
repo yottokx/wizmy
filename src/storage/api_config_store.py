@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.chat.schemas import ChatMode, UserPersona, default_chat_modes
+from ..core.gen_server.schemas import GEN_SERVER_MODES, GenServerConfig, GenServerEndpoint
 from ..core.llm.schemas import AppLLMConfig, Endpoint, GenerationPreset, LLMProfile
 from ..core.tts.schemas import TTSConfig, TTSEndpoint
 from .key_vault import KeyVault, VaultData
@@ -40,6 +41,13 @@ def _default_data() -> dict:
         "tts_config": {
             "endpoints": [],
             "default_endpoint_id": "",
+        },
+        "gen_server_config": {
+            "endpoints": [],
+            "mode_assignments": {},
+            "mode_defaults": {},
+            "voice_chunking_enabled": True,
+            "voice_chunk_min_chars": 80,
         },
         "vault_salt": "",
         "vault_verifier": "",
@@ -74,6 +82,10 @@ def _with_defaults(data: dict) -> dict:
     merged["tts_config"] = {
         **defaults["tts_config"],
         **(data.get("tts_config") or {}),
+    }
+    merged["gen_server_config"] = {
+        **defaults["gen_server_config"],
+        **(data.get("gen_server_config") or {}),
     }
     return merged
 
@@ -125,6 +137,30 @@ class ApiConfigStore:
             cfg["generation_profile_id"] = fallback_id
         if cfg.get("chat_profile_id") and cfg.get("chat_profile_id") not in valid_ids:
             cfg["chat_profile_id"] = cfg.get("generation_profile_id") or fallback_id
+
+        gen_cfg = self._data.setdefault("gen_server_config", {})
+        raw_endpoints = gen_cfg.get("endpoints", [])
+        if not isinstance(raw_endpoints, list):
+            raw_endpoints = []
+        endpoints = [ep for ep in raw_endpoints if isinstance(ep, dict) and ep.get("id")]
+        valid_gen_ids = {ep.get("id") for ep in endpoints}
+        assignments = gen_cfg.get("mode_assignments", {})
+        if not isinstance(assignments, dict):
+            assignments = {}
+        mode_defaults = gen_cfg.get("mode_defaults", {})
+        if not isinstance(mode_defaults, dict):
+            mode_defaults = {}
+        gen_cfg["endpoints"] = endpoints
+        gen_cfg["mode_assignments"] = {
+            mode: endpoint_id
+            for mode, endpoint_id in assignments.items()
+            if mode in GEN_SERVER_MODES and endpoint_id in valid_gen_ids
+        }
+        gen_cfg["mode_defaults"] = {
+            mode: defaults
+            for mode, defaults in mode_defaults.items()
+            if mode in GEN_SERVER_MODES and isinstance(defaults, dict)
+        }
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -405,6 +441,77 @@ class ApiConfigStore:
         records = [endpoint.model_dump() for endpoint in config.endpoints]
         config.endpoints = [TTSEndpoint(**record) for record in _ordered_records(records, ordered_ids)]
         self.save_tts_config(config)
+
+    # ─── Wizmy-Gen-Server設定 ───
+
+    def get_gen_server_config(self) -> GenServerConfig:
+        return GenServerConfig(**self._data.get("gen_server_config", {}))
+
+    def save_gen_server_config(self, config: GenServerConfig) -> None:
+        self._data["gen_server_config"] = config.model_dump()
+
+    def get_gen_server_endpoint(self, endpoint_id: str) -> GenServerEndpoint | None:
+        for endpoint in self.get_gen_server_config().endpoints:
+            if endpoint.id == endpoint_id:
+                return endpoint
+        return None
+
+    def upsert_gen_server_endpoint(self, endpoint: GenServerEndpoint) -> None:
+        config = self.get_gen_server_config()
+        endpoints = list(config.endpoints)
+        is_first_endpoint = not endpoints
+        for index, current in enumerate(endpoints):
+            if current.id == endpoint.id:
+                endpoints[index] = endpoint
+                break
+        else:
+            endpoints.append(endpoint)
+        config.endpoints = endpoints
+        if is_first_endpoint:
+            config.mode_assignments = {mode: endpoint.id for mode in GEN_SERVER_MODES}
+        self.save_gen_server_config(config)
+
+    def delete_gen_server_endpoint(self, endpoint_id: str) -> None:
+        config = self.get_gen_server_config()
+        config.endpoints = [ep for ep in config.endpoints if ep.id != endpoint_id]
+        config.mode_assignments = {
+            mode: current_id
+            for mode, current_id in config.mode_assignments.items()
+            if current_id != endpoint_id
+        }
+        self.save_gen_server_config(config)
+
+    def reorder_gen_server_endpoints(self, ordered_ids: list[str]) -> None:
+        config = self.get_gen_server_config()
+        records = [endpoint.model_dump() for endpoint in config.endpoints]
+        config.endpoints = [GenServerEndpoint(**record) for record in _ordered_records(records, ordered_ids)]
+        self.save_gen_server_config(config)
+
+    def set_gen_server_mode_assignment(self, mode: str, endpoint_id: str) -> None:
+        config = self.get_gen_server_config()
+        if mode not in GEN_SERVER_MODES:
+            return
+        valid_ids = {endpoint.id for endpoint in config.endpoints}
+        if endpoint_id and endpoint_id not in valid_ids:
+            return
+        if endpoint_id:
+            config.mode_assignments[mode] = endpoint_id
+        else:
+            config.mode_assignments.pop(mode, None)
+        self.save_gen_server_config(config)
+
+    def set_gen_server_mode_defaults(self, mode: str, defaults: dict[str, Any]) -> None:
+        config = self.get_gen_server_config()
+        if mode not in GEN_SERVER_MODES:
+            return
+        config.mode_defaults[mode] = defaults
+        self.save_gen_server_config(config)
+
+    def set_gen_server_voice_chunking(self, *, enabled: bool, min_chars: int) -> None:
+        config = self.get_gen_server_config()
+        config.voice_chunking_enabled = bool(enabled)
+        config.voice_chunk_min_chars = max(1, int(min_chars))
+        self.save_gen_server_config(config)
 
     # ─── キーボルト ───
 

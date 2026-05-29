@@ -63,7 +63,11 @@ class ChatPageController:
         self.image_path = ctx.characters.media_path(self.image.path) if self.image else None
         self.voice = sheet.media.primary_voice()
         self.voice_path = ctx.characters.media_path(self.voice.path) if self.voice else None
-        self.tts_configured = bool(self.voice and self.voice_path and ctx.tts.get_endpoints())
+        self.tts_configured = bool(
+            self.voice
+            and self.voice_path
+            and ctx.tts.has_voice_playback_api(sheet.media.tts.api_type)
+        )
         self.active_session_id: str | None = None
         self.active_title_is_auto = False
         self.title_generation_attempted = False
@@ -520,8 +524,8 @@ class ChatPageController:
                 voice_id=settings.voice_id,
                 filename=self.voice.original_name,
                 content_type=self.voice.content_type,
-                chunking_enabled=settings.chunking_enabled,
-                chunk_min_chars=settings.chunk_min_chars,
+                api_type=settings.api_type,
+                gen_server_params=settings.gen_server_params,
             )
             playback_path = self.ctx.characters.save_tts_playback(self.sheet.id, audio)
             audio_url = app.add_static_file(local_file=playback_path, max_cache_age=0)

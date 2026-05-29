@@ -7,18 +7,35 @@ Markdown シートの表示・直接編集、タグ編集、メディア参照�
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from nicegui import app, ui
 from nicegui.events import MouseEventArguments
 
 from ...app_context import get_context
-from ...core.character.schemas import CharacterImageAsset, CharacterTTSSettings, FaceRect
+from ...core.character.schemas import (
+    CHARACTER_TTS_API_GEN_SERVER,
+    CHARACTER_TTS_API_TTS,
+    CharacterImageAsset,
+    CharacterTTSSettings,
+    FaceRect,
+)
+from ...core.gen_server.schemas import (
+    GEN_SERVER_DEFAULT_FIELDS,
+    GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+    GEN_SERVER_MODE_LABELS,
+    clean_gen_server_mode_defaults,
+)
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
 from ...services.character_generation import parse_markdown_to_sheet
 from ...services.tts import TTSServiceError
 from ..layout import page_layout
+
+
+_TTS_API_PREFIX = "tts:"
+_GEN_SERVER_VOICE_CLONE_API = "gen_server:irodori_voice_clone"
 
 
 @ui.page("/characters/{character_id}")
@@ -272,21 +289,28 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
             ):
                 ui.icon("image").classes("text-4xl text-grey-5")
 
-        async def _on_image_upload(e) -> None:
+        async def _on_image_upload(e) -> bool:
             try:
                 saved = await ctx.characters.save_image(character_id, e.file)
                 sheet.media = saved.media
                 ui.notify("画像を保存しました", type="positive")
                 refresh_fn()
+                return True
             except Exception as err:
                 ui.notify(f"画像の保存に失敗しました: {err}", type="negative")
+                return False
 
-        ui.upload(
-            label="画像をアップロード",
-            on_upload=_on_image_upload,
-            auto_upload=True,
-            max_file_size=20 * 1024 * 1024,
-        ).props("accept=image/* flat bordered").classes("w-full")
+        ui.button(
+            "画像を差し替え" if image else "画像をアップロード",
+            icon="upload",
+            on_click=lambda: _open_media_upload_dialog(
+                title="画像をアップロード",
+                label="画像ファイルをドロップ / 選択",
+                accept="image/*",
+                max_file_size=20 * 1024 * 1024,
+                on_upload=_on_image_upload,
+            ),
+        ).props("outline color=primary").classes("w-full")
 
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center gap-2 mb-2"):
@@ -306,57 +330,98 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
             ):
                 ui.icon("volume_up").classes("text-4xl text-grey-5")
 
-        async def _on_voice_upload(e) -> None:
+        async def _on_voice_upload(e) -> bool:
             try:
                 saved = await ctx.characters.save_voice(character_id, e.file)
                 sheet.media = saved.media
                 ui.notify("音声を保存しました", type="positive")
                 refresh_fn()
+                return True
             except Exception as err:
                 ui.notify(f"音声の保存に失敗しました: {err}", type="negative")
+                return False
 
-        ui.upload(
-            label="音声をアップロード",
-            on_upload=_on_voice_upload,
-            auto_upload=True,
-            max_file_size=50 * 1024 * 1024,
-        ).props("accept=audio/* flat bordered").classes("w-full")
+        ui.button(
+            "音声を差し替え" if voice else "音声をアップロード",
+            icon="upload",
+            on_click=lambda: _open_media_upload_dialog(
+                title="音声をアップロード",
+                label="音声ファイルをドロップ / 選択",
+                accept="audio/*",
+                max_file_size=50 * 1024 * 1024,
+                on_upload=_on_voice_upload,
+            ),
+        ).props("outline color=primary").classes("w-full")
 
         if voice and voice_path:
             _render_tts_controls(sheet, ctx, character_id, voice, voice_path, refresh_fn)
             return
 
 
+def _open_media_upload_dialog(
+    *,
+    title: str,
+    label: str,
+    accept: str,
+    max_file_size: int,
+    on_upload: Callable[[Any], Awaitable[bool]],
+) -> None:
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-md"):
+        with ui.row().classes("w-full items-center justify-between gap-2"):
+            ui.label(title).classes("text-base font-semibold")
+            ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+
+        async def _handle_upload(e) -> None:
+            if await on_upload(e):
+                dlg.close()
+
+        ui.upload(
+            label=label,
+            on_upload=_handle_upload,
+            auto_upload=True,
+            max_file_size=max_file_size,
+        ).props(f"accept={accept} flat bordered").classes("w-full cs-media-upload")
+
+    dlg.open()
+
+
 def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path, refresh_fn) -> None:
     ui.separator().classes("my-3")
     endpoints = ctx.tts.get_endpoints()
-    if not endpoints:
-        ui.label("設定でTTS APIを登録してください。").classes("text-sm text-grey-6")
+    gen_server_config = ctx.api_config.get_gen_server_config()
+    has_gen_server = bool(gen_server_config.endpoints)
+    if not endpoints and not has_gen_server:
+        ui.label("設定でTTS APIまたはWizmy-Gen-Serverを登録してください。").classes("text-sm text-grey-6")
         return
 
     current_settings = sheet.media.tts
-    selected_id = current_settings.endpoint_id or ctx.tts.default_endpoint_id()
-    if selected_id not in {endpoint.id for endpoint in endpoints}:
-        selected_id = ctx.tts.default_endpoint_id()
-    selected_endpoint = next(
-        (endpoint for endpoint in endpoints if endpoint.id == selected_id),
-        endpoints[0],
-    )
-
-    endpoint_options = {
-        endpoint.id: f"{endpoint.name} ({_tts_provider_label(endpoint.provider)})"
-        for endpoint in endpoints
+    endpoint_by_id = {endpoint.id: endpoint for endpoint in endpoints}
+    endpoint_options = _voice_api_options(endpoints, gen_server_config)
+    selected_value = _selected_voice_api_value(current_settings, endpoints, has_gen_server, ctx)
+    selected_endpoint = _selected_tts_endpoint(selected_value, endpoint_by_id)
+    gen_server_params_state = {
+        "value": clean_gen_server_mode_defaults(
+            GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+            current_settings.gen_server_params,
+        )
     }
+
     endpoint_select = ui.select(
         options=endpoint_options,
-        value=selected_endpoint.id,
-        label="使用TTS API",
+        value=selected_value,
+        label="使用API",
     ).props("outlined").classes("w-full")
 
     async def _change_endpoint() -> None:
+        api_type, endpoint_id = _parse_voice_api_value(endpoint_select.value)
         saved = await ctx.characters.update_tts_settings(
             character_id,
-            current_settings.model_copy(update={"endpoint_id": endpoint_select.value or ""}),
+            current_settings.model_copy(
+                update={
+                    "api_type": api_type,
+                    "endpoint_id": endpoint_id or current_settings.endpoint_id,
+                }
+            ),
         )
         sheet.media = saved.media
         refresh_fn()
@@ -367,7 +432,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
     endpoint_select.on_value_change(_on_endpoint_change)
 
     voice_id_input = None
-    if selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
+    if selected_endpoint is not None and selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
         default_voice_id = ctx.tts.voice_id_for_character(character_id, current_settings.voice_id)
         voice_id_input = ui.input(
             label="Voice ID",
@@ -383,15 +448,16 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
                 "outline color=negative"
             ).classes("flex-1")
 
-    chunking_checkbox = ui.checkbox(
-        "長文を分割",
-        value=current_settings.chunking_enabled,
-    ).classes("mt-2")
-    chunk_min_input = ui.number(
-        label="分割最小文字数",
-        value=current_settings.chunk_min_chars,
-        min=1,
-    ).props("outlined dense").classes("w-full")
+    if _is_gen_server_voice_api(selected_value):
+        ui.button(
+            "パラメータ設定",
+            icon="tune",
+            on_click=lambda: _open_gen_server_tts_params_dialog(
+                ctx,
+                gen_server_params_state,
+                _save_tts_settings,
+            ),
+        ).props("outline color=primary").classes("w-full")
 
     tts_text = ui.textarea(
         label="読み上げテキスト",
@@ -407,16 +473,12 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
     preview_container = ui.column().classes("w-full gap-2")
 
     def _current_tts_settings() -> CharacterTTSSettings:
-        raw_chunk_min = chunk_min_input.value or 80
-        try:
-            chunk_min_chars = max(1, int(raw_chunk_min))
-        except (TypeError, ValueError):
-            chunk_min_chars = 80
+        api_type, endpoint_id = _parse_voice_api_value(endpoint_select.value)
         return CharacterTTSSettings(
-            endpoint_id=endpoint_select.value or "",
+            api_type=api_type,
+            endpoint_id=endpoint_id or current_settings.endpoint_id,
             voice_id=(voice_id_input.value or "").strip() if voice_id_input else current_settings.voice_id,
-            chunking_enabled=bool(chunking_checkbox.value),
-            chunk_min_chars=chunk_min_chars,
+            gen_server_params=dict(gen_server_params_state["value"]),
         )
 
     async def _save_tts_settings(*, notify: bool = True) -> CharacterTTSSettings:
@@ -486,8 +548,8 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
                 voice_id=settings.voice_id,
                 filename=voice.original_name,
                 content_type=voice.content_type,
-                chunking_enabled=settings.chunking_enabled,
-                chunk_min_chars=settings.chunk_min_chars,
+                api_type=settings.api_type,
+                gen_server_params=settings.gen_server_params,
             )
             preview_path = ctx.characters.save_tts_preview(character_id, audio)
             preview_container.clear()
@@ -505,10 +567,215 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
             synth_btn.enable()
 
     save_settings_btn.on("click", lambda: _save_tts_settings())
-    if selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
+    if selected_endpoint is not None and selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
         register_btn.on("click", _register_tts_voice)
         delete_btn.on("click", _delete_tts_voice)
     synth_btn.on("click", _synthesize_tts)
+
+
+def _voice_api_options(endpoints, gen_server_config) -> dict[str, str]:
+    options = {
+        f"{_TTS_API_PREFIX}{endpoint.id}": f"{endpoint.name} ({_tts_provider_label(endpoint.provider)})"
+        for endpoint in endpoints
+    }
+    if gen_server_config.endpoints:
+        assigned_id = gen_server_config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+        assigned = next(
+            (endpoint for endpoint in gen_server_config.endpoints if endpoint.id == assigned_id),
+            None,
+        )
+        assigned_label = assigned.name if assigned else "未割り当て"
+        mode_label = GEN_SERVER_MODE_LABELS.get(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, "ボイスクローン")
+        options[_GEN_SERVER_VOICE_CLONE_API] = f"Wizmy-Gen-Server ({mode_label}: {assigned_label})"
+    return options
+
+
+def _selected_voice_api_value(settings: CharacterTTSSettings, endpoints, has_gen_server: bool, ctx) -> str:
+    if settings.api_type == CHARACTER_TTS_API_GEN_SERVER and has_gen_server:
+        return _GEN_SERVER_VOICE_CLONE_API
+    endpoint_ids = {endpoint.id for endpoint in endpoints}
+    selected_id = settings.endpoint_id or ctx.tts.default_endpoint_id()
+    if selected_id in endpoint_ids:
+        return f"{_TTS_API_PREFIX}{selected_id}"
+    if endpoints:
+        return f"{_TTS_API_PREFIX}{endpoints[0].id}"
+    return _GEN_SERVER_VOICE_CLONE_API
+
+
+def _parse_voice_api_value(value: str | None) -> tuple[str, str]:
+    selected = str(value or "")
+    if selected == _GEN_SERVER_VOICE_CLONE_API:
+        return CHARACTER_TTS_API_GEN_SERVER, ""
+    if selected.startswith(_TTS_API_PREFIX):
+        return CHARACTER_TTS_API_TTS, selected[len(_TTS_API_PREFIX):]
+    return CHARACTER_TTS_API_TTS, ""
+
+
+def _selected_tts_endpoint(value: str | None, endpoint_by_id: dict):
+    api_type, endpoint_id = _parse_voice_api_value(value)
+    if api_type != CHARACTER_TTS_API_TTS:
+        return None
+    return endpoint_by_id.get(endpoint_id)
+
+
+def _is_gen_server_voice_api(value: str | None) -> bool:
+    return _parse_voice_api_value(value)[0] == CHARACTER_TTS_API_GEN_SERVER
+
+
+def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings) -> None:
+    fields = GEN_SERVER_DEFAULT_FIELDS.get(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, {})
+    defaults = ctx.api_config.get_gen_server_config().defaults_for_mode(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+    current = {
+        **defaults,
+        **clean_gen_server_mode_defaults(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, params_state["value"]),
+    }
+    controls: dict[str, object] = {}
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
+        with ui.row().classes("w-full items-center justify-between gap-2"):
+            ui.label("Wizmy-Gen-Server パラメータ").classes("text-base font-semibold")
+            ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+
+        with ui.scroll_area().style("max-height: 65vh; width: 100%;"):
+            with ui.grid(columns=2).classes("w-full gap-3 pr-2"):
+                for key, spec in fields.items():
+                    value = current.get(key, spec.get("default"))
+                    label = str(spec.get("label", key))
+                    if spec.get("type") == "boolean":
+                        controls[key] = ui.checkbox(label, value=bool(value)).classes("w-full")
+                    elif spec.get("enum"):
+                        options = list(spec["enum"])
+                        controls[key] = ui.select(
+                            options=options,
+                            value=value if value in options else spec.get("default"),
+                            label=label,
+                        ).props("outlined dense").classes("w-full")
+                    elif spec.get("type") in {"integer", "number"}:
+                        controls[key] = ui.number(
+                            label=label,
+                            value=value,
+                            min=spec.get("minimum"),
+                            step=spec.get("step"),
+                        ).props("outlined dense").classes("w-full")
+                    elif spec.get("multiline"):
+                        controls[key] = ui.textarea(
+                            label=label,
+                            value=value or "",
+                        ).props("outlined rows=3").classes("w-full col-span-2")
+                    elif key == "model_id":
+                        with ui.row().classes("w-full items-end gap-2"):
+                            model_input = ui.input(
+                                label=label,
+                                value=value or "",
+                            ).props("outlined dense clearable").classes("flex-1")
+                            ui.button(
+                                icon="refresh",
+                                on_click=lambda model_input=model_input: _fetch_character_gen_server_model_id(
+                                    model_input,
+                                    ctx,
+                                ),
+                            ).props("flat round").tooltip("モデルIDを取得")
+                        controls[key] = model_input
+                    else:
+                        controls[key] = ui.input(
+                            label=label,
+                            value=value or "",
+                        ).props("outlined dense clearable").classes("w-full")
+
+        def _read_params() -> dict[str, object]:
+            return {
+                key: _read_gen_server_param_value(spec, controls[key])
+                for key, spec in fields.items()
+            }
+
+        async def _clear_overrides() -> None:
+            params_state["value"] = {}
+            await save_settings(notify=False)
+            ui.notify("キャラ固有パラメータをクリアしました", type="positive")
+            dlg.close()
+
+        async def _save() -> None:
+            values = _read_params()
+            overrides = {
+                key: value
+                for key, value in values.items()
+                if value != defaults.get(key, fields[key].get("default"))
+            }
+            params_state["value"] = clean_gen_server_mode_defaults(
+                GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+                overrides,
+            )
+            await save_settings(notify=False)
+            ui.notify("パラメータを保存しました", type="positive")
+            dlg.close()
+
+        with ui.row().classes("justify-end gap-2 mt-3"):
+            ui.button("固有設定をクリア", icon="restart_alt", on_click=_clear_overrides).props("flat")
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            ui.button("保存", icon="save", on_click=_save).props("color=primary unelevated")
+
+    dlg.open()
+
+
+def _read_gen_server_param_value(spec: dict, control) -> object:
+    value = control.value
+    if spec.get("nullable") and (value is None or value == ""):
+        return None
+
+    default = spec.get("default")
+    field_type = spec.get("type")
+    if field_type == "boolean":
+        return bool(value)
+    if field_type == "integer":
+        if value is None or value == "":
+            return default
+        return int(value)
+    if field_type == "number":
+        if value is None or value == "":
+            return default
+        return float(value)
+    if field_type == "string":
+        if spec.get("nullable") and not str(value or "").strip():
+            return None
+        return value or ""
+    return value
+
+
+async def _fetch_character_gen_server_model_id(model_input, ctx) -> None:
+    config = ctx.api_config.get_gen_server_config()
+    endpoint_id = config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+    if not endpoint_id:
+        ui.notify("先にボイスクローンへWizmy-Gen-Serverを割り当ててください。", type="warning")
+        return
+
+    try:
+        models = await ctx.api_config.fetch_gen_server_models(endpoint_id, GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+    except Exception as err:
+        ui.notify(f"モデルIDを取得できませんでした: {err}", type="negative")
+        return
+
+    if not models:
+        ui.notify("ボイスクローンで利用できるモデルが見つかりませんでした。", type="warning")
+        return
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
+        ui.label("ボイスクローンのモデルID").classes("text-base font-semibold mb-2")
+        with ui.scroll_area().style("max-height: 50vh; width: 100%"):
+            with ui.list().props("dense separator").classes("w-full"):
+                for model in models:
+                    model_id = str(model.get("id") or "")
+                    display_name = str(model.get("display_name") or model_id)
+
+                    def _select(model_id: str = model_id) -> None:
+                        model_input.set_value(model_id)
+                        dlg.close()
+
+                    with ui.item(on_click=_select).classes("cursor-pointer"):
+                        with ui.item_section():
+                            ui.label(display_name).classes("text-sm font-medium")
+                            ui.label(model_id).classes("text-xs text-grey-6 font-mono break-all")
+
+    dlg.open()
 
 
 def _tts_provider_label(provider: str) -> str:

@@ -7,7 +7,7 @@ UIや永続化レイヤーに依存しない純粋なデータモデル。
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -55,11 +55,16 @@ class CharacterVoiceAsset(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+CHARACTER_TTS_API_TTS = "tts"
+CHARACTER_TTS_API_GEN_SERVER = "gen_server"
+CharacterTTSApiType = Literal["tts", "gen_server"]
+
+
 class CharacterTTSSettings(BaseModel):
+    api_type: CharacterTTSApiType = CHARACTER_TTS_API_TTS
     endpoint_id: str = ""
     voice_id: str = ""
-    chunking_enabled: bool = True
-    chunk_min_chars: int = 80
+    gen_server_params: dict[str, Any] = Field(default_factory=dict)
 
 
 class CharacterMedia(BaseModel):

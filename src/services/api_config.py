@@ -7,7 +7,16 @@ CRUD操作と検証を提供する。
 
 from __future__ import annotations
 
+import httpx
+
 from ..core.chat.schemas import ChatMode, UserPersona
+from ..core.gen_server.schemas import (
+    GenServerConfig,
+    GenServerEndpoint,
+    gen_server_capabilities_url,
+    gen_server_health_url,
+    gen_server_models_url,
+)
 from ..core.llm.factory import fetch_models, get_parameter_capabilities, validate_connection
 from ..core.llm.schemas import (
     AppLLMConfig,
@@ -374,6 +383,79 @@ class ApiConfigService:
         config.default_endpoint_id = endpoint.id
         self.save_tts_config(config)
         return config
+
+    # ─── Wizmy-Gen-Server設定 ───
+
+    def get_gen_server_config(self) -> GenServerConfig:
+        return self._store.get_gen_server_config()
+
+    def get_gen_server_endpoints(self) -> list[GenServerEndpoint]:
+        return self._store.get_gen_server_config().endpoints
+
+    def get_gen_server_endpoint(self, endpoint_id: str) -> GenServerEndpoint | None:
+        return self._store.get_gen_server_endpoint(endpoint_id)
+
+    def create_gen_server_endpoint(self, name: str, base_url: str) -> GenServerEndpoint:
+        endpoint = GenServerEndpoint(
+            id=self._store.new_id(),
+            name=name,
+            base_url=base_url,
+        )
+        self._store.upsert_gen_server_endpoint(endpoint)
+        self._store.save()
+        return endpoint
+
+    def update_gen_server_endpoint(self, endpoint: GenServerEndpoint) -> None:
+        endpoint = GenServerEndpoint(**endpoint.model_dump())
+        self._store.upsert_gen_server_endpoint(endpoint)
+        self._store.save()
+
+    def delete_gen_server_endpoint(self, endpoint_id: str) -> None:
+        self._store.delete_gen_server_endpoint(endpoint_id)
+        self._store.save()
+
+    def reorder_gen_server_endpoints(self, ordered_ids: list[str]) -> None:
+        self._store.reorder_gen_server_endpoints(ordered_ids)
+        self._store.save()
+
+    def set_gen_server_mode_assignment(self, mode: str, endpoint_id: str) -> None:
+        self._store.set_gen_server_mode_assignment(mode, endpoint_id)
+        self._store.save()
+
+    def set_gen_server_mode_defaults(self, mode: str, defaults: dict) -> None:
+        self._store.set_gen_server_mode_defaults(mode, defaults)
+        self._store.save()
+
+    def set_gen_server_voice_chunking(self, *, enabled: bool, min_chars: int) -> None:
+        self._store.set_gen_server_voice_chunking(enabled=enabled, min_chars=min_chars)
+        self._store.save()
+
+    async def fetch_gen_server_capabilities(self, endpoint_id: str) -> dict | None:
+        endpoint = self._store.get_gen_server_endpoint(endpoint_id)
+        if endpoint is None:
+            return None
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            health = await client.get(gen_server_health_url(endpoint.base_url))
+            health.raise_for_status()
+            capabilities = await client.get(gen_server_capabilities_url(endpoint.base_url))
+            capabilities.raise_for_status()
+            return capabilities.json()
+
+    async def fetch_gen_server_models(self, endpoint_id: str, mode: str = "") -> list[dict]:
+        endpoint = self._store.get_gen_server_endpoint(endpoint_id)
+        if endpoint is None:
+            return []
+
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(gen_server_models_url(endpoint.base_url))
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            if not isinstance(models, list):
+                return []
+            if mode:
+                models = [model for model in models if model.get("mode") == mode]
+            return [model for model in models if isinstance(model, dict) and model.get("id")]
 
     # ─── KeyVault ───
 

@@ -1,7 +1,7 @@
 """
 API設定ページ。
 
-エンドポイント管理・LLMプロファイル管理・KeyVaultの3タブ構成。
+LLM、チャット、画像・音声生成、KeyVault、外観の設定を提供する。
 """
 
 from __future__ import annotations
@@ -15,6 +15,12 @@ from nicegui import ui
 from ....app_context import get_context
 from ....core.chat.schemas import ChatMode, UserPersona
 from ....core.chat.templates import TemplateError, validate_chat_mode_templates
+from ....core.gen_server.schemas import (
+    GEN_SERVER_DEFAULT_FIELDS,
+    GEN_SERVER_MODE_LABELS,
+    GEN_SERVER_MODES,
+    GenServerEndpoint,
+)
 from ....core.llm.schemas import Endpoint, LLMProfile
 from ....core.tts.schemas import (
     TTS_PROVIDER_IRODORI_GRADIO,
@@ -276,7 +282,7 @@ async def settings_page() -> None:
             tab_presets = ui.tab("生成プリセット", icon="bookmark")
             tab_vault = ui.tab("APIキーボルト", icon="lock")
             tab_options = ui.tab("生成オプション", icon="list")
-            tab_tts = ui.tab("TTS", icon="record_voice_over")
+            tab_media_generation = ui.tab("画像&音声生成", icon="perm_media")
             tab_appearance = ui.tab("外観", icon="palette")
 
         with ui.tab_panels(tabs, value=tab_endpoints).classes("w-full mt-4"):
@@ -294,8 +300,8 @@ async def settings_page() -> None:
                 await _build_vault_tab(ctx)
             with ui.tab_panel(tab_options):
                 _build_options_tab(ctx)
-            with ui.tab_panel(tab_tts):
-                _build_tts_endpoints_tab(ctx)
+            with ui.tab_panel(tab_media_generation):
+                _build_media_generation_tab(ctx)
             with ui.tab_panel(tab_appearance):
                 _build_appearance_tab()
 
@@ -1609,6 +1615,429 @@ def _build_options_tab(ctx) -> None:
         ctx.api_config.save_option_lists(lists_state)
         ui.notify("保存しました", type="positive", timeout=1200)
         _render_list(k)
+
+
+# ══════════════════════════════════════════
+# 画像&音声生成 タブ
+# ══════════════════════════════════════════
+
+_NO_GEN_SERVER = "__none__"
+
+
+def _build_media_generation_tab(ctx) -> None:
+    sub_tabs = ui.tabs().classes("w-full")
+    with sub_tabs:
+        tab_gen_server = ui.tab("Wizmy-Gen-Server", icon="hub")
+        tab_tts = ui.tab("TTS", icon="record_voice_over")
+
+    with ui.tab_panels(sub_tabs, value=tab_gen_server).classes("w-full mt-3"):
+        with ui.tab_panel(tab_gen_server):
+            _build_gen_server_tab(ctx)
+        with ui.tab_panel(tab_tts):
+            _build_tts_endpoints_tab(ctx)
+
+
+def _build_gen_server_tab(ctx) -> None:
+    _render_gen_server_chunking_settings(ctx)
+    assignments_container = ui.column().classes("w-full gap-3 mb-4")
+    defaults_container = ui.column().classes("w-full gap-3 mb-4")
+    ui.label("サーバー").classes("text-base font-semibold")
+    endpoints_container = ui.column().classes("w-full gap-3")
+
+    def render_assignments() -> None:
+        config = ctx.api_config.get_gen_server_config()
+        endpoints = config.endpoints
+        assignments_container.clear()
+        with assignments_container:
+            with ui.card().classes("w-full"):
+                with ui.card_section():
+                    ui.label("機能割り当て").classes("text-base font-semibold mb-2")
+                    if not endpoints:
+                        ui.label("Wizmy-Gen-Serverはまだ登録されていません。").classes(
+                            "text-sm text-grey-6"
+                        )
+                        return
+
+                    options = {_NO_GEN_SERVER: "未設定"}
+                    options.update({
+                        endpoint.id: f"{endpoint.name} ({endpoint.base_url})"
+                        for endpoint in endpoints
+                    })
+                    with ui.grid(columns=1).classes("w-full gap-3"):
+                        for mode in GEN_SERVER_MODES:
+                            selected = config.mode_assignments.get(mode) or _NO_GEN_SERVER
+                            select = ui.select(
+                                options=options,
+                                value=selected if selected in options else _NO_GEN_SERVER,
+                                label=GEN_SERVER_MODE_LABELS.get(mode, mode),
+                            ).props("outlined dense").classes("w-full")
+
+                            def _make_change(mode: str, select):
+                                def _change(_) -> None:
+                                    endpoint_id = "" if select.value == _NO_GEN_SERVER else select.value
+                                    ctx.api_config.set_gen_server_mode_assignment(mode, endpoint_id)
+                                    ui.notify("割り当てを保存しました", type="positive", timeout=1200)
+                                    refresh()
+
+                                return _change
+
+                            select.on_value_change(_make_change(mode, select))
+
+    def render_defaults() -> None:
+        config = ctx.api_config.get_gen_server_config()
+        defaults_container.clear()
+        with defaults_container:
+            ui.label("デフォルト値").classes("text-base font-semibold")
+            for mode in GEN_SERVER_MODES:
+                with ui.expansion(
+                    GEN_SERVER_MODE_LABELS.get(mode, mode),
+                    icon=_gen_server_mode_icon(mode),
+                ).props("dense").classes("w-full"):
+                    _render_gen_server_mode_defaults(
+                        mode,
+                        config.defaults_for_mode(mode),
+                        ctx,
+                    )
+
+    def refresh() -> None:
+        config = ctx.api_config.get_gen_server_config()
+        endpoints_container.clear()
+        render_assignments()
+        render_defaults()
+        with endpoints_container:
+            if not config.endpoints:
+                ui.label("Wizmy-Gen-Serverはまだ登録されていません。").classes("text-grey-6 py-4")
+            for endpoint in config.endpoints:
+                assigned_modes = [
+                    mode
+                    for mode, endpoint_id in config.mode_assignments.items()
+                    if endpoint_id == endpoint.id
+                ]
+                _gen_server_endpoint_card(endpoint, assigned_modes, ctx, refresh)
+
+    def reorder(e) -> None:
+        endpoints = ctx.api_config.get_gen_server_endpoints()
+        ordered = _moved_order(
+            [endpoint.id for endpoint in endpoints],
+            e.args["old_index"],
+            e.args["new_index"],
+        )
+        if ordered is None:
+            return
+        ctx.api_config.reorder_gen_server_endpoints(ordered)
+        _notify_order_saved()
+        refresh()
+
+    _enable_drag_sort(endpoints_container, reorder)
+    refresh()
+
+    ui.button(
+        "Wizmy-Gen-Serverを追加",
+        icon="add",
+        on_click=lambda: _open_gen_server_endpoint_dialog(None, ctx, refresh),
+    ).props("color=primary unelevated").classes("mt-2")
+
+
+def _render_gen_server_chunking_settings(ctx) -> None:
+    config = ctx.api_config.get_gen_server_config()
+    with ui.card().classes("w-full mb-4"):
+        with ui.card_section():
+            ui.label("Irodori-TTS長文分割").classes("text-base font-semibold mb-2")
+            chunking_checkbox = ui.checkbox(
+                "Irodori-TTS読み上げをWebUI側で分割",
+                value=config.voice_chunking_enabled,
+            )
+            chunk_min_input = ui.number(
+                label="分割最小文字数",
+                value=config.voice_chunk_min_chars,
+                min=1,
+            ).props("outlined dense").classes("w-full max-w-xs")
+
+            def _save() -> None:
+                try:
+                    chunk_min_chars = max(1, int(chunk_min_input.value or 80))
+                except (TypeError, ValueError):
+                    chunk_min_chars = 80
+                ctx.api_config.set_gen_server_voice_chunking(
+                    enabled=bool(chunking_checkbox.value),
+                    min_chars=chunk_min_chars,
+                )
+                ui.notify("Irodori-TTS長文分割設定を保存しました", type="positive")
+
+            with ui.row().classes("justify-end gap-2 mt-3"):
+                ui.button("保存", icon="save", on_click=_save).props("color=primary unelevated")
+
+
+def _gen_server_mode_icon(mode: str) -> str:
+    if mode == "sdxl_image":
+        return "image"
+    if mode == "irodori_voice_design":
+        return "record_voice_over"
+    if mode == "irodori_voice_clone":
+        return "graphic_eq"
+    return "tune"
+
+
+def _render_gen_server_mode_defaults(mode: str, defaults: dict, ctx) -> None:
+    fields = GEN_SERVER_DEFAULT_FIELDS.get(mode, {})
+    controls: dict[str, object] = {}
+
+    with ui.grid(columns=2).classes("w-full gap-3"):
+        for key, spec in fields.items():
+            value = defaults.get(key, spec.get("default"))
+            label = spec.get("label", key)
+            if spec.get("type") == "boolean":
+                controls[key] = ui.checkbox(str(label), value=bool(value)).classes("w-full")
+            elif spec.get("enum"):
+                controls[key] = ui.select(
+                    options=list(spec["enum"]),
+                    value=value if value in spec["enum"] else spec.get("default"),
+                    label=str(label),
+                ).props("outlined dense").classes("w-full")
+            elif spec.get("type") in {"integer", "number"}:
+                controls[key] = ui.number(
+                    label=str(label),
+                    value=value,
+                    min=spec.get("minimum"),
+                    step=spec.get("step"),
+                ).props("outlined dense").classes("w-full")
+            elif spec.get("multiline"):
+                controls[key] = ui.textarea(
+                    label=str(label),
+                    value=value or "",
+                ).props("outlined rows=3").classes("w-full col-span-2")
+            elif key == "model_id":
+                with ui.row().classes("w-full items-end gap-2"):
+                    model_input = ui.input(
+                        label=str(label),
+                        value=value or "",
+                    ).props("outlined dense clearable").classes("flex-1")
+                    ui.button(
+                        icon="refresh",
+                        on_click=lambda mode=mode, model_input=model_input: _fetch_gen_server_model_id(
+                            mode,
+                            model_input,
+                            ctx,
+                        ),
+                    ).props("flat round").tooltip("モデルIDを取得")
+                controls[key] = model_input
+            else:
+                controls[key] = ui.input(
+                    label=str(label),
+                    value=value or "",
+                ).props("outlined dense clearable").classes("w-full")
+
+    def _read_defaults() -> dict:
+        return {
+            key: _read_gen_server_default_value(spec, controls[key])
+            for key, spec in fields.items()
+        }
+
+    def _reset_defaults() -> None:
+        for key, spec in fields.items():
+            default = spec.get("default")
+            controls[key].set_value(default if default is not None else "")
+
+    def _save_defaults() -> None:
+        ctx.api_config.set_gen_server_mode_defaults(mode, _read_defaults())
+        ui.notify("デフォルト値を保存しました", type="positive")
+
+    with ui.row().classes("justify-end gap-2 mt-3"):
+        ui.button("リセット", icon="restart_alt", on_click=_reset_defaults).props("flat")
+        ui.button("保存", icon="save", on_click=_save_defaults).props("color=primary unelevated")
+
+
+def _read_gen_server_default_value(spec: dict, control) -> object:
+    value = control.value
+    if spec.get("nullable") and (value is None or value == ""):
+        return None
+
+    default = spec.get("default")
+    field_type = spec.get("type")
+    if field_type == "boolean":
+        return bool(value)
+    if field_type == "integer":
+        if value is None or value == "":
+            return default
+        return int(value)
+    if field_type == "number":
+        if value is None or value == "":
+            return default
+        return float(value)
+    if field_type == "string":
+        if spec.get("nullable") and not str(value or "").strip():
+            return None
+        return value or ""
+    return value
+
+
+async def _fetch_gen_server_model_id(mode: str, model_input, ctx) -> None:
+    config = ctx.api_config.get_gen_server_config()
+    endpoint_id = config.assigned_endpoint_id(mode)
+    if not endpoint_id:
+        ui.notify("先にこの機能へWizmy-Gen-Serverを割り当ててください。", type="warning")
+        return
+
+    try:
+        models = await ctx.api_config.fetch_gen_server_models(endpoint_id, mode)
+    except Exception as err:
+        ui.notify(f"モデルIDを取得できませんでした: {err}", type="negative")
+        return
+
+    if not models:
+        ui.notify("この機能で利用できるモデルが見つかりませんでした。", type="warning")
+        return
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
+        ui.label(f"{GEN_SERVER_MODE_LABELS.get(mode, mode)} のモデルID").classes(
+            "text-base font-semibold mb-2"
+        )
+        with ui.scroll_area().style("max-height: 50vh; width: 100%"):
+            with ui.list().props("dense separator").classes("w-full"):
+                for model in models:
+                    model_id = str(model.get("id") or "")
+                    display_name = str(model.get("display_name") or model_id)
+
+                    def _select(model_id: str = model_id) -> None:
+                        model_input.set_value(model_id)
+                        dlg.close()
+
+                    with ui.item(on_click=_select).classes("cursor-pointer"):
+                        with ui.item_section():
+                            ui.label(display_name).classes("text-sm font-medium")
+                            ui.label(model_id).classes("text-xs text-grey-6 font-mono break-all")
+
+    dlg.open()
+
+
+def _gen_server_endpoint_card(
+    endpoint: GenServerEndpoint,
+    assigned_modes: list[str],
+    ctx,
+    refresh_fn,
+) -> None:
+    with ui.card().classes("w-full cursor-grab"):
+        with ui.card_section():
+            with ui.row().classes("items-center gap-3 flex-wrap"):
+                with ui.column().classes("flex-1 gap-1"):
+                    ui.label(endpoint.name).classes("text-base font-semibold")
+                    ui.label(endpoint.base_url).classes("text-sm text-grey-6 font-mono break-all")
+                    with ui.row().classes("gap-2 flex-wrap"):
+                        if assigned_modes:
+                            for mode in GEN_SERVER_MODES:
+                                if mode in assigned_modes:
+                                    ui.badge(GEN_SERVER_MODE_LABELS.get(mode, mode)).props(
+                                        "outline color=primary"
+                                    )
+                        else:
+                            ui.badge("未割り当て").props("outline color=grey")
+
+                with ui.row().classes("gap-2"):
+                    status_icon = ui.icon("circle").classes("text-grey-4 text-base")
+                    ui.button(
+                        icon="wifi_tethering",
+                        on_click=lambda ep=endpoint: _test_gen_server_connection(ep, status_icon, ctx),
+                    ).props("flat round dense").tooltip("接続テスト")
+                    ui.button(
+                        icon="edit",
+                        on_click=lambda ep=endpoint: _open_gen_server_endpoint_dialog(ep, ctx, refresh_fn),
+                    ).props("flat round dense color=primary")
+                    ui.button(
+                        icon="delete",
+                        on_click=lambda ep=endpoint: _confirm_delete_gen_server_endpoint(ep, ctx, refresh_fn),
+                    ).props("flat round dense color=negative")
+
+
+async def _test_gen_server_connection(endpoint: GenServerEndpoint, status_icon: ui.icon, ctx) -> None:
+    status_icon.classes("text-grey-4")
+    try:
+        capabilities = await ctx.api_config.fetch_gen_server_capabilities(endpoint.id)
+    except Exception as err:
+        status_icon.classes(remove="text-grey-4 text-positive").classes("text-negative")
+        ui.notify(f"「{endpoint.name}」に接続できませんでした: {err}", type="negative")
+        return
+
+    modes = capabilities.get("modes", []) if capabilities else []
+    status_icon.classes(remove="text-grey-4 text-negative").classes("text-positive")
+    labels = [
+        GEN_SERVER_MODE_LABELS.get(mode, mode)
+        for mode in GEN_SERVER_MODES
+        if mode in modes
+    ]
+    detail = " / ".join(labels) if labels else "対応機能なし"
+    ui.notify(f"「{endpoint.name}」に接続できました: {detail}", type="positive")
+
+
+def _open_gen_server_endpoint_dialog(endpoint: GenServerEndpoint | None, ctx, refresh_fn) -> None:
+    is_edit = endpoint is not None
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
+        ui.label("Wizmy-Gen-Serverを編集" if is_edit else "Wizmy-Gen-Serverを追加").classes(
+            "text-lg font-semibold mb-3"
+        )
+        name_input = ui.input(
+            label="表示名",
+            value=endpoint.name if endpoint else "Wizmy-Gen-Server",
+        ).props("outlined").classes("w-full")
+        url_input = ui.input(
+            label="API URL",
+            value=endpoint.base_url if endpoint else "http://127.0.0.1:8008/v1",
+            placeholder="http://127.0.0.1:8008/v1",
+        ).props("outlined clearable").classes("w-full")
+        ui.label("形式: http://host:port または http://host:port/v1").classes(
+            "text-xs text-grey-6 mt-1"
+        )
+
+        def _save() -> None:
+            name = (name_input.value or "").strip()
+            base_url = (url_input.value or "").strip()
+            if not name or not base_url:
+                ui.notify("表示名とURLを入力してください", type="negative")
+                return
+            try:
+                if is_edit:
+                    updated = GenServerEndpoint(
+                        id=endpoint.id,
+                        name=name,
+                        base_url=base_url,
+                    )
+                    ctx.api_config.update_gen_server_endpoint(updated)
+                else:
+                    ctx.api_config.create_gen_server_endpoint(name, base_url)
+            except ValidationError:
+                ui.notify(
+                    "URLは http://host:port または http://host:port/v1 の形式で入力してください。",
+                    type="negative",
+                )
+                return
+            ui.notify("Wizmy-Gen-Serverを保存しました", type="positive")
+            dlg.close()
+            refresh_fn()
+
+        with ui.row().classes("justify-end gap-2 mt-4"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            ui.button("保存", icon="save", on_click=_save).props("color=primary unelevated")
+
+    dlg.open()
+
+
+def _confirm_delete_gen_server_endpoint(endpoint: GenServerEndpoint, ctx, refresh_fn) -> None:
+    with ui.dialog() as dlg, ui.card():
+        ui.label(f"「{endpoint.name}」を削除しますか？").classes("font-medium mb-2")
+        ui.label("このサーバーに割り当てられている機能は未設定になります。").classes(
+            "text-sm text-grey-6"
+        )
+        with ui.row().classes("justify-end gap-2 mt-4"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+
+            def _do_delete() -> None:
+                ctx.api_config.delete_gen_server_endpoint(endpoint.id)
+                ui.notify("Wizmy-Gen-Serverを削除しました", type="positive")
+                dlg.close()
+                refresh_fn()
+
+            ui.button("削除", on_click=_do_delete).props("color=negative unelevated")
+    dlg.open()
 
 
 # ══════════════════════════════════════════

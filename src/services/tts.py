@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import mimetypes
 import secrets
 import wave
@@ -12,6 +14,13 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
+from ..core.character.schemas import CHARACTER_TTS_API_GEN_SERVER, CHARACTER_TTS_API_TTS
+from ..core.gen_server.schemas import (
+    GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+    GenServerEndpoint,
+    clean_gen_server_mode_defaults,
+    gen_server_api_root,
+)
 from ..core.tts.schemas import (
     TTS_PROVIDER_IRODORI_GRADIO,
     TTS_PROVIDER_IRODORI_SERVER,
@@ -35,6 +44,15 @@ class TTSService:
     def get_endpoints(self) -> list[TTSEndpoint]:
         return self._api_config.get_tts_endpoints()
 
+    def has_voice_playback_api(self, api_type: str = "") -> bool:
+        if api_type == CHARACTER_TTS_API_GEN_SERVER:
+            return self.resolve_gen_server_voice_clone_endpoint(raise_on_missing=False) is not None
+        if api_type == CHARACTER_TTS_API_TTS:
+            return bool(self.get_endpoints())
+        return bool(self.get_endpoints()) or self.resolve_gen_server_voice_clone_endpoint(
+            raise_on_missing=False
+        ) is not None
+
     def default_endpoint_id(self) -> str:
         config = self._api_config.get_tts_config()
         if config.default_endpoint_id and any(
@@ -42,6 +60,13 @@ class TTSService:
         ):
             return config.default_endpoint_id
         return config.endpoints[0].id if config.endpoints else ""
+
+    def chunk_settings(self) -> tuple[bool, int]:
+        config = self._api_config.get_gen_server_config()
+        return (
+            bool(config.voice_chunking_enabled),
+            max(1, int(config.voice_chunk_min_chars or DEFAULT_CHUNK_MIN_CHARS)),
+        )
 
     def resolve_endpoint(self, endpoint_id: str = "") -> TTSEndpoint:
         endpoints = self.get_endpoints()
@@ -61,6 +86,24 @@ class TTSService:
 
     def voice_id_for_character(self, character_id: str, voice_id: str = "") -> str:
         return voice_id.strip() or _voice_id_for_character(character_id)
+
+    def resolve_gen_server_voice_clone_endpoint(
+        self,
+        *,
+        raise_on_missing: bool = True,
+    ) -> GenServerEndpoint | None:
+        config = self._api_config.get_gen_server_config()
+        endpoint_id = config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+        if not endpoint_id:
+            if raise_on_missing:
+                raise TTSServiceError("Wizmy-Gen-Serverのボイスクローン割り当てを設定してください。")
+            return None
+        endpoint = self._api_config.get_gen_server_endpoint(endpoint_id)
+        if endpoint is None:
+            if raise_on_missing:
+                raise TTSServiceError("割り当てられたWizmy-Gen-Serverが見つかりません。")
+            return None
+        return endpoint
 
     async def register_voice(
         self,
@@ -106,25 +149,73 @@ class TTSService:
         voice_id: str = "",
         filename: str = "",
         content_type: str = "",
-        chunking_enabled: bool = True,
-        chunk_min_chars: int = DEFAULT_CHUNK_MIN_CHARS,
+        api_type: str = CHARACTER_TTS_API_TTS,
+        gen_server_params: dict[str, Any] | None = None,
+        chunking_enabled: bool | None = None,
+        chunk_min_chars: int | None = None,
     ) -> bytes:
+        resolved_chunking_enabled, resolved_chunk_min_chars = self._resolve_chunk_settings(
+            chunking_enabled,
+            chunk_min_chars,
+        )
+        if api_type == CHARACTER_TTS_API_GEN_SERVER:
+            endpoint = self.resolve_gen_server_voice_clone_endpoint()
+            model_id, params = self._gen_server_voice_clone_options(gen_server_params or {})
+            return await WizmyGenServerVoiceCloneClient(endpoint).synthesize(
+                text,
+                voice_path,
+                model_id=model_id,
+                params=params,
+                filename=filename,
+                content_type=content_type,
+                chunking_enabled=resolved_chunking_enabled,
+                chunk_min_chars=resolved_chunk_min_chars,
+            )
+
         endpoint = self.resolve_endpoint(endpoint_id)
         if endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
             return await IrodoriTTSServerClient(endpoint).synthesize(
                 self.voice_id_for_character(character_id, voice_id),
                 text,
-                chunking_enabled=chunking_enabled,
-                chunk_min_chars=chunk_min_chars,
+                chunking_enabled=resolved_chunking_enabled,
+                chunk_min_chars=resolved_chunk_min_chars,
             )
         return await IrodoriGradioClient(endpoint).synthesize(
             text,
             voice_path,
             filename=filename,
             content_type=content_type,
-            chunking_enabled=chunking_enabled,
-            chunk_min_chars=chunk_min_chars,
+            chunking_enabled=resolved_chunking_enabled,
+            chunk_min_chars=resolved_chunk_min_chars,
         )
+
+    def _resolve_chunk_settings(
+        self,
+        chunking_enabled: bool | None,
+        chunk_min_chars: int | None,
+    ) -> tuple[bool, int]:
+        default_enabled, default_min_chars = self.chunk_settings()
+        enabled = default_enabled if chunking_enabled is None else bool(chunking_enabled)
+        min_chars = default_min_chars if chunk_min_chars is None else int(chunk_min_chars)
+        return enabled, max(1, min_chars)
+
+    def _gen_server_voice_clone_options(self, overrides: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        config = self._api_config.get_gen_server_config()
+        defaults = config.defaults_for_mode(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+        merged = {
+            **defaults,
+            **clean_gen_server_mode_defaults(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, overrides),
+        }
+        model_id = str(merged.pop("model_id", "") or "").strip()
+        params = {
+            key: value
+            for key, value in clean_gen_server_mode_defaults(
+                GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+                merged,
+            ).items()
+            if value is not None
+        }
+        return model_id, params
 
 
 class IrodoriGradioClient:
@@ -425,6 +516,101 @@ class IrodoriTTSServerClient:
         return httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
 
 
+class WizmyGenServerVoiceCloneClient:
+    RESPONSE_FORMAT = "wav"
+    POLL_LIMIT = 600
+
+    def __init__(self, endpoint: GenServerEndpoint) -> None:
+        self._base_url = gen_server_api_root(endpoint.base_url)
+        if not self._base_url:
+            raise TTSServiceError("Wizmy-Gen-ServerのURLを設定してください。")
+
+    async def synthesize(
+        self,
+        text: str,
+        voice_path: Path | None,
+        *,
+        model_id: str,
+        params: dict[str, Any],
+        filename: str = "",
+        content_type: str = "",
+        chunking_enabled: bool = True,
+        chunk_min_chars: int = DEFAULT_CHUNK_MIN_CHARS,
+    ) -> bytes:
+        if voice_path is None:
+            raise TTSServiceError("Wizmy-Gen-Serverで読み上げるには参照音声が必要です。")
+        chunks = _speech_chunks(text, enabled=chunking_enabled, min_chars=chunk_min_chars)
+        async with self._client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
+            try:
+                audio_chunks = [
+                    await self._synthesize_once(
+                        client,
+                        chunk,
+                        voice_path,
+                        model_id=model_id,
+                        params=params,
+                        filename=filename,
+                        content_type=content_type,
+                    )
+                    for chunk in chunks
+                ]
+                return _concat_wav_bytes(audio_chunks)
+            except httpx.HTTPError as exc:
+                raise TTSServiceError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
+
+    async def _synthesize_once(
+        self,
+        client: httpx.AsyncClient,
+        text: str,
+        voice_path: Path,
+        *,
+        model_id: str,
+        params: dict[str, Any],
+        filename: str,
+        content_type: str,
+    ) -> bytes:
+        name = filename or voice_path.name
+        media_type = content_type or mimetypes.guess_type(name)[0] or "audio/wav"
+        data = {
+            "text": text,
+            "params": json.dumps(params, ensure_ascii=False),
+        }
+        if model_id:
+            data["model_id"] = model_id
+        with voice_path.open("rb") as handle:
+            files = {"reference_audio": (name, handle, media_type)}
+            response = await client.post("/v1/tts/clone/jobs", data=data, files=files)
+        _raise_for_error(response, "Wizmy-Gen-Server")
+        job_id = str(response.json().get("job_id") or "")
+        if not job_id:
+            raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
+        result = await self._wait_job_result(client, job_id)
+        audio_url = _first_audio_artifact_url(result)
+        if not audio_url:
+            raise TTSServiceError("Wizmy-Gen-Serverの生成結果に音声が含まれていません。")
+        audio_response = await client.get(audio_url)
+        _raise_for_error(audio_response, "Wizmy-Gen-Server")
+        return audio_response.content
+
+    async def _wait_job_result(self, client: httpx.AsyncClient, job_id: str) -> dict[str, Any]:
+        for _ in range(self.POLL_LIMIT):
+            response = await client.get(f"/v1/jobs/{job_id}/result")
+            if response.status_code == 202:
+                retry_after = response.json().get("retry_after_seconds", 1)
+                try:
+                    delay = max(0.2, min(5.0, float(retry_after)))
+                except (TypeError, ValueError):
+                    delay = 1.0
+                await asyncio.sleep(delay)
+                continue
+            _raise_for_error(response, "Wizmy-Gen-Server")
+            return response.json()
+        raise TTSServiceError("Wizmy-Gen-Serverの音声生成がタイムアウトしました。")
+
+    def _client(self, *, timeout: float | httpx.Timeout = 30.0) -> httpx.AsyncClient:
+        return httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
+
+
 def _voice_id_for_character(character_id: str) -> str:
     return f"charagen-{character_id}"
 
@@ -527,6 +713,21 @@ def _first_uploaded_path(uploaded: Any) -> str | None:
             path = _first_uploaded_path(item)
             if path:
                 return path
+    return None
+
+
+def _first_audio_artifact_url(result: dict[str, Any]) -> str | None:
+    artifacts = result.get("artifacts") if isinstance(result, dict) else None
+    if not isinstance(artifacts, list):
+        return None
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        mime_type = str(artifact.get("mime_type") or "")
+        artifact_type = str(artifact.get("type") or "")
+        url = str(artifact.get("url") or "")
+        if url and (artifact_type == "audio" or mime_type.startswith("audio/")):
+            return url
     return None
 
 

@@ -320,6 +320,27 @@ body, html, .q-layout, .q-page, .q-page-container,
 }
 .cs-placeholder-dash { color: var(--cs-border); }
 
+/* ─── メディアアップロード ─── */
+.cs-media-upload.q-uploader {
+  background: var(--cs-surface-soft) !important;
+  border-color: var(--cs-border) !important;
+  border-radius: 8px !important;
+  color: var(--cs-text) !important;
+}
+.cs-media-upload .q-uploader__header {
+  background: var(--cs-accent) !important;
+  color: #fff !important;
+}
+.cs-media-upload .q-uploader__subtitle,
+.cs-media-upload .q-uploader__file {
+  color: var(--cs-text) !important;
+}
+.cs-media-upload .q-uploader__list {
+  min-height: 132px !important;
+  background: var(--cs-surface-soft) !important;
+  color: var(--cs-muted) !important;
+}
+
 /* ─── 進捗フェーズステップ ─── */
 .cs-phase-step {
   display: inline-flex; align-items: center; gap: 5px;
