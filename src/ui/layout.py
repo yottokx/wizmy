@@ -340,6 +340,40 @@ body, html, .q-layout, .q-page, .q-page-container,
   background: var(--cs-surface-soft) !important;
   color: var(--cs-muted) !important;
 }
+.cs-image-prompt-editor,
+.cs-image-prompt-editor.q-editor,
+.cs-image-prompt-editor .q-editor {
+  background: var(--cs-surface) !important;
+  border: 1px solid var(--cs-border) !important;
+  border-radius: 8px !important;
+  color: var(--cs-text) !important;
+  box-shadow: none !important;
+}
+.cs-image-prompt-editor .q-editor__toolbar {
+  display: none !important;
+}
+.cs-image-prompt-editor .q-editor__content {
+  min-height: 200px !important;
+  background: var(--cs-surface) !important;
+  color: var(--cs-text) !important;
+  padding: 12px !important;
+  line-height: 1.65 !important;
+  font-weight: 500 !important;
+}
+.cs-image-prompt-editor .q-editor__content:focus {
+  outline: 1px solid var(--cs-accent);
+}
+.cs-image-negative-prompt-editor .q-editor__content {
+  min-height: 100px !important;
+}
+.cs-image-prompt-editor .wizmy-generated-prompt {
+  color: var(--cs-accent) !important;
+  font-weight: 700 !important;
+}
+.cs-image-prompt-editor .wizmy-generated-negative-prompt {
+  color: var(--cs-negative) !important;
+  font-weight: 700 !important;
+}
 
 /* ─── 進捗フェーズステップ ─── */
 .cs-phase-step {

@@ -14,9 +14,14 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
-from ..core.character.schemas import CHARACTER_TTS_API_GEN_SERVER, CHARACTER_TTS_API_TTS
+from ..core.character.schemas import (
+    CHARACTER_TTS_API_DEFAULT,
+    CHARACTER_TTS_API_GEN_SERVER,
+    CHARACTER_TTS_API_TTS,
+)
 from ..core.gen_server.schemas import (
     GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+    GEN_SERVER_MODE_IRODORI_VOICE_DESIGN,
     GenServerEndpoint,
     clean_gen_server_mode_defaults,
     gen_server_api_root,
@@ -44,21 +49,19 @@ class TTSService:
     def get_endpoints(self) -> list[TTSEndpoint]:
         return self._api_config.get_tts_endpoints()
 
-    def has_voice_playback_api(self, api_type: str = "") -> bool:
-        if api_type == CHARACTER_TTS_API_GEN_SERVER:
-            return self.resolve_gen_server_voice_clone_endpoint(raise_on_missing=False) is not None
-        if api_type == CHARACTER_TTS_API_TTS:
-            return bool(self.get_endpoints())
-        return bool(self.get_endpoints()) or self.resolve_gen_server_voice_clone_endpoint(
+    def has_voice_playback_api(self, api_type: str = "", endpoint_id: str = "") -> bool:
+        gen_server_available = self.resolve_gen_server_voice_clone_endpoint(
             raise_on_missing=False
         ) is not None
+        endpoints = self.get_endpoints()
+        if api_type == CHARACTER_TTS_API_TTS and endpoint_id and any(
+            endpoint.id == endpoint_id for endpoint in endpoints
+        ):
+            return True
+        return gen_server_available or bool(endpoints)
 
     def default_endpoint_id(self) -> str:
         config = self._api_config.get_tts_config()
-        if config.default_endpoint_id and any(
-            endpoint.id == config.default_endpoint_id for endpoint in config.endpoints
-        ):
-            return config.default_endpoint_id
         return config.endpoints[0].id if config.endpoints else ""
 
     def chunk_settings(self) -> tuple[bool, int]:
@@ -92,11 +95,35 @@ class TTSService:
         *,
         raise_on_missing: bool = True,
     ) -> GenServerEndpoint | None:
+        return self._resolve_gen_server_endpoint(
+            GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+            "ボイスクローン",
+            raise_on_missing=raise_on_missing,
+        )
+
+    def resolve_gen_server_voice_design_endpoint(
+        self,
+        *,
+        raise_on_missing: bool = True,
+    ) -> GenServerEndpoint | None:
+        return self._resolve_gen_server_endpoint(
+            GEN_SERVER_MODE_IRODORI_VOICE_DESIGN,
+            "ボイスデザイン",
+            raise_on_missing=raise_on_missing,
+        )
+
+    def _resolve_gen_server_endpoint(
+        self,
+        mode: str,
+        label: str,
+        *,
+        raise_on_missing: bool = True,
+    ) -> GenServerEndpoint | None:
         config = self._api_config.get_gen_server_config()
-        endpoint_id = config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+        endpoint_id = config.assigned_endpoint_id(mode)
         if not endpoint_id:
             if raise_on_missing:
-                raise TTSServiceError("Wizmy-Gen-Serverのボイスクローン割り当てを設定してください。")
+                raise TTSServiceError(f"Wizmy-Gen-Serverの{label}割り当てを設定してください。")
             return None
         endpoint = self._api_config.get_gen_server_endpoint(endpoint_id)
         if endpoint is None:
@@ -104,6 +131,22 @@ class TTSService:
                 raise TTSServiceError("割り当てられたWizmy-Gen-Serverが見つかりません。")
             return None
         return endpoint
+
+    async def design_voice(
+        self,
+        text: str,
+        caption: str,
+        *,
+        gen_server_params: dict[str, Any] | None = None,
+    ) -> bytes:
+        endpoint = self.resolve_gen_server_voice_design_endpoint()
+        model_id, params = self._gen_server_voice_design_options(gen_server_params or {})
+        return await WizmyGenServerVoiceDesignClient(endpoint).synthesize(
+            text,
+            caption,
+            model_id=model_id,
+            params=params,
+        )
 
     async def register_voice(
         self,
@@ -158,7 +201,8 @@ class TTSService:
             chunking_enabled,
             chunk_min_chars,
         )
-        if api_type == CHARACTER_TTS_API_GEN_SERVER:
+        resolved_api_type = self._resolve_api_type(api_type, endpoint_id)
+        if resolved_api_type == CHARACTER_TTS_API_GEN_SERVER:
             endpoint = self.resolve_gen_server_voice_clone_endpoint()
             model_id, params = self._gen_server_voice_clone_options(gen_server_params or {})
             return await WizmyGenServerVoiceCloneClient(endpoint).synthesize(
@@ -172,7 +216,7 @@ class TTSService:
                 chunk_min_chars=resolved_chunk_min_chars,
             )
 
-        endpoint = self.resolve_endpoint(endpoint_id)
+        endpoint = self.resolve_endpoint(self._resolve_tts_endpoint_id(endpoint_id))
         if endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
             return await IrodoriTTSServerClient(endpoint).synthesize(
                 self.voice_id_for_character(character_id, voice_id),
@@ -189,6 +233,25 @@ class TTSService:
             chunk_min_chars=resolved_chunk_min_chars,
         )
 
+    def _resolve_api_type(self, api_type: str, endpoint_id: str = "") -> str:
+        gen_server_available = self.resolve_gen_server_voice_clone_endpoint(
+            raise_on_missing=False
+        ) is not None
+        endpoint_exists = bool(endpoint_id) and any(
+            endpoint.id == endpoint_id for endpoint in self.get_endpoints()
+        )
+        if api_type == CHARACTER_TTS_API_GEN_SERVER and gen_server_available:
+            return CHARACTER_TTS_API_GEN_SERVER
+        if api_type == CHARACTER_TTS_API_TTS and endpoint_exists:
+            return CHARACTER_TTS_API_TTS
+        if gen_server_available:
+            return CHARACTER_TTS_API_GEN_SERVER
+        return CHARACTER_TTS_API_TTS
+
+    def _resolve_tts_endpoint_id(self, endpoint_id: str = "") -> str:
+        endpoint_ids = {endpoint.id for endpoint in self.get_endpoints()}
+        return endpoint_id if endpoint_id in endpoint_ids else ""
+
     def _resolve_chunk_settings(
         self,
         chunking_enabled: bool | None,
@@ -200,19 +263,22 @@ class TTSService:
         return enabled, max(1, min_chars)
 
     def _gen_server_voice_clone_options(self, overrides: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        return self._gen_server_mode_options(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, overrides)
+
+    def _gen_server_voice_design_options(self, overrides: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        return self._gen_server_mode_options(GEN_SERVER_MODE_IRODORI_VOICE_DESIGN, overrides)
+
+    def _gen_server_mode_options(self, mode: str, overrides: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         config = self._api_config.get_gen_server_config()
-        defaults = config.defaults_for_mode(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+        defaults = config.defaults_for_mode(mode)
         merged = {
             **defaults,
-            **clean_gen_server_mode_defaults(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, overrides),
+            **clean_gen_server_mode_defaults(mode, overrides),
         }
         model_id = str(merged.pop("model_id", "") or "").strip()
         params = {
             key: value
-            for key, value in clean_gen_server_mode_defaults(
-                GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
-                merged,
-            ).items()
+            for key, value in clean_gen_server_mode_defaults(mode, merged).items()
             if value is not None
         }
         return model_id, params
@@ -609,6 +675,40 @@ class WizmyGenServerVoiceCloneClient:
 
     def _client(self, *, timeout: float | httpx.Timeout = 30.0) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
+
+
+class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
+    async def synthesize(
+        self,
+        text: str,
+        caption: str,
+        *,
+        model_id: str,
+        params: dict[str, Any],
+    ) -> bytes:
+        data = {
+            "text": text,
+            "caption": caption,
+            "params": json.dumps(params, ensure_ascii=False),
+        }
+        if model_id:
+            data["model_id"] = model_id
+        async with self._client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
+            try:
+                response = await client.post("/v1/tts/design/jobs", data=data)
+                _raise_for_error(response, "Wizmy-Gen-Server")
+                job_id = str(response.json().get("job_id") or "")
+                if not job_id:
+                    raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
+                result = await self._wait_job_result(client, job_id)
+                audio_url = _first_audio_artifact_url(result)
+                if not audio_url:
+                    raise TTSServiceError("Wizmy-Gen-Serverの生成結果に音声が含まれていません。")
+                audio_response = await client.get(audio_url)
+                _raise_for_error(audio_response, "Wizmy-Gen-Server")
+                return audio_response.content
+            except httpx.HTTPError as exc:
+                raise TTSServiceError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
 
 
 def _voice_id_for_character(character_id: str) -> str:

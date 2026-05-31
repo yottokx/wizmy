@@ -17,9 +17,18 @@ from ....core.chat.schemas import ChatMode, UserPersona
 from ....core.chat.templates import TemplateError, validate_chat_mode_templates
 from ....core.gen_server.schemas import (
     GEN_SERVER_DEFAULT_FIELDS,
+    GEN_SERVER_MODE_SDXL_IMAGE,
     GEN_SERVER_MODE_LABELS,
     GEN_SERVER_MODES,
     GenServerEndpoint,
+)
+from ....core.image_generation.schemas import (
+    IMAGE_GENERATION_PARAMETER_FIELDS,
+    IMAGE_PROVIDER_LABELS,
+    IMAGE_PROVIDER_WIZMY_GEN_SERVER,
+    ImageGenerationProfile,
+    clean_image_generation_params,
+    default_image_generation_params,
 )
 from ....core.llm.schemas import Endpoint, LLMProfile
 from ....core.tts.schemas import (
@@ -40,6 +49,7 @@ _SORTABLE_FILTER = (
     "button, input, textarea, select, .q-btn, .q-field, .q-checkbox, "
     ".q-slider, .q-menu, [role=button]"
 )
+_GEN_SERVER_ASSIGNABLE_MODES = tuple(mode for mode in GEN_SERVER_MODES if mode != GEN_SERVER_MODE_SDXL_IMAGE)
 
 
 def _moved_order(ids: list[str], old_index: int, new_index: int) -> list[str] | None:
@@ -1628,13 +1638,275 @@ def _build_media_generation_tab(ctx) -> None:
     sub_tabs = ui.tabs().classes("w-full")
     with sub_tabs:
         tab_gen_server = ui.tab("Wizmy-Gen-Server", icon="hub")
+        tab_image_generation = ui.tab("画像生成", icon="image")
         tab_tts = ui.tab("TTS", icon="record_voice_over")
 
     with ui.tab_panels(sub_tabs, value=tab_gen_server).classes("w-full mt-3"):
         with ui.tab_panel(tab_gen_server):
             _build_gen_server_tab(ctx)
+        with ui.tab_panel(tab_image_generation):
+            _build_image_generation_tab(ctx)
         with ui.tab_panel(tab_tts):
             _build_tts_endpoints_tab(ctx)
+
+
+def _build_image_generation_tab(ctx) -> None:
+    ui.label("画像生成プロファイル").classes("text-base font-semibold mb-1")
+    ui.label(
+        "画像生成API、モデル、プロンプト、パラメータを組み合わせて保存します。"
+    ).classes("text-sm text-grey-6 mb-3")
+    profiles_container = ui.column().classes("w-full gap-3")
+
+    def refresh() -> None:
+        config = ctx.api_config.get_image_generation_config()
+        endpoints = {endpoint.id: endpoint for endpoint in ctx.api_config.get_gen_server_endpoints()}
+        profiles_container.clear()
+        with profiles_container:
+            if not config.profiles:
+                ui.label("画像生成プロファイルはまだ登録されていません。").classes("text-grey-6 py-4")
+            for profile in config.profiles:
+                _image_generation_profile_card(
+                    profile,
+                    endpoints,
+                    ctx,
+                    refresh,
+                    is_default=profile.id == config.default_profile_id,
+                )
+
+    def reorder(e) -> None:
+        profiles = ctx.api_config.get_image_generation_profiles()
+        ordered = _moved_order(
+            [profile.id for profile in profiles],
+            e.args["old_index"],
+            e.args["new_index"],
+        )
+        if ordered is None:
+            return
+        ctx.api_config.reorder_image_generation_profiles(ordered)
+        _notify_order_saved()
+        refresh()
+
+    _enable_drag_sort(profiles_container, reorder)
+    refresh()
+
+    ui.button(
+        "画像生成プロファイルを追加",
+        icon="add",
+        on_click=lambda: _open_image_generation_profile_dialog(None, ctx, refresh),
+    ).props("color=primary unelevated").classes("mt-2")
+
+
+def _image_generation_profile_card(
+    profile: ImageGenerationProfile,
+    endpoints: dict[str, GenServerEndpoint],
+    ctx,
+    refresh_fn,
+    *,
+    is_default: bool,
+) -> None:
+    endpoint = endpoints.get(profile.endpoint_id)
+    params = clean_image_generation_params(profile.params)
+    size = f"{params.get('width')}x{params.get('height')}"
+    api_label = IMAGE_PROVIDER_LABELS.get(profile.provider, profile.provider)
+    endpoint_label = endpoint.name if endpoint else "API未設定"
+
+    with ui.card().classes("w-full cursor-grab"):
+        with ui.card_section():
+            with ui.row().classes("items-center gap-3 flex-wrap"):
+                with ui.column().classes("flex-1 gap-1"):
+                    with ui.row().classes("items-center gap-2 flex-wrap"):
+                        ui.label(profile.name or "無題のプロファイル").classes("text-base font-semibold")
+                        ui.badge(api_label).props("outline color=primary")
+                        if is_default:
+                            ui.badge("既定").props("color=primary")
+                    ui.label(f"{endpoint_label} / {profile.model_id or 'モデル未設定'}").classes(
+                        "text-sm text-grey-6 break-all"
+                    )
+                    ui.label(
+                        f"{size} / steps {params.get('steps')} / CFG {params.get('cfg_scale')} / "
+                        f"sampler {params.get('sampler')}"
+                    ).classes("text-xs text-grey-6")
+
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        icon="star",
+                        on_click=lambda p=profile: _set_default_image_profile(p, ctx, refresh_fn),
+                    ).props("flat round dense color=primary").tooltip("既定にする")
+                    ui.button(
+                        icon="content_copy",
+                        on_click=lambda p=profile: _duplicate_image_profile(p, ctx, refresh_fn),
+                    ).props("flat round dense").tooltip("複製")
+                    ui.button(
+                        icon="edit",
+                        on_click=lambda p=profile: _open_image_generation_profile_dialog(p, ctx, refresh_fn),
+                    ).props("flat round dense color=primary").tooltip("編集")
+                    ui.button(
+                        icon="delete",
+                        on_click=lambda p=profile: _confirm_delete_image_profile(p, ctx, refresh_fn),
+                    ).props("flat round dense color=negative").tooltip("削除")
+
+
+def _open_image_generation_profile_dialog(
+    profile: ImageGenerationProfile | None,
+    ctx,
+    refresh_fn,
+) -> None:
+    is_edit = profile is not None
+    endpoints = ctx.api_config.get_gen_server_endpoints()
+    endpoint_options = {
+        endpoint.id: f"{endpoint.name} ({endpoint.base_url})"
+        for endpoint in endpoints
+    }
+    default_endpoint_id = profile.endpoint_id if profile else (endpoints[0].id if endpoints else "")
+    default_params = clean_image_generation_params(profile.params if profile else default_image_generation_params())
+    controls: dict[str, object] = {}
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl"):
+        ui.label("画像生成プロファイルを編集" if is_edit else "画像生成プロファイルを追加").classes(
+            "text-lg font-semibold mb-3"
+        )
+        name_input = ui.input(
+            label="プロファイル名",
+            value=profile.name if profile else "",
+        ).props("outlined clearable").classes("w-full")
+        provider_select = ui.select(
+            options=IMAGE_PROVIDER_LABELS,
+            value=profile.provider if profile else IMAGE_PROVIDER_WIZMY_GEN_SERVER,
+            label="画像生成API",
+        ).props("outlined dense").classes("w-full")
+        endpoint_select = ui.select(
+            options=endpoint_options or {"": "Wizmy-Gen-Server未設定"},
+            value=default_endpoint_id if default_endpoint_id in endpoint_options else "",
+            label="API接続先",
+        ).props("outlined dense").classes("w-full")
+        ui.label(
+            "外部画像生成APIは今後このタブに追加予定です。"
+        ).classes("text-xs text-grey-6")
+
+        with ui.row().classes("w-full items-end gap-2"):
+            model_input = ui.input(
+                label="モデルID",
+                value=profile.model_id if profile else "",
+            ).props("outlined dense clearable").classes("flex-1")
+            ui.button(
+                icon="refresh",
+                on_click=lambda: _fetch_image_profile_model_id(endpoint_select, model_input, ctx),
+            ).props("flat round").tooltip("モデルIDを取得")
+
+        prompt_input = ui.textarea(
+            label="デフォルトプロンプト",
+            value=profile.prompt if profile else "",
+        ).props("outlined rows=5").classes("w-full")
+        negative_input = ui.textarea(
+            label="デフォルトネガティブプロンプト",
+            value=profile.negative_prompt if profile else "",
+        ).props("outlined rows=4").classes("w-full")
+
+        with ui.expansion("詳細パラメータ", icon="tune").props("dense").classes("w-full"):
+            with ui.grid(columns=2).classes("w-full gap-3"):
+                for key, spec in IMAGE_GENERATION_PARAMETER_FIELDS.items():
+                    controls[key] = _build_profile_param_control(key, spec, default_params.get(key))
+
+        def _save() -> None:
+            name = (name_input.value or "").strip()
+            if not name:
+                ui.notify("プロファイル名を入力してください", type="negative")
+                return
+            params = {
+                key: _read_gen_server_default_value(spec, controls[key])
+                for key, spec in IMAGE_GENERATION_PARAMETER_FIELDS.items()
+            }
+            updated = ImageGenerationProfile(
+                id=profile.id if profile else "",
+                name=name,
+                provider=provider_select.value,
+                endpoint_id=endpoint_select.value or "",
+                model_id=(model_input.value or "").strip(),
+                prompt=prompt_input.value or "",
+                negative_prompt=negative_input.value or "",
+                params=params,
+            )
+            if is_edit:
+                ctx.api_config.update_image_generation_profile(updated)
+            else:
+                ctx.api_config.create_image_generation_profile(updated)
+            ui.notify("画像生成プロファイルを保存しました", type="positive")
+            dlg.close()
+            refresh_fn()
+
+        with ui.row().classes("justify-end gap-2 mt-4"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            ui.button("保存", icon="save", on_click=_save).props("color=primary unelevated")
+
+    dlg.open()
+
+
+def _build_profile_param_control(key: str, spec: dict, value: object):
+    label = str(spec.get("label", key))
+    if spec.get("type") == "boolean":
+        return ui.checkbox(label, value=bool(value)).classes("w-full")
+    if spec.get("enum"):
+        options = list(spec["enum"])
+        return ui.select(
+            options=options,
+            value=value if value in options else spec.get("default"),
+            label=label,
+        ).props("outlined dense").classes("w-full")
+    if spec.get("type") in {"integer", "number"}:
+        return ui.number(
+            label=label,
+            value=value,
+            min=spec.get("minimum"),
+            step=spec.get("step"),
+        ).props("outlined dense").classes("w-full")
+    return ui.input(
+        label=label,
+        value=value or "",
+    ).props("outlined dense clearable").classes("w-full")
+
+
+async def _fetch_image_profile_model_id(endpoint_select, model_input, ctx) -> None:
+    endpoint_id = endpoint_select.value or ""
+    if not endpoint_id:
+        ui.notify("先にAPI接続先を選択してください。", type="warning")
+        return
+    await _fetch_gen_server_model_id_from_endpoint(
+        endpoint_id,
+        GEN_SERVER_MODE_SDXL_IMAGE,
+        model_input,
+        ctx,
+    )
+
+
+def _set_default_image_profile(profile: ImageGenerationProfile, ctx, refresh_fn) -> None:
+    ctx.api_config.set_default_image_generation_profile(profile.id)
+    ui.notify("既定の画像生成プロファイルを保存しました", type="positive", timeout=1200)
+    refresh_fn()
+
+
+def _duplicate_image_profile(profile: ImageGenerationProfile, ctx, refresh_fn) -> None:
+    copied = ctx.api_config.duplicate_image_generation_profile(profile.id)
+    if copied is None:
+        ui.notify("プロファイルが見つかりません。", type="negative")
+        return
+    ui.notify("画像生成プロファイルを複製しました", type="positive")
+    refresh_fn()
+
+
+def _confirm_delete_image_profile(profile: ImageGenerationProfile, ctx, refresh_fn) -> None:
+    with ui.dialog() as dlg, ui.card():
+        ui.label(f"「{profile.name}」を削除しますか？").classes("font-medium mb-2")
+        with ui.row().classes("justify-end gap-2 mt-4"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+
+            def _do_delete() -> None:
+                ctx.api_config.delete_image_generation_profile(profile.id)
+                ui.notify("画像生成プロファイルを削除しました", type="positive")
+                dlg.close()
+                refresh_fn()
+
+            ui.button("削除", on_click=_do_delete).props("color=negative unelevated")
+    dlg.open()
 
 
 def _build_gen_server_tab(ctx) -> None:
@@ -1664,7 +1936,7 @@ def _build_gen_server_tab(ctx) -> None:
                         for endpoint in endpoints
                     })
                     with ui.grid(columns=1).classes("w-full gap-3"):
-                        for mode in GEN_SERVER_MODES:
+                        for mode in _GEN_SERVER_ASSIGNABLE_MODES:
                             selected = config.mode_assignments.get(mode) or _NO_GEN_SERVER
                             select = ui.select(
                                 options=options,
@@ -1687,8 +1959,8 @@ def _build_gen_server_tab(ctx) -> None:
         config = ctx.api_config.get_gen_server_config()
         defaults_container.clear()
         with defaults_container:
-            ui.label("デフォルト値").classes("text-base font-semibold")
-            for mode in GEN_SERVER_MODES:
+            ui.label("音声生成デフォルト値").classes("text-base font-semibold")
+            for mode in _GEN_SERVER_ASSIGNABLE_MODES:
                 with ui.expansion(
                     GEN_SERVER_MODE_LABELS.get(mode, mode),
                     icon=_gen_server_mode_icon(mode),
@@ -1877,7 +2149,15 @@ async def _fetch_gen_server_model_id(mode: str, model_input, ctx) -> None:
     if not endpoint_id:
         ui.notify("先にこの機能へWizmy-Gen-Serverを割り当ててください。", type="warning")
         return
+    await _fetch_gen_server_model_id_from_endpoint(endpoint_id, mode, model_input, ctx)
 
+
+async def _fetch_gen_server_model_id_from_endpoint(
+    endpoint_id: str,
+    mode: str,
+    model_input,
+    ctx,
+) -> None:
     try:
         models = await ctx.api_config.fetch_gen_server_models(endpoint_id, mode)
     except Exception as err:
@@ -1924,7 +2204,7 @@ def _gen_server_endpoint_card(
                     ui.label(endpoint.base_url).classes("text-sm text-grey-6 font-mono break-all")
                     with ui.row().classes("gap-2 flex-wrap"):
                         if assigned_modes:
-                            for mode in GEN_SERVER_MODES:
+                            for mode in _GEN_SERVER_ASSIGNABLE_MODES:
                                 if mode in assigned_modes:
                                     ui.badge(GEN_SERVER_MODE_LABELS.get(mode, mode)).props(
                                         "outline color=primary"
@@ -1961,7 +2241,7 @@ async def _test_gen_server_connection(endpoint: GenServerEndpoint, status_icon: 
     status_icon.classes(remove="text-grey-4 text-negative").classes("text-positive")
     labels = [
         GEN_SERVER_MODE_LABELS.get(mode, mode)
-        for mode in GEN_SERVER_MODES
+        for mode in _GEN_SERVER_ASSIGNABLE_MODES
         if mode in modes
     ]
     detail = " / ".join(labels) if labels else "対応機能なし"
@@ -2051,11 +2331,13 @@ _TTS_PROVIDER_LABELS = {
 
 
 def _build_tts_endpoints_tab(ctx) -> None:
+    ui.label("Wizmy-Gen-Serverが使えない場合は、一番上のTTS APIを使用します。").classes(
+        "text-sm text-grey-6 mb-2"
+    )
     endpoints_container = ui.column().classes("w-full gap-3")
 
     def refresh() -> None:
-        config = ctx.api_config.get_tts_config()
-        endpoints = config.endpoints
+        endpoints = ctx.api_config.get_tts_endpoints()
         endpoints_container.clear()
         with endpoints_container:
             if not endpoints:
@@ -2063,7 +2345,6 @@ def _build_tts_endpoints_tab(ctx) -> None:
             for endpoint in endpoints:
                 _tts_endpoint_card(
                     endpoint,
-                    is_default=endpoint.id == config.default_endpoint_id,
                     ctx=ctx,
                     refresh_fn=refresh,
                 )
@@ -2079,6 +2360,7 @@ def _build_tts_endpoints_tab(ctx) -> None:
             return
         ctx.api_config.reorder_tts_endpoints(ordered)
         _notify_order_saved()
+        refresh()
 
     _enable_drag_sort(endpoints_container, reorder)
     refresh()
@@ -2090,7 +2372,7 @@ def _build_tts_endpoints_tab(ctx) -> None:
     ).props("color=primary unelevated").classes("mt-2")
 
 
-def _tts_endpoint_card(endpoint: TTSEndpoint, *, is_default: bool, ctx, refresh_fn) -> None:
+def _tts_endpoint_card(endpoint: TTSEndpoint, *, ctx, refresh_fn) -> None:
     with ui.card().classes("w-full cursor-grab"):
         with ui.card_section():
             with ui.row().classes("items-center gap-3 flex-wrap"):
@@ -2100,14 +2382,8 @@ def _tts_endpoint_card(endpoint: TTSEndpoint, *, is_default: bool, ctx, refresh_
                         ui.badge(_TTS_PROVIDER_LABELS.get(endpoint.provider, endpoint.provider)).props(
                             "color=purple"
                         )
-                        if is_default:
-                            ui.badge("デフォルト").props("outline color=primary")
                     ui.label(endpoint.base_url).classes("text-sm text-grey-6 font-mono break-all")
                 with ui.row().classes("gap-2"):
-                    ui.button(
-                        icon="home",
-                        on_click=lambda eid=endpoint.id: _set_default_tts_endpoint(eid, ctx, refresh_fn),
-                    ).props("flat round dense color=primary").tooltip("デフォルトにする")
                     ui.button(
                         icon="edit",
                         on_click=lambda ep=endpoint: _open_tts_endpoint_dialog(ep, ctx, refresh_fn),
@@ -2116,12 +2392,6 @@ def _tts_endpoint_card(endpoint: TTSEndpoint, *, is_default: bool, ctx, refresh_
                         icon="delete",
                         on_click=lambda ep=endpoint: _confirm_delete_tts_endpoint(ep, ctx, refresh_fn),
                     ).props("flat round dense color=negative")
-
-
-def _set_default_tts_endpoint(endpoint_id: str, ctx, refresh_fn) -> None:
-    ctx.api_config.set_default_tts_endpoint(endpoint_id)
-    ui.notify("デフォルトTTS APIを保存しました", type="positive")
-    refresh_fn()
 
 
 def _open_tts_endpoint_dialog(endpoint: TTSEndpoint | None, ctx, refresh_fn) -> None:

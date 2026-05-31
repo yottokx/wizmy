@@ -7,6 +7,8 @@ Markdown シートの表示・直接編集、タグ編集、メディア参照�
 
 from __future__ import annotations
 
+import html
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,7 @@ from nicegui.events import MouseEventArguments
 
 from ...app_context import get_context
 from ...core.character.schemas import (
+    CHARACTER_TTS_API_DEFAULT,
     CHARACTER_TTS_API_GEN_SERVER,
     CHARACTER_TTS_API_TTS,
     CharacterImageAsset,
@@ -25,17 +28,37 @@ from ...core.character.schemas import (
 from ...core.gen_server.schemas import (
     GEN_SERVER_DEFAULT_FIELDS,
     GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+    GEN_SERVER_MODE_IRODORI_VOICE_DESIGN,
     GEN_SERVER_MODE_LABELS,
+    GEN_SERVER_MODE_SDXL_IMAGE,
     clean_gen_server_mode_defaults,
+)
+from ...core.image_generation.schemas import (
+    IMAGE_GENERATION_PARAMETER_FIELDS,
+    ImageGenerationProfile,
+    image_generation_profile_values,
 )
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
 from ...services.character_generation import parse_markdown_to_sheet
+from ...services.danbooru_prompt import DanbooruPromptServiceError
+from ...services.image_generation import ImageGenerationError
 from ...services.tts import TTSServiceError
 from ..layout import page_layout
+from ..state import get_vault_password
 
 
 _TTS_API_PREFIX = "tts:"
 _GEN_SERVER_VOICE_CLONE_API = "gen_server:irodori_voice_clone"
+_GENERATED_PROMPT_RE = re.compile(
+    r"<(?:span|strong)\b(?=[^>]*(?:data-wizmy-generated-prompt|wizmy-generated-prompt))[^>]*>"
+    r".*?</(?:span|strong)>\s*",
+    re.IGNORECASE | re.DOTALL,
+)
+_GENERATED_NEGATIVE_PROMPT_RE = re.compile(
+    r"<(?:span|strong)\b(?=[^>]*(?:data-wizmy-generated-negative-prompt|wizmy-generated-negative-prompt))[^>]*>"
+    r".*?</(?:span|strong)>\s*",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @ui.page("/characters/{character_id}")
@@ -312,6 +335,12 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
             ),
         ).props("outline color=primary").classes("w-full")
 
+        ui.button(
+            "画像生成",
+            icon="auto_awesome",
+            on_click=lambda: _open_image_generation_dialog(sheet, ctx, character_id, refresh_fn),
+        ).props("outline color=secondary").classes("w-full")
+
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center gap-2 mb-2"):
             ui.icon("graphic_eq").style("color: #6E9572;")
@@ -353,6 +382,12 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
             ),
         ).props("outline color=primary").classes("w-full")
 
+        ui.button(
+            "ボイスデザイン",
+            icon="record_voice_over",
+            on_click=lambda: _open_voice_design_dialog(sheet, ctx, character_id, refresh_fn),
+        ).props("outline color=secondary").classes("w-full")
+
         if voice and voice_path:
             _render_tts_controls(sheet, ctx, character_id, voice, voice_path, refresh_fn)
             return
@@ -385,19 +420,538 @@ def _open_media_upload_dialog(
     dlg.open()
 
 
+def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> None:
+    profiles = ctx.api_config.get_image_generation_profiles()
+    if not profiles:
+        ui.notify("設定で画像生成プロファイルを追加してください。", type="warning")
+        return
+
+    config = ctx.api_config.get_image_generation_config()
+    selected_profile = (
+        ctx.api_config.get_image_generation_profile(config.default_profile_id)
+        or profiles[0]
+    )
+    llm_profiles = ctx.api_config.get_llm_profiles()
+    app_llm_config = ctx.api_config.get_app_llm_config()
+    selected_llm_profile = (
+        ctx.api_config.get_llm_profile(app_llm_config.generation_profile_id)
+        or (llm_profiles[0] if llm_profiles else None)
+    )
+    fields = {
+        "model_id": {"label": "モデルID", "type": "string", "default": ""},
+        **IMAGE_GENERATION_PARAMETER_FIELDS,
+    }
+    controls: dict[str, object] = {}
+    generated: list[dict[str, object]] = []
+    prompt_candidates: list[object] = []
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-6xl").style("width: min(1100px, 96vw);"):
+        with ui.row().classes("w-full items-center justify-between gap-2"):
+            ui.label("画像生成").classes("text-base font-semibold")
+            ui.space()
+            status = ui.label("").classes("text-xs text-grey-6")
+            ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+
+        with ui.row().classes("w-full gap-4 items-start flex-col xl:flex-row"):
+            with ui.column().classes("w-full xl:w-[440px] gap-3 shrink-0"):
+                profile_options = {
+                    profile.id: profile.name or "無題のプロファイル"
+                    for profile in profiles
+                }
+                with ui.row().classes("w-full items-end gap-2"):
+                    profile_select = ui.select(
+                        options=profile_options,
+                        value=selected_profile.id,
+                        label="画像生成プロファイル",
+                    ).props("outlined dense").classes("flex-1 min-w-0")
+                    generate_btn = ui.button("生成", icon="auto_awesome").props(
+                        "color=primary unelevated"
+                    )
+
+                llm_profile_options = {
+                    profile.id: f"{profile.name} / {profile.model_id or 'モデル未設定'}"
+                    for profile in llm_profiles
+                }
+                with ui.row().classes("w-full items-end gap-2"):
+                    llm_profile_select = ui.select(
+                        options=llm_profile_options,
+                        value=selected_llm_profile.id if selected_llm_profile else None,
+                        label="LLMプロファイル",
+                    ).props("outlined dense").classes("flex-1 min-w-0")
+                    prompt_generate_btn = ui.button(
+                        "プロンプト生成",
+                        icon="auto_awesome",
+                    ).props("color=secondary unelevated")
+                    prompt_spinner = ui.spinner(size="sm").classes("hidden")
+                prompt_candidate_container = ui.row().classes("w-full gap-2 hidden")
+                prompt_status = ui.label("").classes("text-xs text-grey-6")
+
+                ui.label("プロンプト").classes("text-xs text-grey-7")
+                prompt_input = ui.editor(
+                    value=_prompt_text_to_editor_html(selected_profile.prompt),
+                    placeholder="画像生成プロンプト",
+                ).classes("w-full cs-image-prompt-editor")
+                controls["prompt"] = prompt_input
+
+                ui.label("ネガティブプロンプト").classes("text-xs text-grey-7")
+                negative_input = ui.editor(
+                    value=_prompt_text_to_editor_html(selected_profile.negative_prompt),
+                    placeholder="除外したい要素",
+                ).classes("w-full cs-image-prompt-editor cs-image-negative-prompt-editor")
+                controls["negative_prompt"] = negative_input
+
+                with ui.expansion("詳細パラメータ", icon="tune").props("dense").classes("w-full"):
+                    with ui.grid(columns=2).classes("w-full gap-3"):
+                        initial_values = image_generation_profile_values(selected_profile)
+                        for key, spec in fields.items():
+                            value = initial_values.get(key, spec.get("default"))
+                            label = str(spec.get("label", key))
+                            if key == "model_id":
+                                with ui.row().classes("w-full col-span-2 items-end gap-2"):
+                                    model_input = ui.input(
+                                        label=label,
+                                        value=value or "",
+                                    ).props("outlined dense clearable").classes("flex-1")
+                                    ui.button(
+                                        icon="refresh",
+                                        on_click=lambda: _fetch_character_image_model_id(
+                                            profile_select.value or "",
+                                            model_input,
+                                            ctx,
+                                        ),
+                                    ).props("flat round").tooltip("モデルIDを取得")
+                                controls[key] = model_input
+                            elif spec.get("type") == "boolean":
+                                controls[key] = ui.checkbox(label, value=bool(value)).classes("w-full")
+                            elif spec.get("enum"):
+                                options = list(spec["enum"])
+                                controls[key] = ui.select(
+                                    options=options,
+                                    value=value if value in options else spec.get("default"),
+                                    label=label,
+                                ).props("outlined dense").classes("w-full")
+                            elif spec.get("type") in {"integer", "number"}:
+                                controls[key] = ui.number(
+                                    label=label,
+                                    value=value,
+                                    min=spec.get("minimum"),
+                                    step=spec.get("step"),
+                                ).props("outlined dense").classes("w-full")
+                            elif spec.get("multiline"):
+                                controls[key] = ui.textarea(
+                                    label=label,
+                                    value=value or "",
+                                ).props("outlined rows=3").classes("w-full col-span-2")
+                            else:
+                                controls[key] = ui.input(
+                                    label=label,
+                                    value=value or "",
+                                ).props("outlined dense clearable").classes("w-full")
+
+                def _apply_profile(profile: ImageGenerationProfile) -> None:
+                    values = image_generation_profile_values(profile)
+                    prompt_input.set_value(_prompt_text_to_editor_html(str(values.get("prompt") or "")))
+                    negative_input.set_value(_prompt_text_to_editor_html(str(values.get("negative_prompt") or "")))
+                    for key, spec in fields.items():
+                        if key in controls:
+                            controls[key].set_value(values.get(key, spec.get("default")))
+
+                def _on_profile_change() -> None:
+                    profile = ctx.api_config.get_image_generation_profile(profile_select.value or "")
+                    if profile is not None:
+                        _apply_profile(profile)
+
+                profile_select.on_value_change(lambda _: _on_profile_change())
+
+            with ui.column().classes("w-full xl:flex-1 min-w-0 gap-2"):
+                with ui.row().classes("w-full items-center gap-2"):
+                    ui.label("生成候補").classes("text-sm font-semibold")
+                    ui.space()
+                    candidate_count = ui.label("0件").classes("text-xs text-grey-6")
+                candidate_tabs = ui.tabs().props(
+                    "dense no-caps active-color=primary indicator-color=primary align=left"
+                ).classes("w-full hidden")
+                preview_container = ui.column().classes("w-full")
+
+        def _read_params() -> dict[str, object]:
+            params: dict[str, object] = {}
+            for key, spec in {
+                "prompt": {"type": "string", "default": ""},
+                "negative_prompt": {"type": "string", "default": ""},
+                **fields,
+            }.items():
+                if key not in controls:
+                    continue
+                if key in {"prompt", "negative_prompt"}:
+                    params[key] = _editor_html_to_prompt(str(getattr(controls[key], "value", "") or ""))
+                else:
+                    params[key] = _read_gen_server_param_value(spec, controls[key])
+            return params
+
+        def _render_prompt_candidate_buttons() -> None:
+            prompt_candidate_container.clear()
+            if not prompt_candidates:
+                prompt_candidate_container.classes("hidden")
+                return
+            prompt_candidate_container.classes(remove="hidden")
+            with prompt_candidate_container:
+                for index, candidate in enumerate(prompt_candidates, start=1):
+                    label = getattr(candidate, "label", "") or f"候補 {index}"
+                    button = ui.button(
+                        label,
+                        on_click=lambda candidate=candidate: _apply_prompt_candidate(candidate),
+                    ).props("outline color=secondary no-caps").classes("min-w-[110px]")
+                    button.tooltip(getattr(candidate, "prompt", ""))
+
+        def _apply_prompt_candidate(candidate: object) -> None:
+            prompt = str(getattr(candidate, "prompt", "") or "").strip()
+            if not prompt:
+                return
+            prompt_input.set_value(
+                _replace_generated_prompt_html(str(prompt_input.value or ""), prompt)
+            )
+            negative_prompt = ", ".join(_candidate_negative_tags(candidate))
+            negative_input.set_value(
+                _replace_generated_negative_prompt_html(str(negative_input.value or ""), negative_prompt)
+            )
+
+        async def _generate_prompt_candidates() -> None:
+            llm_profile_id = str(llm_profile_select.value or "")
+            if not llm_profile_id:
+                ui.notify("LLMプロファイルを選択してください。", type="warning")
+                return
+
+            prompt_generate_btn.disable()
+            prompt_spinner.classes(remove="hidden")
+            prompt_status.set_text("プロンプト生成中...")
+            prompt_candidates.clear()
+            _render_prompt_candidate_buttons()
+            try:
+                candidates = await ctx.danbooru_prompt.generate_candidates(
+                    sheet,
+                    llm_profile_id=llm_profile_id,
+                    vault_password=get_vault_password(),
+                    count=3,
+                )
+                prompt_candidates.extend(candidates)
+                _render_prompt_candidate_buttons()
+                prompt_status.set_text("")
+                ui.notify("プロンプト候補を生成しました", type="positive")
+            except DanbooruPromptServiceError as err:
+                prompt_status.set_text("")
+                ui.notify(str(err), type="negative", timeout=10000)
+            except Exception as err:
+                prompt_status.set_text("")
+                ui.notify(f"プロンプト生成に失敗しました: {err}", type="negative", timeout=10000)
+            finally:
+                prompt_spinner.classes("hidden")
+                prompt_generate_btn.enable()
+
+        def _render_generated() -> None:
+            candidate_tabs.clear()
+            preview_container.clear()
+            candidate_count.set_text(f"{len(generated)}件")
+            with preview_container:
+                if not generated:
+                    candidate_tabs.classes("hidden")
+                    with ui.element("div").classes(
+                        "w-full rounded-md border border-dashed flex items-center justify-center"
+                    ).style(
+                        "min-height: 360px; background: var(--cs-surface-soft); "
+                        "border-color: var(--cs-border);"
+                    ):
+                        ui.label("生成するとここに画像が表示されます").classes("text-sm text-grey-6")
+                    return
+
+            candidate_tabs.classes(remove="hidden")
+            selected_tab = f"candidate-{len(generated)}"
+            with candidate_tabs:
+                for index, item in enumerate(generated, start=1):
+                    image = item["image"]
+                    size_label = _generated_image_size_label(image)
+                    label = f"候補 {index}"
+                    if size_label:
+                        label = f"{label} / {size_label}"
+                    ui.tab(f"candidate-{index}", label=label)
+            candidate_tabs.set_value(selected_tab)
+
+            with preview_container:
+                with ui.tab_panels(candidate_tabs, value=selected_tab, animated=False).classes(
+                    "w-full"
+                ).style("background: transparent;"):
+                    for index, item in enumerate(generated, start=1):
+                        with ui.tab_panel(f"candidate-{index}").classes("p-0"):
+                            _render_generated_image_panel(item, index)
+
+        def _render_generated_image_panel(item: dict[str, object], index: int) -> None:
+            image = item["image"]
+            image_path = item["path"]
+            size_label = _generated_image_size_label(image)
+            with ui.element("div").classes("w-full rounded-md border p-2").style(
+                "background: var(--cs-surface); border-color: var(--cs-border);"
+            ):
+                with ui.row().classes("w-full items-center gap-2"):
+                    label = f"候補 {index}"
+                    if size_label:
+                        label = f"{label} / {size_label}"
+                    ui.label(label).classes("text-sm font-semibold")
+                    ui.space()
+                    ui.button(
+                        "この画像を保存",
+                        icon="save",
+                        on_click=lambda image=image, index=index: _save_image(image, index),
+                    ).props("outline color=primary")
+                ui.image(image_path).props("fit=contain").classes("w-full rounded-md").style(
+                    "height: min(72vh, 760px); min-height: 360px; "
+                    "background: var(--cs-surface-soft);"
+                )
+
+        async def _generate() -> None:
+            generate_btn.disable()
+            status.set_text("生成中...")
+            try:
+                images = await ctx.image_generation.generate_sdxl(
+                    profile_id=profile_select.value or "",
+                    gen_server_params=_read_params(),
+                )
+                for image in images:
+                    preview_path = ctx.characters.save_image_preview(
+                        character_id,
+                        image.data,
+                        filename=image.filename,
+                        content_type=image.content_type,
+                        replace_existing=False,
+                    )
+                    generated.append({
+                        "image": image,
+                        "path": preview_path,
+                    })
+                _render_generated()
+                status.set_text("")
+                ui.notify("画像を生成しました", type="positive")
+            except ImageGenerationError as err:
+                status.set_text("")
+                ui.notify(f"画像生成に失敗しました: {err}", type="negative", timeout=10000)
+            except Exception as err:
+                status.set_text("")
+                ui.notify(f"画像生成に失敗しました: {err}", type="negative", timeout=10000)
+            finally:
+                generate_btn.enable()
+
+        async def _save_image(image: object, index: int) -> None:
+            if not image:
+                ui.notify("先に画像を生成してください。", type="warning")
+                return
+            try:
+                saved = await ctx.characters.save_image_bytes(
+                    character_id,
+                    image.data,
+                    filename=_generated_image_filename(image, index),
+                    content_type=image.content_type,
+                    width=image.width,
+                    height=image.height,
+                )
+                sheet.media = saved.media
+                ui.notify("生成画像をキャラ画像に保存しました", type="positive")
+                dlg.close()
+                refresh_fn()
+            except Exception as err:
+                ui.notify(f"画像の保存に失敗しました: {err}", type="negative")
+
+        prompt_generate_btn.on("click", _generate_prompt_candidates)
+        generate_btn.on("click", _generate)
+        _render_generated()
+
+    dlg.open()
+
+
+def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None:
+    if ctx.tts.resolve_gen_server_voice_design_endpoint(raise_on_missing=False) is None:
+        ui.notify("設定でボイスデザインにWizmy-Gen-Serverを割り当ててください。", type="warning")
+        return
+
+    mode = GEN_SERVER_MODE_IRODORI_VOICE_DESIGN
+    fields = GEN_SERVER_DEFAULT_FIELDS.get(mode, {})
+    defaults = ctx.api_config.get_gen_server_config().defaults_for_mode(mode)
+    controls: dict[str, object] = {}
+    generated: list[dict[str, object]] = []
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
+        with ui.row().classes("w-full items-center justify-between gap-2"):
+            ui.label("ボイスデザイン").classes("text-base font-semibold")
+            ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+
+        text_input = ui.textarea(
+            label="自己紹介台詞",
+            value=sheet.self_intro,
+            placeholder="生成する音声で読み上げる台詞",
+        ).props("outlined rows=4").classes("w-full")
+        caption_input = ui.textarea(
+            label="声のイメージ",
+            value=sheet.voice_image,
+            placeholder="例: 明るく柔らかい少女声、少し早口で元気",
+        ).props("outlined rows=4").classes("w-full")
+
+        with ui.expansion("詳細パラメータ", icon="tune").props("dense").classes("w-full"):
+            with ui.grid(columns=2).classes("w-full gap-3"):
+                for key, spec in fields.items():
+                    value = defaults.get(key, spec.get("default"))
+                    label = str(spec.get("label", key))
+                    if spec.get("type") == "boolean":
+                        controls[key] = ui.checkbox(label, value=bool(value)).classes("w-full")
+                    elif spec.get("enum"):
+                        options = list(spec["enum"])
+                        controls[key] = ui.select(
+                            options=options,
+                            value=value if value in options else spec.get("default"),
+                            label=label,
+                        ).props("outlined dense").classes("w-full")
+                    elif spec.get("type") in {"integer", "number"}:
+                        controls[key] = ui.number(
+                            label=label,
+                            value=value,
+                            min=spec.get("minimum"),
+                            step=spec.get("step"),
+                        ).props("outlined dense").classes("w-full")
+                    elif key == "model_id":
+                        with ui.row().classes("w-full items-end gap-2"):
+                            model_input = ui.input(
+                                label=label,
+                                value=value or "",
+                            ).props("outlined dense clearable").classes("flex-1")
+                            ui.button(
+                                icon="refresh",
+                                on_click=lambda model_input=model_input: _fetch_character_gen_server_model_id(
+                                    model_input,
+                                    ctx,
+                                    mode,
+                                ),
+                            ).props("flat round").tooltip("モデルIDを取得")
+                        controls[key] = model_input
+                    else:
+                        controls[key] = ui.input(
+                            label=label,
+                            value=value or "",
+                        ).props("outlined dense clearable").classes("w-full")
+
+        status = ui.label("").classes("text-xs text-grey-6")
+        with ui.element("div").classes(
+            "w-full rounded-md border p-2"
+        ).style(
+            "max-height: 320px; overflow-y: auto; "
+            "background: var(--cs-surface-soft); border-color: var(--cs-border);"
+        ):
+            preview_container = ui.column().classes("w-full gap-2")
+
+        def _read_params() -> dict[str, object]:
+            return {
+                key: _read_gen_server_param_value(spec, controls[key])
+                for key, spec in fields.items()
+            }
+
+        def _render_generated() -> None:
+            preview_container.clear()
+            with preview_container:
+                if not generated:
+                    return
+                ui.label("生成候補").classes("text-sm font-semibold")
+                for index, item in enumerate(generated, start=1):
+                    audio_path = item["path"]
+                    audio = item["audio"]
+                    with ui.element("div").classes("w-full rounded-md border p-2").style(
+                        "background: var(--cs-surface); border-color: var(--cs-border);"
+                    ):
+                        with ui.row().classes("w-full items-center gap-2"):
+                            ui.label(f"候補 {index}").classes("text-sm font-semibold")
+                            ui.space()
+                            ui.button(
+                                "この音声を保存",
+                                icon="save",
+                                on_click=lambda audio=audio, index=index: _save_voice(audio, index),
+                            ).props("outline color=primary")
+                        ui.audio(audio_path).classes("w-full")
+
+        async def _generate() -> None:
+            text = (text_input.value or "").strip()
+            caption = (caption_input.value or "").strip()
+            if not text:
+                ui.notify("自己紹介台詞を入力してください。", type="warning")
+                return
+            if not caption:
+                ui.notify("声のイメージを入力してください。", type="warning")
+                return
+
+            generate_btn.disable()
+            status.set_text("生成中...")
+            try:
+                audio = await ctx.tts.design_voice(
+                    text,
+                    caption,
+                    gen_server_params=_read_params(),
+                )
+                preview_path = ctx.characters.save_tts_preview(
+                    character_id,
+                    audio,
+                    replace_existing=False,
+                )
+                generated.append({
+                    "audio": audio,
+                    "path": preview_path,
+                })
+                _render_generated()
+                status.set_text("")
+                ui.notify("ボイスデザイン音声を生成しました", type="positive")
+            except TTSServiceError as err:
+                status.set_text("")
+                ui.notify(f"ボイスデザインに失敗しました: {err}", type="negative", timeout=10000)
+            except Exception as err:
+                status.set_text("")
+                ui.notify(f"ボイスデザインに失敗しました: {err}", type="negative", timeout=10000)
+            finally:
+                generate_btn.enable()
+
+        async def _save_voice(audio: object, index: int) -> None:
+            if not audio:
+                ui.notify("先に音声を生成してください。", type="warning")
+                return
+            try:
+                saved = await ctx.characters.save_voice_bytes(
+                    character_id,
+                    audio,
+                    filename=f"voice-design-{index}.wav",
+                    content_type="audio/wav",
+                )
+                sheet.media = saved.media
+                ui.notify("生成音声をキャラ音声に保存しました", type="positive")
+                dlg.close()
+                refresh_fn()
+            except Exception as err:
+                ui.notify(f"音声の保存に失敗しました: {err}", type="negative")
+
+        with ui.row().classes("justify-end gap-2 mt-3"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            generate_btn = ui.button("生成", icon="auto_awesome", on_click=_generate).props(
+                "color=primary unelevated"
+            )
+
+    dlg.open()
+
+
 def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path, refresh_fn) -> None:
     ui.separator().classes("my-3")
     endpoints = ctx.tts.get_endpoints()
     gen_server_config = ctx.api_config.get_gen_server_config()
-    has_gen_server = bool(gen_server_config.endpoints)
+    has_gen_server = _assigned_voice_clone_endpoint(gen_server_config) is not None
     if not endpoints and not has_gen_server:
-        ui.label("設定でTTS APIまたはWizmy-Gen-Serverを登録してください。").classes("text-sm text-grey-6")
+        ui.label("使用できるTTSがありません。Wizmy-Gen-ServerまたはTTS APIを設定してください。").classes(
+            "text-sm text-grey-6"
+        )
         return
 
     current_settings = sheet.media.tts
     endpoint_by_id = {endpoint.id: endpoint for endpoint in endpoints}
     endpoint_options = _voice_api_options(endpoints, gen_server_config)
-    selected_value = _selected_voice_api_value(current_settings, endpoints, has_gen_server, ctx)
+    selected_value = _selected_voice_api_value(current_settings, endpoints, has_gen_server)
     selected_endpoint = _selected_tts_endpoint(selected_value, endpoint_by_id)
     gen_server_params_state = {
         "value": clean_gen_server_mode_defaults(
@@ -419,7 +973,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
             current_settings.model_copy(
                 update={
                     "api_type": api_type,
-                    "endpoint_id": endpoint_id or current_settings.endpoint_id,
+                    "endpoint_id": endpoint_id,
                 }
             ),
         )
@@ -476,7 +1030,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
         api_type, endpoint_id = _parse_voice_api_value(endpoint_select.value)
         return CharacterTTSSettings(
             api_type=api_type,
-            endpoint_id=endpoint_id or current_settings.endpoint_id,
+            endpoint_id=endpoint_id,
             voice_id=(voice_id_input.value or "").strip() if voice_id_input else current_settings.voice_id,
             gen_server_params=dict(gen_server_params_state["value"]),
         )
@@ -574,32 +1128,37 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
 
 
 def _voice_api_options(endpoints, gen_server_config) -> dict[str, str]:
-    options = {
+    options: dict[str, str] = {}
+    assigned = _assigned_voice_clone_endpoint(gen_server_config)
+    if assigned is not None:
+        mode_label = GEN_SERVER_MODE_LABELS.get(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, "ボイスクローン")
+        options[_GEN_SERVER_VOICE_CLONE_API] = f"Wizmy-Gen-Server ({mode_label}: {assigned.name})"
+    options.update({
         f"{_TTS_API_PREFIX}{endpoint.id}": f"{endpoint.name} ({_tts_provider_label(endpoint.provider)})"
         for endpoint in endpoints
-    }
-    if gen_server_config.endpoints:
-        assigned_id = gen_server_config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
-        assigned = next(
-            (endpoint for endpoint in gen_server_config.endpoints if endpoint.id == assigned_id),
-            None,
-        )
-        assigned_label = assigned.name if assigned else "未割り当て"
-        mode_label = GEN_SERVER_MODE_LABELS.get(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, "ボイスクローン")
-        options[_GEN_SERVER_VOICE_CLONE_API] = f"Wizmy-Gen-Server ({mode_label}: {assigned_label})"
+    })
     return options
 
 
-def _selected_voice_api_value(settings: CharacterTTSSettings, endpoints, has_gen_server: bool, ctx) -> str:
+def _selected_voice_api_value(settings: CharacterTTSSettings, endpoints, has_gen_server: bool) -> str:
     if settings.api_type == CHARACTER_TTS_API_GEN_SERVER and has_gen_server:
         return _GEN_SERVER_VOICE_CLONE_API
     endpoint_ids = {endpoint.id for endpoint in endpoints}
-    selected_id = settings.endpoint_id or ctx.tts.default_endpoint_id()
-    if selected_id in endpoint_ids:
-        return f"{_TTS_API_PREFIX}{selected_id}"
+    if settings.api_type == CHARACTER_TTS_API_TTS and settings.endpoint_id in endpoint_ids:
+        return f"{_TTS_API_PREFIX}{settings.endpoint_id}"
+    if has_gen_server:
+        return _GEN_SERVER_VOICE_CLONE_API
     if endpoints:
         return f"{_TTS_API_PREFIX}{endpoints[0].id}"
-    return _GEN_SERVER_VOICE_CLONE_API
+    return ""
+
+
+def _assigned_voice_clone_endpoint(gen_server_config):
+    assigned_id = gen_server_config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+    return next(
+        (endpoint for endpoint in gen_server_config.endpoints if endpoint.id == assigned_id),
+        None,
+    )
 
 
 def _parse_voice_api_value(value: str | None) -> tuple[str, str]:
@@ -608,7 +1167,7 @@ def _parse_voice_api_value(value: str | None) -> tuple[str, str]:
         return CHARACTER_TTS_API_GEN_SERVER, ""
     if selected.startswith(_TTS_API_PREFIX):
         return CHARACTER_TTS_API_TTS, selected[len(_TTS_API_PREFIX):]
-    return CHARACTER_TTS_API_TTS, ""
+    return CHARACTER_TTS_API_DEFAULT, ""
 
 
 def _selected_tts_endpoint(value: str | None, endpoint_by_id: dict):
@@ -741,25 +1300,167 @@ def _read_gen_server_param_value(spec: dict, control) -> object:
     return value
 
 
-async def _fetch_character_gen_server_model_id(model_input, ctx) -> None:
+def _prompt_text_to_editor_html(value: str) -> str:
+    lines = str(value or "").splitlines()
+    if not lines:
+        return ""
+    return "<br>".join(html.escape(line) for line in lines)
+
+
+def _replace_generated_prompt_html(current_html: str, generated_prompt: str) -> str:
+    return _replace_generated_editor_html(
+        current_html,
+        generated_prompt,
+        marker="data-wizmy-generated-prompt",
+        css_class="wizmy-generated-prompt",
+        pattern=_GENERATED_PROMPT_RE,
+    )
+
+
+def _replace_generated_negative_prompt_html(current_html: str, generated_prompt: str) -> str:
+    return _replace_generated_editor_html(
+        current_html,
+        generated_prompt,
+        marker="data-wizmy-generated-negative-prompt",
+        css_class="wizmy-generated-negative-prompt",
+        pattern=_GENERATED_NEGATIVE_PROMPT_RE,
+    )
+
+
+def _replace_generated_editor_html(
+    current_html: str,
+    generated_prompt: str,
+    *,
+    marker: str,
+    css_class: str,
+    pattern: re.Pattern[str],
+) -> str:
+    body = pattern.sub("", str(current_html or ""), count=1).lstrip()
+    has_existing_prompt = bool(_editor_html_to_prompt(body))
+    generated_text = generated_prompt.strip()
+    if not generated_text:
+        return body
+    if has_existing_prompt:
+        generated_text = f"{generated_text}, "
+    generated_html = (
+        f'<span {marker}="1" class="{css_class}">'
+        f"{_prompt_text_to_editor_html(generated_text)}</span>"
+    )
+    return f"{generated_html}{body}"
+
+
+def _remove_generated_prompt_html(value: str) -> str:
+    return _GENERATED_PROMPT_RE.sub("", str(value or ""), count=1)
+
+
+def _editor_html_to_prompt(value: str) -> str:
+    text = str(value or "")
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(?:p|div|li|h[1-6])>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return " ".join(lines).strip()
+
+
+def _candidate_negative_tags(candidate: object) -> list[str]:
+    tags: list[str] = []
+    negative_prompt = str(getattr(candidate, "negative_prompt", "") or "")
+    tags.extend(part.strip() for part in negative_prompt.split(",") if part.strip())
+    negative_tags = getattr(candidate, "negative_tags", []) or []
+    if isinstance(negative_tags, list):
+        tags.extend(_editor_prompt_tag(str(tag).strip()) for tag in negative_tags if str(tag).strip())
+    return _dedupe_prompt_parts(tags)
+
+
+def _dedupe_prompt_parts(parts: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        cleaned = part.strip()
+        key = _prompt_part_key(cleaned)
+        if not cleaned or key in seen:
+            continue
+        result.append(cleaned)
+        seen.add(key)
+    return result
+
+
+def _prompt_part_key(value: str) -> str:
+    return re.sub(r"\s+", "_", value.strip().lower())
+
+
+def _editor_prompt_tag(value: str) -> str:
+    if value in {"o_o", "x_x", "u_u"}:
+        return value
+    return value.replace("_", " ")
+
+
+async def _fetch_character_gen_server_model_id(
+    model_input,
+    ctx,
+    mode: str = GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+) -> None:
     config = ctx.api_config.get_gen_server_config()
-    endpoint_id = config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+    endpoint_id = config.assigned_endpoint_id(mode)
+    mode_label = GEN_SERVER_MODE_LABELS.get(mode, mode)
     if not endpoint_id:
-        ui.notify("先にボイスクローンへWizmy-Gen-Serverを割り当ててください。", type="warning")
+        ui.notify(f"先に{mode_label}へWizmy-Gen-Serverを割り当ててください。", type="warning")
         return
 
     try:
-        models = await ctx.api_config.fetch_gen_server_models(endpoint_id, GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+        models = await ctx.api_config.fetch_gen_server_models(endpoint_id, mode)
     except Exception as err:
         ui.notify(f"モデルIDを取得できませんでした: {err}", type="negative")
         return
 
     if not models:
-        ui.notify("ボイスクローンで利用できるモデルが見つかりませんでした。", type="warning")
+        ui.notify(f"{mode_label}で利用できるモデルが見つかりませんでした。", type="warning")
         return
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
-        ui.label("ボイスクローンのモデルID").classes("text-base font-semibold mb-2")
+        ui.label(f"{mode_label}のモデルID").classes("text-base font-semibold mb-2")
+        with ui.scroll_area().style("max-height: 50vh; width: 100%"):
+            with ui.list().props("dense separator").classes("w-full"):
+                for model in models:
+                    model_id = str(model.get("id") or "")
+                    display_name = str(model.get("display_name") or model_id)
+
+                    def _select(model_id: str = model_id) -> None:
+                        model_input.set_value(model_id)
+                        dlg.close()
+
+                    with ui.item(on_click=_select).classes("cursor-pointer"):
+                        with ui.item_section():
+                            ui.label(display_name).classes("text-sm font-medium")
+                            ui.label(model_id).classes("text-xs text-grey-6 font-mono break-all")
+
+    dlg.open()
+
+
+async def _fetch_character_image_model_id(profile_id: str, model_input, ctx) -> None:
+    profile = ctx.api_config.get_image_generation_profile(profile_id)
+    if profile is None:
+        ui.notify("画像生成プロファイルを選択してください。", type="warning")
+        return
+    if not profile.endpoint_id:
+        ui.notify("画像生成プロファイルのAPI接続先を設定してください。", type="warning")
+        return
+    try:
+        models = await ctx.api_config.fetch_gen_server_models(
+            profile.endpoint_id,
+            GEN_SERVER_MODE_SDXL_IMAGE,
+        )
+    except Exception as err:
+        ui.notify(f"モデルIDを取得できませんでした: {err}", type="negative")
+        return
+
+    if not models:
+        ui.notify("SDXL画像生成で利用できるモデルが見つかりませんでした。", type="warning")
+        return
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
+        ui.label("SDXL画像生成のモデルID").classes("text-base font-semibold mb-2")
         with ui.scroll_area().style("max-height: 50vh; width: 100%"):
             with ui.list().props("dense separator").classes("w-full"):
                 for model in models:
@@ -784,6 +1485,19 @@ def _tts_provider_label(provider: str) -> str:
     if provider == TTS_PROVIDER_IRODORI_SERVER:
         return "Irodori-TTS-Server"
     return provider
+
+
+def _generated_image_size_label(image: object) -> str:
+    width = int(getattr(image, "width", 0) or 0)
+    height = int(getattr(image, "height", 0) or 0)
+    if width > 0 and height > 0:
+        return f"{width}x{height}"
+    return ""
+
+
+def _generated_image_filename(image: object, index: int) -> str:
+    suffix = Path(str(getattr(image, "filename", ""))).suffix or ".png"
+    return f"generated-image-{index}{suffix}"
 
 
 def _image_size(image: CharacterImageAsset, image_path: Path | None = None) -> tuple[int, int] | None:

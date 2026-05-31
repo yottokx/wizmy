@@ -14,13 +14,27 @@ from pathlib import Path
 from typing import Any
 
 from ..core.chat.schemas import ChatMode, UserPersona, default_chat_modes
-from ..core.gen_server.schemas import GEN_SERVER_MODES, GenServerConfig, GenServerEndpoint
+from ..core.gen_server.schemas import (
+    GEN_SERVER_MODE_SDXL_IMAGE,
+    GEN_SERVER_MODES,
+    GenServerConfig,
+    GenServerEndpoint,
+    clean_gen_server_mode_defaults,
+    default_gen_server_mode_defaults,
+)
+from ..core.image_generation.schemas import (
+    IMAGE_PROVIDER_WIZMY_GEN_SERVER,
+    ImageGenerationConfig,
+    ImageGenerationProfile,
+    clean_image_generation_params,
+)
 from ..core.llm.schemas import AppLLMConfig, Endpoint, GenerationPreset, LLMProfile
 from ..core.tts.schemas import TTSConfig, TTSEndpoint
 from .key_vault import KeyVault, VaultData
 
 _DEFAULT_ENDPOINT_ID = "ep-ollama-local"
 _DEFAULT_PROFILE_ID = "profile-ollama-local"
+_GEN_SERVER_ASSIGNABLE_MODES = tuple(mode for mode in GEN_SERVER_MODES if mode != GEN_SERVER_MODE_SDXL_IMAGE)
 
 
 def _new_id() -> str:
@@ -48,6 +62,10 @@ def _default_data() -> dict:
             "mode_defaults": {},
             "voice_chunking_enabled": True,
             "voice_chunk_min_chars": 80,
+        },
+        "image_generation_config": {
+            "profiles": [],
+            "default_profile_id": "",
         },
         "vault_salt": "",
         "vault_verifier": "",
@@ -86,6 +104,10 @@ def _with_defaults(data: dict) -> dict:
     merged["gen_server_config"] = {
         **defaults["gen_server_config"],
         **(data.get("gen_server_config") or {}),
+    }
+    merged["image_generation_config"] = {
+        **defaults["image_generation_config"],
+        **(data.get("image_generation_config") or {}),
     }
     return merged
 
@@ -161,6 +183,59 @@ class ApiConfigStore:
             for mode, defaults in mode_defaults.items()
             if mode in GEN_SERVER_MODES and isinstance(defaults, dict)
         }
+        image_cfg = self._data.setdefault("image_generation_config", {})
+        if not isinstance(image_cfg.get("profiles"), list):
+            image_cfg["profiles"] = []
+        if not isinstance(image_cfg.get("default_profile_id"), str):
+            image_cfg["default_profile_id"] = ""
+        self._migrate_sdxl_defaults_to_image_profile(gen_cfg, image_cfg)
+        valid_profile_ids = [
+            profile.get("id")
+            for profile in image_cfg.get("profiles", [])
+            if isinstance(profile, dict) and profile.get("id")
+        ]
+        if image_cfg.get("default_profile_id") not in valid_profile_ids:
+            image_cfg["default_profile_id"] = valid_profile_ids[0] if valid_profile_ids else ""
+
+    def _migrate_sdxl_defaults_to_image_profile(self, gen_cfg: dict, image_cfg: dict) -> None:
+        """旧SDXLデフォルト設定を画像生成プロファイルへ移す。"""
+        profiles = image_cfg.get("profiles", [])
+        if profiles:
+            gen_cfg.get("mode_defaults", {}).pop(GEN_SERVER_MODE_SDXL_IMAGE, None)
+            gen_cfg.get("mode_assignments", {}).pop(GEN_SERVER_MODE_SDXL_IMAGE, None)
+            return
+
+        mode_defaults = gen_cfg.get("mode_defaults", {})
+        sdxl_defaults = {}
+        if isinstance(mode_defaults, dict):
+            sdxl_defaults = clean_gen_server_mode_defaults(
+                GEN_SERVER_MODE_SDXL_IMAGE,
+                mode_defaults.get(GEN_SERVER_MODE_SDXL_IMAGE, {}),
+            )
+        endpoint_id = ""
+        assignments = gen_cfg.get("mode_assignments", {})
+        if isinstance(assignments, dict):
+            endpoint_id = str(assignments.get(GEN_SERVER_MODE_SDXL_IMAGE) or "")
+        if not sdxl_defaults and not endpoint_id:
+            return
+
+        values = default_gen_server_mode_defaults(GEN_SERVER_MODE_SDXL_IMAGE)
+        values.update(sdxl_defaults)
+        image_cfg["profiles"] = [
+            ImageGenerationProfile(
+                id=_new_id(),
+                name="SDXL画像生成",
+                provider=IMAGE_PROVIDER_WIZMY_GEN_SERVER,
+                endpoint_id=endpoint_id,
+                model_id=str(values.get("model_id") or ""),
+                prompt=str(values.get("prompt") or ""),
+                negative_prompt=str(values.get("negative_prompt") or ""),
+                params=clean_image_generation_params(values),
+            ).model_dump()
+        ]
+        image_cfg["default_profile_id"] = image_cfg["profiles"][0]["id"]
+        gen_cfg.get("mode_defaults", {}).pop(GEN_SERVER_MODE_SDXL_IMAGE, None)
+        gen_cfg.get("mode_assignments", {}).pop(GEN_SERVER_MODE_SDXL_IMAGE, None)
 
     def save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -401,6 +476,53 @@ class ApiConfigStore:
     def save_app_llm_config(self, config: AppLLMConfig) -> None:
         self._data["app_llm_config"] = config.model_dump()
 
+    # ─── 画像生成プロファイル ───
+
+    def get_image_generation_config(self) -> ImageGenerationConfig:
+        return ImageGenerationConfig(**self._data.get("image_generation_config", {}))
+
+    def save_image_generation_config(self, config: ImageGenerationConfig) -> None:
+        self._data["image_generation_config"] = config.model_dump()
+
+    def get_image_generation_profiles(self) -> list[ImageGenerationProfile]:
+        return self.get_image_generation_config().profiles
+
+    def get_image_generation_profile(self, profile_id: str) -> ImageGenerationProfile | None:
+        for profile in self.get_image_generation_config().profiles:
+            if profile.id == profile_id:
+                return profile
+        return None
+
+    def upsert_image_generation_profile(self, profile: ImageGenerationProfile) -> None:
+        config = self.get_image_generation_config()
+        profiles = list(config.profiles)
+        for index, current in enumerate(profiles):
+            if current.id == profile.id:
+                profiles[index] = profile
+                break
+        else:
+            profiles.append(profile)
+        if not config.default_profile_id:
+            config.default_profile_id = profile.id
+        config.profiles = profiles
+        self.save_image_generation_config(config)
+
+    def delete_image_generation_profile(self, profile_id: str) -> None:
+        config = self.get_image_generation_config()
+        config.profiles = [profile for profile in config.profiles if profile.id != profile_id]
+        if config.default_profile_id == profile_id:
+            config.default_profile_id = config.profiles[0].id if config.profiles else ""
+        self.save_image_generation_config(config)
+
+    def reorder_image_generation_profiles(self, ordered_ids: list[str]) -> None:
+        config = self.get_image_generation_config()
+        records = [profile.model_dump() for profile in config.profiles]
+        config.profiles = [
+            ImageGenerationProfile(**record)
+            for record in _ordered_records(records, ordered_ids)
+        ]
+        self.save_image_generation_config(config)
+
     # ─── TTS設定 ───
 
     def get_tts_config(self) -> TTSConfig:
@@ -468,7 +590,7 @@ class ApiConfigStore:
             endpoints.append(endpoint)
         config.endpoints = endpoints
         if is_first_endpoint:
-            config.mode_assignments = {mode: endpoint.id for mode in GEN_SERVER_MODES}
+            config.mode_assignments = {mode: endpoint.id for mode in _GEN_SERVER_ASSIGNABLE_MODES}
         self.save_gen_server_config(config)
 
     def delete_gen_server_endpoint(self, endpoint_id: str) -> None:
@@ -480,6 +602,14 @@ class ApiConfigStore:
             if current_id != endpoint_id
         }
         self.save_gen_server_config(config)
+        image_config = self.get_image_generation_config()
+        image_config.profiles = [
+            profile.model_copy(update={"endpoint_id": ""})
+            if profile.provider == IMAGE_PROVIDER_WIZMY_GEN_SERVER and profile.endpoint_id == endpoint_id
+            else profile
+            for profile in image_config.profiles
+        ]
+        self.save_image_generation_config(image_config)
 
     def reorder_gen_server_endpoints(self, ordered_ids: list[str]) -> None:
         config = self.get_gen_server_config()
@@ -489,7 +619,7 @@ class ApiConfigStore:
 
     def set_gen_server_mode_assignment(self, mode: str, endpoint_id: str) -> None:
         config = self.get_gen_server_config()
-        if mode not in GEN_SERVER_MODES:
+        if mode not in _GEN_SERVER_ASSIGNABLE_MODES:
             return
         valid_ids = {endpoint.id for endpoint in config.endpoints}
         if endpoint_id and endpoint_id not in valid_ids:
@@ -502,7 +632,7 @@ class ApiConfigStore:
 
     def set_gen_server_mode_defaults(self, mode: str, defaults: dict[str, Any]) -> None:
         config = self.get_gen_server_config()
-        if mode not in GEN_SERVER_MODES:
+        if mode not in _GEN_SERVER_ASSIGNABLE_MODES:
             return
         config.mode_defaults[mode] = defaults
         self.save_gen_server_config(config)

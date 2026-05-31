@@ -17,6 +17,7 @@ from ..core.gen_server.schemas import (
     gen_server_health_url,
     gen_server_models_url,
 )
+from ..core.image_generation.schemas import ImageGenerationConfig, ImageGenerationProfile
 from ..core.llm.factory import fetch_models, get_parameter_capabilities, validate_connection
 from ..core.llm.schemas import (
     AppLLMConfig,
@@ -286,6 +287,62 @@ class ApiConfigService:
     def get_llm_parameter_capabilities(self, endpoint_id: str) -> LLMParameterCapabilities:
         endpoint = self._store.get_endpoint(endpoint_id)
         return get_parameter_capabilities(endpoint)
+
+    # ─── 画像生成プロファイル ───
+
+    def get_image_generation_config(self) -> ImageGenerationConfig:
+        return self._store.get_image_generation_config()
+
+    def get_image_generation_profiles(self) -> list[ImageGenerationProfile]:
+        return self._store.get_image_generation_profiles()
+
+    def get_image_generation_profile(self, profile_id: str) -> ImageGenerationProfile | None:
+        return self._store.get_image_generation_profile(profile_id)
+
+    def get_default_image_generation_profile(self) -> ImageGenerationProfile | None:
+        config = self._store.get_image_generation_config()
+        if config.default_profile_id:
+            return self._store.get_image_generation_profile(config.default_profile_id)
+        return config.profiles[0] if config.profiles else None
+
+    def create_image_generation_profile(self, profile: ImageGenerationProfile) -> ImageGenerationProfile:
+        if not profile.id:
+            profile = profile.model_copy(update={"id": self._store.new_id()})
+        self._store.upsert_image_generation_profile(profile)
+        self._store.save()
+        return profile
+
+    def update_image_generation_profile(self, profile: ImageGenerationProfile) -> None:
+        self._store.upsert_image_generation_profile(profile)
+        self._store.save()
+
+    def duplicate_image_generation_profile(self, profile_id: str) -> ImageGenerationProfile | None:
+        original = self._store.get_image_generation_profile(profile_id)
+        if original is None:
+            return None
+        copy = original.model_copy(update={
+            "id": self._store.new_id(),
+            "name": f"{original.name} (コピー)",
+        })
+        self._store.upsert_image_generation_profile(copy)
+        self._store.save()
+        return copy
+
+    def delete_image_generation_profile(self, profile_id: str) -> None:
+        self._store.delete_image_generation_profile(profile_id)
+        self._store.save()
+
+    def reorder_image_generation_profiles(self, ordered_ids: list[str]) -> None:
+        self._store.reorder_image_generation_profiles(ordered_ids)
+        self._store.save()
+
+    def set_default_image_generation_profile(self, profile_id: str) -> None:
+        config = self._store.get_image_generation_config()
+        if profile_id and not any(profile.id == profile_id for profile in config.profiles):
+            return
+        config.default_profile_id = profile_id
+        self._store.save_image_generation_config(config)
+        self._store.save()
 
     # ─── TTS設定 ───
 

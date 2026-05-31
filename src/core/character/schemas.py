@@ -55,13 +55,14 @@ class CharacterVoiceAsset(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+CHARACTER_TTS_API_DEFAULT = "default"
 CHARACTER_TTS_API_TTS = "tts"
 CHARACTER_TTS_API_GEN_SERVER = "gen_server"
-CharacterTTSApiType = Literal["tts", "gen_server"]
+CharacterTTSApiType = Literal["default", "tts", "gen_server"]
 
 
 class CharacterTTSSettings(BaseModel):
-    api_type: CharacterTTSApiType = CHARACTER_TTS_API_TTS
+    api_type: CharacterTTSApiType = CHARACTER_TTS_API_DEFAULT
     endpoint_id: str = ""
     voice_id: str = ""
     gen_server_params: dict[str, Any] = Field(default_factory=dict)

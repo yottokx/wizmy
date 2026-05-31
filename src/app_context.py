@@ -12,6 +12,8 @@ from .services.api_config import ApiConfigService
 from .services.chat import ChatService
 from .services.character import CharacterService
 from .services.character_generation import CharacterGenerationService
+from .services.danbooru_prompt import DanbooruPromptService
+from .services.image_generation import ImageGenerationService
 from .services.tts import TTSService
 from .storage.api_config_store import ApiConfigStore
 from .storage.chat_repository import ChatRepository
@@ -29,6 +31,8 @@ class AppContext:
         self.chats = ChatService(self._chat_repo)
         self.characters = CharacterService(self._character_repo, settings.data_dir)
         self.generation = CharacterGenerationService(self.characters)
+        self.danbooru_prompt = DanbooruPromptService(self.api_config)
+        self.image_generation = ImageGenerationService(self.api_config)
         self.tts = TTSService(self.api_config)
 
     async def startup(self) -> None:

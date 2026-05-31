@@ -104,6 +104,49 @@ class CharacterService:
             self._delete_media_file(old_path)
         return saved
 
+    async def save_image_bytes(
+        self,
+        character_id: str,
+        image_bytes: bytes,
+        *,
+        filename: str = "generated-image.png",
+        content_type: str = "image/png",
+        width: int = 0,
+        height: int = 0,
+    ) -> CharacterSheet:
+        if not image_bytes:
+            raise ValueError("画像データが空です。")
+        if content_type and not content_type.startswith("image/"):
+            raise ValueError("画像データを指定してください。")
+
+        sheet = await self._require_sheet(character_id)
+        asset_id = uuid.uuid4().hex
+        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
+        relative_path = Path("characters") / character_id / "images" / f"{asset_id}{suffix}"
+        target = self._data_dir / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(image_bytes)
+
+        old_paths = [image.path for image in sheet.media.images]
+        image = CharacterImageAsset(
+            id=asset_id,
+            path=relative_path.as_posix(),
+            original_name=filename,
+            content_type=content_type,
+            width=max(0, int(width or 0)),
+            height=max(0, int(height or 0)),
+        )
+        sheet.media.images = [image]
+        sheet.media.primary_image_id = image.id
+        try:
+            saved = await self.save(sheet)
+        except Exception:
+            self._delete_media_file(image.path)
+            raise
+        for old_path in old_paths:
+            self._delete_media_file(old_path)
+        return saved
+
     async def save_voice(self, character_id: str, upload: Any) -> CharacterSheet:
         sheet = await self._require_sheet(character_id)
         filename = getattr(upload, "name", "") or ""
@@ -139,6 +182,42 @@ class CharacterService:
             self._delete_media_file(old_path)
         return saved
 
+    async def save_voice_bytes(
+        self,
+        character_id: str,
+        audio_bytes: bytes,
+        *,
+        filename: str = "voice-design.wav",
+        content_type: str = "audio/wav",
+    ) -> CharacterSheet:
+        if not audio_bytes:
+            raise ValueError("音声データが空です。")
+        sheet = await self._require_sheet(character_id)
+        asset_id = uuid.uuid4().hex
+        suffix = self._safe_suffix(filename, content_type, self._VOICE_SUFFIXES, ".wav")
+        relative_path = Path("characters") / character_id / "voices" / f"{asset_id}{suffix}"
+        target = self._data_dir / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(audio_bytes)
+
+        old_paths = [voice.path for voice in sheet.media.voices]
+        voice = CharacterVoiceAsset(
+            id=asset_id,
+            path=relative_path.as_posix(),
+            original_name=filename,
+            content_type=content_type,
+        )
+        sheet.media.voices = [voice]
+        sheet.media.primary_voice_id = voice.id
+        try:
+            saved = await self.save(sheet)
+        except Exception:
+            self._delete_media_file(voice.path)
+            raise
+        for old_path in old_paths:
+            self._delete_media_file(old_path)
+        return saved
+
     async def update_tts_settings(
         self,
         character_id: str,
@@ -148,7 +227,13 @@ class CharacterService:
         sheet.media.tts = settings
         return await self.save(sheet)
 
-    def save_tts_preview(self, character_id: str, audio_bytes: bytes) -> Path:
+    def save_tts_preview(
+        self,
+        character_id: str,
+        audio_bytes: bytes,
+        *,
+        replace_existing: bool = True,
+    ) -> Path:
         if not audio_bytes:
             raise ValueError("音声データが空です。")
 
@@ -158,11 +243,39 @@ class CharacterService:
             raise ValueError("保存先が不正です。")
 
         preview_dir.mkdir(parents=True, exist_ok=True)
-        for old_file in preview_dir.glob("preview-*.wav"):
-            old_file.unlink(missing_ok=True)
+        if replace_existing:
+            for old_file in preview_dir.glob("preview-*.wav"):
+                old_file.unlink(missing_ok=True)
 
         preview_path = preview_dir / f"preview-{uuid.uuid4().hex}.wav"
         preview_path.write_bytes(audio_bytes)
+        return preview_path
+
+    def save_image_preview(
+        self,
+        character_id: str,
+        image_bytes: bytes,
+        *,
+        filename: str = "generated-image.png",
+        content_type: str = "image/png",
+        replace_existing: bool = True,
+    ) -> Path:
+        if not image_bytes:
+            raise ValueError("画像データが空です。")
+
+        preview_dir = (self._characters_dir / character_id / "images" / "previews").resolve()
+        character_root = (self._characters_dir / character_id).resolve()
+        if not preview_dir.is_relative_to(character_root):
+            raise ValueError("保存先が不正です。")
+
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
+        if replace_existing:
+            for old_file in preview_dir.glob("preview-*"):
+                old_file.unlink(missing_ok=True)
+
+        preview_path = preview_dir / f"preview-{uuid.uuid4().hex}{suffix}"
+        preview_path.write_bytes(image_bytes)
         return preview_path
 
     def save_tts_playback(self, character_id: str, audio_bytes: bytes) -> Path:

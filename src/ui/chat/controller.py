@@ -66,7 +66,7 @@ class ChatPageController:
         self.tts_configured = bool(
             self.voice
             and self.voice_path
-            and ctx.tts.has_voice_playback_api(sheet.media.tts.api_type)
+            and ctx.tts.has_voice_playback_api(sheet.media.tts.api_type, sheet.media.tts.endpoint_id)
         )
         self.active_session_id: str | None = None
         self.active_title_is_auto = False
