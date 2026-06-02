@@ -14,7 +14,11 @@ from nicegui import app, ui
 from ...core.chat.schemas import ChatMode, UserPersona
 from ...core.chat.sessions import ChatSessionRecord, DEFAULT_CHAT_TITLE
 from ...core.chat.templates import TemplateError, render_chat_mode
-from ...core.character.schemas import CharacterSheet
+from ...core.character.schemas import (
+    CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
+    CHARACTER_TTS_API_GEN_SERVER,
+    CharacterSheet,
+)
 from ...core.llm.factory import create_llm
 from ...services.tts import TTSServiceError
 from ..state import get_vault_password
@@ -513,6 +517,13 @@ class ChatPageController:
             return
 
         settings = self.sheet.media.tts
+        if (
+            settings.api_type == CHARACTER_TTS_API_GEN_SERVER
+            and settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
+            and not settings.voice_caption.strip()
+        ):
+            ui.notify("VoiceDesign v3モードのTTS用captionを設定してください", type="warning")
+            return
         self.state.tts_generating_index = index
         self.refresh_messages()
         try:
@@ -525,6 +536,8 @@ class ChatPageController:
                 filename=self.voice.original_name,
                 content_type=self.voice.content_type,
                 api_type=settings.api_type,
+                gen_server_tts_mode=settings.gen_server_tts_mode,
+                voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
             )
             playback_path = self.ctx.characters.save_tts_playback(self.sheet.id, audio)

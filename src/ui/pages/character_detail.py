@@ -18,6 +18,8 @@ from nicegui.events import MouseEventArguments
 
 from ...app_context import get_context
 from ...core.character.schemas import (
+    CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
+    CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
     CHARACTER_TTS_API_DEFAULT,
     CHARACTER_TTS_API_GEN_SERVER,
     CHARACTER_TTS_API_TTS,
@@ -49,6 +51,10 @@ from ..state import get_vault_password
 
 _TTS_API_PREFIX = "tts:"
 _GEN_SERVER_VOICE_CLONE_API = "gen_server:irodori_voice_clone"
+_GEN_SERVER_TTS_MODE_OPTIONS = {
+    CHARACTER_GEN_SERVER_TTS_MODE_CLONE: "ボイスクローン",
+    CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3: "VoiceDesign v3",
+}
 _GENERATED_PROMPT_RE = re.compile(
     r"<(?:span|strong)\b(?=[^>]*(?:data-wizmy-generated-prompt|wizmy-generated-prompt))[^>]*>"
     r".*?</(?:span|strong)>\s*",
@@ -775,6 +781,9 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
     defaults = ctx.api_config.get_gen_server_config().defaults_for_mode(mode)
     controls: dict[str, object] = {}
     generated: list[dict[str, object]] = []
+    current_voice = sheet.media.primary_voice()
+    current_voice_path = ctx.characters.media_path(current_voice.path) if current_voice else None
+    initial_caption = sheet.media.tts.voice_caption or sheet.voice_image
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
         with ui.row().classes("w-full items-center justify-between gap-2"):
@@ -787,10 +796,16 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
             placeholder="生成する音声で読み上げる台詞",
         ).props("outlined rows=4").classes("w-full")
         caption_input = ui.textarea(
-            label="声のイメージ",
-            value=sheet.voice_image,
+            label="TTS用caption",
+            value=initial_caption,
             placeholder="例: 明るく柔らかい少女声、少し早口で元気",
         ).props("outlined rows=4").classes("w-full")
+        reference_checkbox = None
+        if current_voice_path is not None:
+            reference_checkbox = ui.checkbox(
+                "現在のキャラ音声を参照音声として使う",
+                value=True,
+            ).classes("w-full")
 
         with ui.expansion("詳細パラメータ", icon="tune").props("dense").classes("w-full"):
             with ui.grid(columns=2).classes("w-full gap-3"):
@@ -867,7 +882,7 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                             ui.button(
                                 "この音声を保存",
                                 icon="save",
-                                on_click=lambda audio=audio, index=index: _save_voice(audio, index),
+                                on_click=lambda item=item, index=index: _save_voice(item, index),
                             ).props("outline color=primary")
                         ui.audio(audio_path).classes("w-full")
 
@@ -887,6 +902,11 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                 audio = await ctx.tts.design_voice(
                     text,
                     caption,
+                    voice_path=current_voice_path
+                    if reference_checkbox is not None and bool(reference_checkbox.value)
+                    else None,
+                    filename=current_voice.original_name if current_voice else "",
+                    content_type=current_voice.content_type if current_voice else "",
                     gen_server_params=_read_params(),
                 )
                 preview_path = ctx.characters.save_tts_preview(
@@ -897,6 +917,8 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                 generated.append({
                     "audio": audio,
                     "path": preview_path,
+                    "caption": caption,
+                    "params": _read_params(),
                 })
                 _render_generated()
                 status.set_text("")
@@ -910,7 +932,8 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
             finally:
                 generate_btn.enable()
 
-        async def _save_voice(audio: object, index: int) -> None:
+        async def _save_voice(item: dict[str, object], index: int) -> None:
+            audio = item.get("audio")
             if not audio:
                 ui.notify("先に音声を生成してください。", type="warning")
                 return
@@ -921,7 +944,19 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                     filename=f"voice-design-{index}.wav",
                     content_type="audio/wav",
                 )
-                sheet.media = saved.media
+                settings = saved.media.tts.model_copy(
+                    update={
+                        "api_type": CHARACTER_TTS_API_GEN_SERVER,
+                        "gen_server_tts_mode": CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
+                        "voice_caption": str(item.get("caption") or "").strip(),
+                        "gen_server_params": clean_gen_server_mode_defaults(
+                            mode,
+                            item.get("params") if isinstance(item.get("params"), dict) else {},
+                        ),
+                    }
+                )
+                updated = await ctx.characters.update_tts_settings(character_id, settings)
+                sheet.media = updated.media
                 ui.notify("生成音声をキャラ音声に保存しました", type="positive")
                 dlg.close()
                 refresh_fn()
@@ -941,7 +976,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
     ui.separator().classes("my-3")
     endpoints = ctx.tts.get_endpoints()
     gen_server_config = ctx.api_config.get_gen_server_config()
-    has_gen_server = _assigned_voice_clone_endpoint(gen_server_config) is not None
+    has_gen_server = bool(_assigned_gen_server_voice_endpoints(gen_server_config))
     if not endpoints and not has_gen_server:
         ui.label("使用できるTTSがありません。Wizmy-Gen-ServerまたはTTS APIを設定してください。").classes(
             "text-sm text-grey-6"
@@ -953,12 +988,15 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
     endpoint_options = _voice_api_options(endpoints, gen_server_config)
     selected_value = _selected_voice_api_value(current_settings, endpoints, has_gen_server)
     selected_endpoint = _selected_tts_endpoint(selected_value, endpoint_by_id)
+    gen_server_tts_mode_state = {"value": _normalize_gen_server_tts_mode(current_settings.gen_server_tts_mode)}
+    gen_server_backend_mode = _gen_server_backend_mode(gen_server_tts_mode_state["value"])
     gen_server_params_state = {
         "value": clean_gen_server_mode_defaults(
-            GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+            gen_server_backend_mode,
             current_settings.gen_server_params,
         )
     }
+    voice_caption_value = current_settings.voice_caption or sheet.voice_image
 
     endpoint_select = ui.select(
         options=endpoint_options,
@@ -967,16 +1005,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
     ).props("outlined").classes("w-full")
 
     async def _change_endpoint() -> None:
-        api_type, endpoint_id = _parse_voice_api_value(endpoint_select.value)
-        saved = await ctx.characters.update_tts_settings(
-            character_id,
-            current_settings.model_copy(
-                update={
-                    "api_type": api_type,
-                    "endpoint_id": endpoint_id,
-                }
-            ),
-        )
+        saved = await ctx.characters.update_tts_settings(character_id, _current_tts_settings())
         sheet.media = saved.media
         refresh_fn()
 
@@ -1002,7 +1031,33 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
                 "outline color=negative"
             ).classes("flex-1")
 
+    mode_select = None
+    voice_caption_input = None
     if _is_gen_server_voice_api(selected_value):
+        mode_select = ui.select(
+            options=_GEN_SERVER_TTS_MODE_OPTIONS,
+            value=gen_server_tts_mode_state["value"],
+            label="Gen-Server TTSモード",
+        ).props("outlined").classes("w-full")
+
+        async def _on_gen_server_mode_change(_) -> None:
+            gen_server_tts_mode_state["value"] = _normalize_gen_server_tts_mode(mode_select.value)
+            backend_mode = _gen_server_backend_mode(gen_server_tts_mode_state["value"])
+            gen_server_params_state["value"] = clean_gen_server_mode_defaults(
+                backend_mode,
+                gen_server_params_state["value"],
+            )
+            await _save_tts_settings(notify=False)
+            refresh_fn()
+
+        mode_select.on_value_change(_on_gen_server_mode_change)
+        if gen_server_tts_mode_state["value"] == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
+            voice_caption_input = ui.textarea(
+                label="TTS用caption",
+                value=voice_caption_value,
+                placeholder="例: 明るく柔らかい少女声、少し早口で元気",
+            ).props("outlined rows=3").classes("w-full")
+
         ui.button(
             "パラメータ設定",
             icon="tune",
@@ -1010,6 +1065,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
                 ctx,
                 gen_server_params_state,
                 _save_tts_settings,
+                _gen_server_backend_mode(gen_server_tts_mode_state["value"]),
             ),
         ).props("outline color=primary").classes("w-full")
 
@@ -1028,11 +1084,27 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
 
     def _current_tts_settings() -> CharacterTTSSettings:
         api_type, endpoint_id = _parse_voice_api_value(endpoint_select.value)
+        selected_mode = (
+            _normalize_gen_server_tts_mode(mode_select.value)
+            if mode_select is not None
+            else gen_server_tts_mode_state["value"]
+        )
+        caption = (
+            (voice_caption_input.value or "").strip()
+            if voice_caption_input is not None
+            else (current_settings.voice_caption or sheet.voice_image).strip()
+        )
+        backend_mode = _gen_server_backend_mode(selected_mode)
         return CharacterTTSSettings(
             api_type=api_type,
             endpoint_id=endpoint_id,
             voice_id=(voice_id_input.value or "").strip() if voice_id_input else current_settings.voice_id,
-            gen_server_params=dict(gen_server_params_state["value"]),
+            gen_server_tts_mode=selected_mode,
+            voice_caption=caption,
+            gen_server_params=clean_gen_server_mode_defaults(
+                backend_mode,
+                dict(gen_server_params_state["value"]),
+            ),
         )
 
     async def _save_tts_settings(*, notify: bool = True) -> CharacterTTSSettings:
@@ -1090,6 +1162,13 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
             return
 
         settings = await _save_tts_settings(notify=False)
+        if (
+            settings.api_type == CHARACTER_TTS_API_GEN_SERVER
+            and settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
+            and not settings.voice_caption.strip()
+        ):
+            ui.notify("VoiceDesign v3モードではTTS用captionを入力してください。", type="warning")
+            return
         synth_btn.disable()
         tts_status.set_text("生成中...")
         preview_container.clear()
@@ -1103,6 +1182,8 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
                 filename=voice.original_name,
                 content_type=voice.content_type,
                 api_type=settings.api_type,
+                gen_server_tts_mode=settings.gen_server_tts_mode,
+                voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
             )
             preview_path = ctx.characters.save_tts_preview(character_id, audio)
@@ -1129,10 +1210,11 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
 
 def _voice_api_options(endpoints, gen_server_config) -> dict[str, str]:
     options: dict[str, str] = {}
-    assigned = _assigned_voice_clone_endpoint(gen_server_config)
-    if assigned is not None:
-        mode_label = GEN_SERVER_MODE_LABELS.get(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, "ボイスクローン")
-        options[_GEN_SERVER_VOICE_CLONE_API] = f"Wizmy-Gen-Server ({mode_label}: {assigned.name})"
+    assigned = _assigned_gen_server_voice_endpoints(gen_server_config)
+    if assigned:
+        names = sorted({endpoint.name for endpoint in assigned if endpoint.name})
+        name_label = ", ".join(names) if names else "割り当て済み"
+        options[_GEN_SERVER_VOICE_CLONE_API] = f"Wizmy-Gen-Server (TTS: {name_label})"
     options.update({
         f"{_TTS_API_PREFIX}{endpoint.id}": f"{endpoint.name} ({_tts_provider_label(endpoint.provider)})"
         for endpoint in endpoints
@@ -1161,6 +1243,46 @@ def _assigned_voice_clone_endpoint(gen_server_config):
     )
 
 
+def _assigned_voice_design_endpoint(gen_server_config):
+    assigned_id = gen_server_config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_DESIGN)
+    return next(
+        (endpoint for endpoint in gen_server_config.endpoints if endpoint.id == assigned_id),
+        None,
+    )
+
+
+def _assigned_gen_server_voice_endpoints(gen_server_config) -> list:
+    endpoints = [
+        endpoint
+        for endpoint in [
+            _assigned_voice_clone_endpoint(gen_server_config),
+            _assigned_voice_design_endpoint(gen_server_config),
+        ]
+        if endpoint is not None
+    ]
+    result = []
+    seen: set[str] = set()
+    for endpoint in endpoints:
+        if endpoint.id in seen:
+            continue
+        result.append(endpoint)
+        seen.add(endpoint.id)
+    return result
+
+
+def _normalize_gen_server_tts_mode(value: str | None) -> str:
+    selected = str(value or "")
+    if selected == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
+        return CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
+    return CHARACTER_GEN_SERVER_TTS_MODE_CLONE
+
+
+def _gen_server_backend_mode(tts_mode: str) -> str:
+    if tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
+        return GEN_SERVER_MODE_IRODORI_VOICE_DESIGN
+    return GEN_SERVER_MODE_IRODORI_VOICE_CLONE
+
+
 def _parse_voice_api_value(value: str | None) -> tuple[str, str]:
     selected = str(value or "")
     if selected == _GEN_SERVER_VOICE_CLONE_API:
@@ -1181,12 +1303,12 @@ def _is_gen_server_voice_api(value: str | None) -> bool:
     return _parse_voice_api_value(value)[0] == CHARACTER_TTS_API_GEN_SERVER
 
 
-def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings) -> None:
-    fields = GEN_SERVER_DEFAULT_FIELDS.get(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, {})
-    defaults = ctx.api_config.get_gen_server_config().defaults_for_mode(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
+def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings, mode: str) -> None:
+    fields = GEN_SERVER_DEFAULT_FIELDS.get(mode, {})
+    defaults = ctx.api_config.get_gen_server_config().defaults_for_mode(mode)
     current = {
         **defaults,
-        **clean_gen_server_mode_defaults(GEN_SERVER_MODE_IRODORI_VOICE_CLONE, params_state["value"]),
+        **clean_gen_server_mode_defaults(mode, params_state["value"]),
     }
     controls: dict[str, object] = {}
 
@@ -1232,6 +1354,7 @@ def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings) -
                                 on_click=lambda model_input=model_input: _fetch_character_gen_server_model_id(
                                     model_input,
                                     ctx,
+                                    mode,
                                 ),
                             ).props("flat round").tooltip("モデルIDを取得")
                         controls[key] = model_input
@@ -1261,7 +1384,7 @@ def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings) -
                 if value != defaults.get(key, fields[key].get("default"))
             }
             params_state["value"] = clean_gen_server_mode_defaults(
-                GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+                mode,
                 overrides,
             )
             await save_settings(notify=False)

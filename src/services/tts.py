@@ -15,6 +15,8 @@ from urllib.parse import quote, urljoin
 import httpx
 
 from ..core.character.schemas import (
+    CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
+    CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
     CHARACTER_TTS_API_DEFAULT,
     CHARACTER_TTS_API_GEN_SERVER,
     CHARACTER_TTS_API_TTS,
@@ -50,15 +52,19 @@ class TTSService:
         return self._api_config.get_tts_endpoints()
 
     def has_voice_playback_api(self, api_type: str = "", endpoint_id: str = "") -> bool:
-        gen_server_available = self.resolve_gen_server_voice_clone_endpoint(
-            raise_on_missing=False
-        ) is not None
+        gen_server_available = self._has_gen_server_voice_endpoint()
         endpoints = self.get_endpoints()
         if api_type == CHARACTER_TTS_API_TTS and endpoint_id and any(
             endpoint.id == endpoint_id for endpoint in endpoints
         ):
             return True
         return gen_server_available or bool(endpoints)
+
+    def _has_gen_server_voice_endpoint(self) -> bool:
+        return (
+            self.resolve_gen_server_voice_clone_endpoint(raise_on_missing=False) is not None
+            or self.resolve_gen_server_voice_design_endpoint(raise_on_missing=False) is not None
+        )
 
     def default_endpoint_id(self) -> str:
         config = self._api_config.get_tts_config()
@@ -137,6 +143,9 @@ class TTSService:
         text: str,
         caption: str,
         *,
+        voice_path: Path | None = None,
+        filename: str = "",
+        content_type: str = "",
         gen_server_params: dict[str, Any] | None = None,
     ) -> bytes:
         endpoint = self.resolve_gen_server_voice_design_endpoint()
@@ -144,8 +153,11 @@ class TTSService:
         return await WizmyGenServerVoiceDesignClient(endpoint).synthesize(
             text,
             caption,
+            voice_path,
             model_id=model_id,
             params=params,
+            filename=filename,
+            content_type=content_type,
         )
 
     async def register_voice(
@@ -193,6 +205,8 @@ class TTSService:
         filename: str = "",
         content_type: str = "",
         api_type: str = CHARACTER_TTS_API_TTS,
+        gen_server_tts_mode: str = CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
+        voice_caption: str = "",
         gen_server_params: dict[str, Any] | None = None,
         chunking_enabled: bool | None = None,
         chunk_min_chars: int | None = None,
@@ -203,6 +217,24 @@ class TTSService:
         )
         resolved_api_type = self._resolve_api_type(api_type, endpoint_id)
         if resolved_api_type == CHARACTER_TTS_API_GEN_SERVER:
+            if gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
+                caption = voice_caption.strip()
+                if not caption:
+                    raise TTSServiceError("VoiceDesign v3で読み上げるにはTTS用captionが必要です。")
+                endpoint = self.resolve_gen_server_voice_design_endpoint()
+                model_id, params = self._gen_server_voice_design_options(gen_server_params or {})
+                return await WizmyGenServerVoiceDesignClient(endpoint).synthesize(
+                    text,
+                    caption,
+                    voice_path,
+                    model_id=model_id,
+                    params=params,
+                    filename=filename,
+                    content_type=content_type,
+                    chunking_enabled=resolved_chunking_enabled,
+                    chunk_min_chars=resolved_chunk_min_chars,
+                )
+
             endpoint = self.resolve_gen_server_voice_clone_endpoint()
             model_id, params = self._gen_server_voice_clone_options(gen_server_params or {})
             return await WizmyGenServerVoiceCloneClient(endpoint).synthesize(
@@ -234,9 +266,7 @@ class TTSService:
         )
 
     def _resolve_api_type(self, api_type: str, endpoint_id: str = "") -> str:
-        gen_server_available = self.resolve_gen_server_voice_clone_endpoint(
-            raise_on_missing=False
-        ) is not None
+        gen_server_available = self._has_gen_server_voice_endpoint()
         endpoint_exists = bool(endpoint_id) and any(
             endpoint.id == endpoint_id for endpoint in self.get_endpoints()
         )
@@ -682,9 +712,50 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
         self,
         text: str,
         caption: str,
+        voice_path: Path | None = None,
         *,
         model_id: str,
         params: dict[str, Any],
+        filename: str = "",
+        content_type: str = "",
+        chunking_enabled: bool = True,
+        chunk_min_chars: int = DEFAULT_CHUNK_MIN_CHARS,
+    ) -> bytes:
+        if voice_path is None:
+            params = {**params, "no_ref": True}
+        else:
+            params = {**params, "no_ref": False}
+        chunks = _speech_chunks(text, enabled=chunking_enabled, min_chars=chunk_min_chars)
+        async with self._client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
+            try:
+                audio_chunks = [
+                    await self._synthesize_once(
+                        client,
+                        chunk,
+                        caption,
+                        voice_path,
+                        model_id=model_id,
+                        params=params,
+                        filename=filename,
+                        content_type=content_type,
+                    )
+                    for chunk in chunks
+                ]
+                return _concat_wav_bytes(audio_chunks)
+            except httpx.HTTPError as exc:
+                raise TTSServiceError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
+
+    async def _synthesize_once(
+        self,
+        client: httpx.AsyncClient,
+        text: str,
+        caption: str,
+        voice_path: Path | None,
+        *,
+        model_id: str,
+        params: dict[str, Any],
+        filename: str,
+        content_type: str,
     ) -> bytes:
         data = {
             "text": text,
@@ -693,22 +764,25 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
         }
         if model_id:
             data["model_id"] = model_id
-        async with self._client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
-            try:
-                response = await client.post("/v1/tts/design/jobs", data=data)
-                _raise_for_error(response, "Wizmy-Gen-Server")
-                job_id = str(response.json().get("job_id") or "")
-                if not job_id:
-                    raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
-                result = await self._wait_job_result(client, job_id)
-                audio_url = _first_audio_artifact_url(result)
-                if not audio_url:
-                    raise TTSServiceError("Wizmy-Gen-Serverの生成結果に音声が含まれていません。")
-                audio_response = await client.get(audio_url)
-                _raise_for_error(audio_response, "Wizmy-Gen-Server")
-                return audio_response.content
-            except httpx.HTTPError as exc:
-                raise TTSServiceError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
+        if voice_path is None:
+            response = await client.post("/v1/tts/design/jobs", data=data)
+        else:
+            name = filename or voice_path.name
+            media_type = content_type or mimetypes.guess_type(name)[0] or "audio/wav"
+            with voice_path.open("rb") as handle:
+                files = {"reference_audio": (name, handle, media_type)}
+                response = await client.post("/v1/tts/design/jobs", data=data, files=files)
+        _raise_for_error(response, "Wizmy-Gen-Server")
+        job_id = str(response.json().get("job_id") or "")
+        if not job_id:
+            raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
+        result = await self._wait_job_result(client, job_id)
+        audio_url = _first_audio_artifact_url(result)
+        if not audio_url:
+            raise TTSServiceError("Wizmy-Gen-Serverの生成結果に音声が含まれていません。")
+        audio_response = await client.get(audio_url)
+        _raise_for_error(audio_response, "Wizmy-Gen-Server")
+        return audio_response.content
 
 
 def _voice_id_for_character(character_id: str) -> str:

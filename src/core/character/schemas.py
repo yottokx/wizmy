@@ -60,11 +60,17 @@ CHARACTER_TTS_API_TTS = "tts"
 CHARACTER_TTS_API_GEN_SERVER = "gen_server"
 CharacterTTSApiType = Literal["default", "tts", "gen_server"]
 
+CHARACTER_GEN_SERVER_TTS_MODE_CLONE = "voice_clone"
+CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3 = "voice_design_v3"
+CharacterGenServerTTSMode = Literal["voice_clone", "voice_design_v3"]
+
 
 class CharacterTTSSettings(BaseModel):
     api_type: CharacterTTSApiType = CHARACTER_TTS_API_DEFAULT
     endpoint_id: str = ""
     voice_id: str = ""
+    gen_server_tts_mode: CharacterGenServerTTSMode = CHARACTER_GEN_SERVER_TTS_MODE_CLONE
+    voice_caption: str = ""
     gen_server_params: dict[str, Any] = Field(default_factory=dict)
 
 
