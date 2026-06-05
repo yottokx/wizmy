@@ -267,6 +267,11 @@ CHAT_CSS = """
   justify-content: center;
   max-width: min(720px, 92%);
 }
+.cs-chat-message-row-memo {
+  align-self: center;
+  justify-content: center;
+  max-width: min(680px, 90%);
+}
 .cs-chat-face {
   width: 40px;
   height: 40px;
@@ -322,6 +327,22 @@ CHAT_CSS = """
 }
 .cs-chat-message-row-narration .cs-chat-message-text {
   color: var(--cs-text);
+}
+.cs-chat-message-row-memo .cs-chat-bubble {
+  width: 100%;
+  background: color-mix(in srgb, var(--cs-surface) 82%, var(--cs-accent-bg));
+  border-style: dotted;
+  border-color: var(--cs-border);
+  color: var(--cs-muted);
+  box-shadow: none;
+}
+.cs-chat-message-row-memo .cs-chat-message-text {
+  color: var(--cs-muted);
+}
+.cs-chat-message-kind {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--cs-accent);
 }
 .cs-chat-message-text {
   font-size: 0.93rem;
@@ -390,6 +411,62 @@ CHAT_CSS = """
 .cs-chat-command-palette-hidden {
   display: none !important;
 }
+.cs-chat-swipe-action-menu {
+  position: absolute;
+  left: 56px;
+  right: 64px;
+  bottom: calc(100% - 4px);
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--cs-border);
+  border-radius: 8px;
+  background: var(--cs-surface);
+  background: color-mix(in srgb, var(--cs-surface) 90%, transparent);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+  backdrop-filter: blur(12px);
+}
+.cs-chat-swipe-action-menu-hidden {
+  display: none !important;
+}
+.cs-chat-swipe-action-option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px minmax(86px, auto) 1fr;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cs-text);
+  text-align: left;
+  cursor: pointer;
+}
+.cs-chat-swipe-action-option:hover {
+  background: var(--cs-accent-bg);
+  background: color-mix(in srgb, var(--cs-accent-bg) 76%, transparent);
+}
+.cs-chat-swipe-action-icon {
+  color: var(--cs-accent);
+  font-size: 18px;
+}
+.cs-chat-swipe-action-command {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--cs-accent);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+.cs-chat-swipe-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--cs-muted);
+}
 .cs-chat-command-option {
   width: 100%;
   display: grid;
@@ -449,10 +526,10 @@ CHAT_CSS = """
   position: relative;
   border-width: 1px !important;
 }
-.cs-chat-direct-preset {
+.cs-chat-guide-preset {
   max-width: 100%;
 }
-.cs-chat-direct-preset .q-btn__content {
+.cs-chat-guide-preset .q-btn__content {
   white-space: normal;
   line-height: 1.35;
   text-align: left;
@@ -511,16 +588,45 @@ CHAT_CSS = """
   flex: 0 0 auto;
   width: 34px;
   height: 34px;
+  min-width: 34px !important;
+  min-height: 34px !important;
+  padding: 0 !important;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  border: 1px solid var(--cs-border);
-  color: var(--cs-muted);
-  background: var(--cs-surface-soft);
+  border: 1px solid var(--cs-border) !important;
+  color: var(--cs-muted) !important;
+  background: var(--cs-surface-soft) !important;
+}
+.cs-chat-mode-icon:hover {
+  color: var(--cs-accent) !important;
+  border-color: var(--cs-accent-border) !important;
+  background: var(--cs-accent-bg) !important;
+}
+.cs-chat-mode-icon .q-btn__content,
+.cs-chat-mode-icon-display {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .cs-chat-mode-icon .q-icon {
   font-size: 20px;
+}
+.cs-chat-mode-face {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--cs-surface);
+}
+.cs-chat-mode-face .q-icon {
+  font-size: 19px;
 }
 .q-notifications__list--bottom,
 .q-notifications__list--bottom-left,
@@ -533,9 +639,40 @@ CHAT_CSS = """
   gap: 10px;
   padding: 12px;
 }
-.cs-chat-composer-input {
+.cs-chat-composer-input-wrap {
   flex: 1;
   min-width: 0;
+  position: relative;
+}
+.cs-chat-composer-input {
+  width: 100%;
+  min-width: 0;
+}
+.cs-chat-composer-input-wrap:not(.cs-chat-composer-input-has-text):not(:has(.cs-chat-composer-input textarea:not(:placeholder-shown))) .cs-chat-composer-input textarea {
+  padding-right: 44px !important;
+}
+.cs-chat-voice-input {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  z-index: 3;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  color: var(--cs-muted) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+}
+.cs-chat-voice-input:hover,
+.cs-chat-voice-input-recording {
+  color: var(--cs-accent) !important;
+  background: var(--cs-accent-bg) !important;
+  border-color: var(--cs-accent-border) !important;
+}
+.cs-chat-composer-input-has-text .cs-chat-voice-input,
+.cs-chat-composer-input-wrap:has(.cs-chat-composer-input textarea:not(:placeholder-shown)) .cs-chat-voice-input {
+  display: none !important;
 }
 @media (max-width: 1279px) and (min-width: 768px) {
   .cs-chat-shell {
@@ -570,6 +707,10 @@ CHAT_CSS = """
     max-width: 92%;
   }
   .cs-chat-command-palette {
+    left: 12px;
+    right: 12px;
+  }
+  .cs-chat-swipe-action-menu {
     left: 12px;
     right: 12px;
   }

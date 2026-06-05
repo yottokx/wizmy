@@ -24,8 +24,7 @@ from ...services.tts import TTSServiceError
 from ..state import get_vault_password
 from . import components
 from .commands import (
-    input_mode_icon,
-    input_mode_label,
+    clean_short_llm_text,
     merge_completion,
     parse_command_input,
     parse_response_choices,
@@ -47,6 +46,7 @@ from .prompts import (
     build_narration_llm_messages,
     build_response_choice_messages,
     build_system_prompt,
+    build_tailored_input_messages,
     build_user_completion_messages,
     character_summary,
     format_llm_input,
@@ -137,6 +137,7 @@ class ChatPageController:
                     regenerate_message=self.confirm_or_regenerate_character_message,
                     play_tts_message=self.play_tts_message if self.tts_configured else None,
                     open_debug=components.open_llm_debug_dialog,
+                    set_input_mode=self.set_input_mode,
                     set_mobile_sidebar=self.set_mobile_sidebar,
                 )
 
@@ -322,13 +323,13 @@ class ChatPageController:
         if index < 0 or index >= len(self.state.messages):
             return
         message = self.state.messages[index]
-        if message.speaker not in {"user", "narration"}:
+        if message.speaker not in {"user", "narration", "memo"}:
             return
         self.state.messages = self.state.messages[:index]
         if self.refs.input is not None:
             self.refs.input.set_value(message.text)
             self.refs.input.enable()
-        self.set_input_mode("narration" if message.speaker == "narration" else "user")
+        self.set_input_mode(input_mode_for_speaker(message.speaker))
         self.set_sending(False)
         self.refresh_messages()
         await self.save_current_session()
@@ -340,10 +341,10 @@ class ChatPageController:
         if index < 0 or index >= len(self.state.messages):
             return
         message = self.state.messages[index]
-        if message.speaker not in {"user", "narration"}:
+        if message.speaker not in {"user", "narration", "memo"}:
             return
 
-        target_label = "地の文" if message.speaker == "narration" else "発言"
+        target_label = message_target_label(message.speaker)
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
             ui.label(f"この{target_label}まで戻りますか？").classes("text-base font-semibold")
             ui.label(f"この{target_label}以降の会話を削除し、本文を入力欄に戻します。").classes(
@@ -375,6 +376,7 @@ class ChatPageController:
             "character": "キャラクターの台詞",
             "user": "ユーザーの発言",
             "narration": "地の文",
+            "memo": "コメント",
         }.get(message.speaker, "メッセージ")
 
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-xl"):
@@ -582,15 +584,32 @@ class ChatPageController:
             return
         self.refs.input_mode_icon.clear()
         with self.refs.input_mode_icon:
-            ui.icon(input_mode_icon(self.state.input_mode)).tooltip(input_mode_label(self.state.input_mode))
+            components.render_input_mode_indicator(self.state.input_mode, self.image, self.image_path)
 
     def set_input_mode(self, mode: str) -> None:
-        self.state.input_mode = "narration" if mode == "narration" else "user"
+        self.state.input_mode = mode if mode in {"character", "narration", "memo"} else "user"
         self.refresh_input_mode_indicator()
 
     async def post_narration(self, text: str) -> None:
         self.state.messages.append(ChatMessagePreview("narration", text, time_label()))
         self.refresh_messages(scroll_to_bottom=True)
+        await self.save_current_session()
+
+    async def post_memo(self, text: str) -> None:
+        self.state.messages.append(ChatMessagePreview("memo", text, time_label()))
+        self.refresh_messages(scroll_to_bottom=True)
+        await self.save_current_session()
+
+    async def post_character_input(self, text: str) -> None:
+        self.state.messages.append(ChatMessagePreview("character", text, time_label()))
+        self.refresh_messages(scroll_to_bottom=True)
+        await self.save_current_session()
+
+    async def post_hold_user_text(self, left_text: str) -> None:
+        self.clear_input()
+        self.state.messages.append(ChatMessagePreview("user", left_text.strip(), time_label()))
+        self.refresh_messages(scroll_to_bottom=True)
+        self.set_input_mode("user")
         await self.save_current_session()
 
     async def append_character_turn(
@@ -671,6 +690,20 @@ class ChatPageController:
             self.set_sending(False)
             await self.save_current_session()
 
+    async def run_describe_action(
+        self,
+        settings: ChatSessionSettings,
+        left_text: str,
+        *,
+        instruction: str = "",
+    ) -> None:
+        if left_text.strip():
+            await self.post_command_left_text(left_text)
+        else:
+            self.clear_input()
+        self.set_input_mode("user")
+        await self.generate_scene(settings, instruction=instruction)
+
     async def fill_user_text(self, settings: ChatSessionSettings, left_text: str) -> None:
         if not left_text.strip():
             ui.notify("補完する文を /fill の左側に入力してください", type="warning")
@@ -701,6 +734,41 @@ class ChatPageController:
         finally:
             self.set_sending(False)
             if focus_after_completion:
+                self.focus_chat_input_at_end()
+
+    async def tailor_input_text(self, settings: ChatSessionSettings, left_text: str) -> None:
+        if not left_text.strip():
+            ui.notify("書き換える文を /tailor の左側に入力してください", type="warning")
+            return
+        llm = self.configured_llm(settings)
+        if llm is None:
+            return
+
+        focus_after_tailor = False
+        self.set_sending(True)
+        try:
+            response = await llm.ainvoke(
+                build_tailored_input_messages(
+                    self.sheet,
+                    settings,
+                    self.state.messages,
+                    left_text,
+                    input_mode=self.state.input_mode,
+                )
+            )
+            raw_output = message_content_to_text(getattr(response, "content", response))
+            tailored = clean_short_llm_text(raw_output)
+            if not tailored:
+                ui.notify("書き換え結果が空でした", type="warning")
+                return
+            self.set_input_value(tailored)
+            focus_after_tailor = True
+            ui.notify("現在のロール向けに書き換えました", type="positive")
+        except Exception as err:
+            ui.notify(f"書き換えに失敗しました: {err}", type="negative", timeout=10000)
+        finally:
+            self.set_sending(False)
+            if focus_after_tailor:
                 self.focus_chat_input_at_end()
 
     async def show_response_choices(self, settings: ChatSessionSettings, left_text: str) -> None:
@@ -736,7 +804,7 @@ class ChatPageController:
 
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg cs-chat-choice-dialog"):
             ui.label("応答を選択").classes("text-base font-semibold")
-            target_label = "地の文" if input_mode == "narration" else "発言"
+            target_label = message_target_label(input_mode)
             ui.label(f"選ぶとその{target_label}を投稿します。").classes("text-sm text-grey-6")
 
             async def _choose(choice: str) -> None:
@@ -744,6 +812,11 @@ class ChatPageController:
                 if input_mode == "narration":
                     self.clear_input()
                     await self.post_narration(choice)
+                    self.set_input_mode("user")
+                    return
+                if input_mode == "character":
+                    self.clear_input()
+                    await self.post_character_input(choice)
                     self.set_input_mode("user")
                     return
                 await self.send_user_turn(choice)
@@ -811,7 +884,7 @@ setTimeout(() => {
 """
         )
 
-    async def post_direct_left_text(self, left_text: str) -> None:
+    async def post_command_left_text(self, left_text: str) -> None:
         text = left_text.strip()
         if not text:
             return
@@ -819,20 +892,27 @@ setTimeout(() => {
         if self.state.input_mode == "narration":
             self.state.messages.append(ChatMessagePreview("narration", text, time_label()))
             self.set_input_mode("user")
+        elif self.state.input_mode == "character":
+            self.state.messages.append(ChatMessagePreview("character", text, time_label()))
+            self.set_input_mode("user")
+        elif self.state.input_mode == "memo":
+            self.state.messages.append(ChatMessagePreview("memo", text, time_label()))
+            self.set_input_mode("user")
         else:
             self.state.messages.append(ChatMessagePreview("user", text, time_label()))
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session()
 
-    async def open_direct_next_turn_dialog(self, settings: ChatSessionSettings, left_text: str = "") -> None:
-        if not left_text.strip():
+    async def open_guide_next_turn_dialog(self, settings: ChatSessionSettings, left_text: str = "") -> None:
+        if left_text.strip():
+            self.set_input_value(left_text)
+        else:
             self.clear_input()
-        await self.post_direct_left_text(left_text)
-        self.clear_input()
 
         target_options = {
             "character": "キャラ",
             "narration": "地の文",
+            "user": "ユーザー",
         }
         presets = [
             ("抽象的・曖昧な表現を避け、具体的な表現を用いる", "抽象的・曖昧な表現を避け、具体的な表現を用いる", "auto_awesome", "character"),
@@ -841,40 +921,60 @@ setTimeout(() => {
         ]
 
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-xl"):
-            ui.label("次ターンの方向性").classes("text-base font-semibold")
+            ui.label("次の行動").classes("text-base font-semibold")
             target_select = ui.select(
                 options=target_options,
                 value="character",
-                label="次はキャラか地の文か？",
+                label="次の行動",
             ).props("outlined").classes("w-full")
             direction_input = ui.textarea(
-                label="方向性",
-                placeholder="次のターンだけに反映するメタ指示",
+                label="指示",
+                placeholder="キャラまたは地の文にだけ反映する任意の指示",
             ).props("outlined rows=4 autogrow").classes("w-full")
+
+            def _sync_direction_input() -> None:
+                if target_select.value == "user":
+                    direction_input.set_value("")
+                    direction_input.disable()
+                    return
+                direction_input.enable()
+
+            target_select.on_value_change(lambda _: _sync_direction_input())
 
             with ui.row().classes("gap-2 flex-wrap"):
                 for preset_label, preset_text, icon, target in presets:
                     def _apply_preset(text=preset_text, target_mode=target) -> None:
                         direction_input.set_value(text)
-                        if target_mode == "narration":
-                            target_select.set_value("narration")
+                        target_select.set_value(target_mode)
+                        _sync_direction_input()
 
                     ui.button(
                         preset_label,
                         icon=icon,
                         on_click=_apply_preset,
-                    ).props("outline size=sm color=primary").classes("cs-chat-direct-preset")
+                    ).props("outline size=sm color=primary").classes("cs-chat-guide-preset")
 
             async def _run_directed_turn() -> None:
                 direction = (direction_input.value or "").strip()
-                if not direction:
-                    ui.notify("方向性を入力してください", type="warning")
-                    return
                 target = target_select.value or "character"
                 dlg.close()
-                if target == "narration":
-                    await self.generate_scene(settings, instruction=direction)
+                if target == "user":
+                    if left_text.strip():
+                        await self.post_hold_user_text(left_text)
+                    else:
+                        self.clear_input()
+                        self.set_input_mode("user")
                     return
+                if target == "narration":
+                    await self.run_describe_action(settings, left_text, instruction=direction)
+                    return
+                if not direction:
+                    await self.send_message(True, left_text)
+                    return
+                if left_text.strip():
+                    await self.post_command_left_text(left_text)
+                else:
+                    self.clear_input()
                 await self.append_character_turn(settings, turn_instruction=direction)
 
             with ui.row().classes("justify-end gap-2 mt-4"):
@@ -895,20 +995,21 @@ setTimeout(() => {
             if not left_text.strip():
                 ui.notify("/hold の左側に投稿する文を入力してください", type="warning")
                 return
-            self.clear_input()
-            self.state.messages.append(ChatMessagePreview("user", left_text.strip(), time_label()))
-            self.refresh_messages(scroll_to_bottom=True)
-            self.set_input_mode("user")
-            await self.save_current_session()
+            await self.post_hold_user_text(left_text)
             return
 
-        if command == "direct":
-            await self.open_direct_next_turn_dialog(settings, left_text)
+        if command == "guide":
+            await self.open_guide_next_turn_dialog(settings, left_text)
             return
 
         if command == "fill":
             self.set_input_value(left_text)
             await self.fill_user_text(settings, left_text)
+            return
+
+        if command == "tailor":
+            self.set_input_value(left_text)
+            await self.tailor_input_text(settings, left_text)
             return
 
         if command == "choices":
@@ -930,28 +1031,27 @@ setTimeout(() => {
             ui.notify("ナラティブ入力モードにしました", type="info")
             return
 
+        if command == "memo":
+            self.set_input_value(left_text)
+            self.set_input_mode("memo")
+            ui.notify("コメント入力モードにしました", type="info")
+            return
+
+        if command == "imitate":
+            self.set_input_value(left_text)
+            self.set_input_mode("character")
+            ui.notify("キャラクター入力モードにしました", type="info")
+            return
+
         if command == "user":
             self.set_input_value(left_text)
             self.set_input_mode("user")
             ui.notify("ユーザー入力モードに戻しました", type="info")
             return
 
-        if command == "scene":
-            self.set_input_value(left_text)
-            self.set_input_mode("user")
-            await self.generate_scene(settings)
+        if command == "describe":
+            await self.run_describe_action(settings, left_text)
             return
-
-        if command == "transit":
-            if not left_text.strip():
-                ui.notify("/transit の左側に投稿する文を入力してください", type="warning")
-                return
-            self.clear_input()
-            self.state.messages.append(ChatMessagePreview("user", left_text.strip(), time_label()))
-            self.refresh_messages(scroll_to_bottom=True)
-            self.set_input_mode("user")
-            await self.save_current_session()
-            await self.generate_scene(settings, instruction="直前のユーザー発言を受けて場面を自然に遷移させる。")
 
     async def send_message(
         self,
@@ -986,6 +1086,18 @@ setTimeout(() => {
         if self.state.input_mode == "narration":
             self.clear_input()
             await self.post_narration(text)
+            self.set_input_mode("user")
+            return
+
+        if self.state.input_mode == "memo":
+            self.clear_input()
+            await self.post_memo(text)
+            self.set_input_mode("user")
+            return
+
+        if self.state.input_mode == "character":
+            self.clear_input()
+            await self.post_character_input(text)
             self.set_input_mode("user")
             return
 
@@ -1277,6 +1389,26 @@ def chat_settings_from_dict(data: dict[str, Any]) -> ChatSessionSettings:
         user_persona_name=str(data.get("user_persona_name", "ユーザー")),
         user_persona_description=str(data.get("user_persona_description", "")),
     )
+
+
+def input_mode_for_speaker(speaker: str) -> str:
+    if speaker == "character":
+        return "character"
+    if speaker == "narration":
+        return "narration"
+    if speaker == "memo":
+        return "memo"
+    return "user"
+
+
+def message_target_label(speaker: str) -> str:
+    if speaker == "character":
+        return "キャラクターの発言"
+    if speaker == "narration":
+        return "地の文"
+    if speaker == "memo":
+        return "コメント"
+    return "発言"
 
 
 def chat_message_to_dict(message: ChatMessagePreview) -> dict[str, Any]:

@@ -130,6 +130,7 @@ def render_chat(
     regenerate_message,
     play_tts_message,
     open_debug,
+    set_input_mode,
     set_mobile_sidebar,
 ) -> None:
     with ui.element("div").classes("cs-chat-main-head"):
@@ -173,6 +174,9 @@ def render_chat(
         command_palette = ui.element("div").classes(
             "cs-chat-command-palette cs-chat-command-palette-hidden"
         )
+        swipe_action_menu = ui.element("div").classes(
+            "cs-chat-swipe-action-menu cs-chat-swipe-action-menu-hidden"
+        )
 
         async def _apply_command_suggestion(command: str) -> None:
             input_box = refs.input
@@ -182,11 +186,30 @@ def render_chat(
             left_text = parsed[0] if parsed is not None else ""
             command_palette.clear()
             command_palette.classes("cs-chat-command-palette-hidden")
+            swipe_action_menu.classes("cs-chat-swipe-action-menu-hidden")
             await send_message(False, f"{left_text}/{command}")
 
         def _command_click_handler(command: str):
             async def _handler(_) -> None:
                 await _apply_command_suggestion(command)
+
+            return _handler
+
+        async def _apply_swipe_action(command: str) -> None:
+            input_box = refs.input
+            if input_box is None:
+                return
+            current_text = str(input_box.value or "")
+            parsed = parse_command_input(current_text)
+            left_text = parsed[0] if parsed is not None else current_text
+            command_palette.clear()
+            command_palette.classes("cs-chat-command-palette-hidden")
+            swipe_action_menu.classes("cs-chat-swipe-action-menu-hidden")
+            await send_message(False, f"{left_text.rstrip()}/{command}")
+
+        def _swipe_action_click_handler(command: str):
+            async def _handler(_) -> None:
+                await _apply_swipe_action(command)
 
             return _handler
 
@@ -216,15 +239,139 @@ def render_chat(
                         ui.label(f"/{command.name}").classes("cs-chat-command-name")
                         ui.label(command.description).classes("cs-chat-command-desc")
 
+        with swipe_action_menu:
+            for command, label, icon in (
+                ("choices", "選択肢を生成", "format_list_bulleted"),
+                ("fill", "続きを補完", "auto_fix_high"),
+                ("tailor", "書き直す", "edit_note"),
+            ):
+                with ui.element("button").props(
+                    f"type=button data-swipe-command={command}"
+                ).classes("cs-chat-swipe-action-option").on(
+                    "click", _swipe_action_click_handler(command)
+                ):
+                    ui.icon(icon).classes("cs-chat-swipe-action-icon")
+                    ui.label(f"/{command}").classes("cs-chat-swipe-action-command")
+                    ui.label(label).classes("cs-chat-swipe-action-label")
+
         with ui.element("div").classes("cs-chat-composer"):
-            with ui.element("div").classes("cs-chat-mode-icon") as mode_icon:
-                refs.input_mode_icon = mode_icon
-                ui.icon(input_mode_icon(state.input_mode)).tooltip(
-                    input_mode_label(state.input_mode)
+            render_input_mode_selector(
+                state.input_mode,
+                refs,
+                image,
+                image_path,
+                set_input_mode=set_input_mode,
+            )
+            with ui.element("div").classes("cs-chat-composer-input-wrap"):
+                refs.input = ui.textarea(
+                    placeholder="メッセージを入力",
+                ).props("outlined dense rows=1 autogrow").classes("cs-chat-composer-input")
+                voice_input_btn = ui.button(icon="mic").props(
+                    "round flat dense aria-label=音声入力"
+                ).classes("cs-chat-voice-input").tooltip("音声入力")
+                voice_input_btn.on(
+                    "click",
+                    js_handler="""
+event => {
+  event.preventDefault();
+  event.stopPropagation();
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const input = document.querySelector('.cs-chat-composer-input textarea');
+  const button = event.currentTarget;
+  const notify = (message, type = 'warning') => {
+    if (window.Quasar && window.Quasar.Notify) {
+      window.Quasar.Notify.create({ message, type });
+    }
+  };
+  const focusInput = () => {
+    input && input.focus({ preventScroll: true });
+  };
+  const speechErrorMessage = error => {
+    switch (error) {
+      case 'no-speech':
+        return '音声を検出できませんでした';
+      case 'audio-capture':
+        return 'マイクを取得できません。端末またはブラウザのマイク権限を確認してください';
+      case 'not-allowed':
+        return 'マイクが許可されていません。ブラウザのサイト設定と端末のマイク権限を確認してください';
+      case 'service-not-allowed':
+        return '音声認識サービスが許可されていません。HTTPS接続とマイク権限を確認してください';
+      case 'network':
+        return '音声認識サービスへ接続できません。ネットワーク接続を確認してください';
+      case 'language-not-supported':
+        return 'この環境では日本語の音声認識に対応していません';
+      case 'aborted':
+        return '音声入力を中止しました';
+      default:
+        return `音声入力に失敗しました: ${error || 'unknown'}`;
+    }
+  };
+  if (!input) return;
+  if ((input.value || '').length) return;
+  if (!SpeechRecognition) {
+    notify('このブラウザは音声入力に対応していません');
+    focusInput();
+    return;
+  }
+  const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
+  const isSecureOrigin = window.isSecureContext
+    || window.location.protocol === 'https:'
+    || localHosts.has(window.location.hostname);
+  if (!isSecureOrigin) {
+    notify('音声入力にはHTTPSまたはlocalhostが必要です。安全なURLで開いてください', 'negative');
+    focusInput();
+    return;
+  }
+  if (window.__csSpeechRecognition) {
+    window.__csSpeechRecognition.onerror = null;
+    window.__csSpeechRecognition.onend = null;
+    window.__csSpeechRecognition.abort();
+    window.__csSpeechRecognition = null;
+  }
+  const recognition = new SpeechRecognition();
+  window.__csSpeechRecognition = recognition;
+  recognition.lang = 'ja-JP';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  button && button.classList.add('cs-chat-voice-input-recording');
+  recognition.onresult = resultEvent => {
+    const transcript = Array.from(resultEvent.results || [])
+      .map(result => result && result[0] ? result[0].transcript : '')
+      .join('')
+      .trim();
+    if (!transcript) return;
+    input.value = transcript;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  };
+  recognition.onerror = errorEvent => {
+    const error = errorEvent && errorEvent.error ? errorEvent.error : 'unknown';
+    const messageType = error === 'no-speech' || error === 'aborted' ? 'warning' : 'negative';
+    console.warn('Speech recognition error:', error, errorEvent && errorEvent.message);
+    notify(speechErrorMessage(error), messageType);
+    focusInput();
+  };
+  recognition.onend = () => {
+    button && button.classList.remove('cs-chat-voice-input-recording');
+    if (window.__csSpeechRecognition === recognition) {
+      window.__csSpeechRecognition = null;
+    }
+  };
+  try {
+    recognition.start();
+  } catch (error) {
+    button && button.classList.remove('cs-chat-voice-input-recording');
+    if (window.__csSpeechRecognition === recognition) {
+      window.__csSpeechRecognition = null;
+    }
+    console.warn('Speech recognition start failed:', error);
+    notify('音声入力を開始できませんでした。ブラウザと端末のマイク権限を確認してください', 'negative');
+    focusInput();
+  }
+}
+""",
                 )
-            refs.input = ui.textarea(
-                placeholder="メッセージを入力",
-            ).props("outlined dense rows=1 autogrow").classes("cs-chat-composer-input")
 
             async def _send_from_enter(e) -> None:
                 if isinstance(e.args, list):
@@ -235,6 +382,67 @@ def render_chat(
 
             refs.input.on_value_change(
                 lambda e: _refresh_command_palette(str(e.value or ""))
+            )
+            refs.input.on(
+                "input",
+                js_handler="""
+event => {
+  const target = event.target;
+  const value = target && typeof target.value === 'string' ? target.value : '';
+  const wrapper = target && typeof target.closest === 'function'
+    ? target.closest('.cs-chat-composer-input-wrap')
+    : null;
+  if (!wrapper) return;
+  wrapper.classList.toggle('cs-chat-composer-input-has-text', value.length > 0);
+}
+""",
+            )
+            refs.input.on(
+                "touchstart",
+                js_handler="""
+event => {
+  const touch = event.touches && event.touches[0];
+  if (!touch) return;
+  window.__csComposerSwipeStart = {
+    x: touch.clientX,
+    y: touch.clientY,
+    time: Date.now(),
+  };
+}
+""",
+            )
+            refs.input.on(
+                "touchend",
+                js_handler="""
+event => {
+  const start = window.__csComposerSwipeStart;
+  const touch = event.changedTouches && event.changedTouches[0];
+  window.__csComposerSwipeStart = null;
+  if (!start || !touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  const elapsed = Date.now() - start.time;
+  const isSwipeUp = dy < -42 && Math.abs(dy) > Math.abs(dx) * 1.15 && elapsed < 900;
+  if (!isSwipeUp) return;
+  const menu = document.querySelector('.cs-chat-swipe-action-menu');
+  const palette = document.querySelector('.cs-chat-command-palette');
+  if (!menu) return;
+  event.preventDefault();
+  if (palette) palette.classList.add('cs-chat-command-palette-hidden');
+  menu.classList.remove('cs-chat-swipe-action-menu-hidden');
+  if (!window.__csSwipeActionDismiss) {
+    window.__csSwipeActionDismiss = dismissEvent => {
+      const currentMenu = document.querySelector('.cs-chat-swipe-action-menu');
+      if (!currentMenu || currentMenu.classList.contains('cs-chat-swipe-action-menu-hidden')) return;
+      const target = dismissEvent.target;
+      if (target && typeof target.closest === 'function' && target.closest('.cs-chat-swipe-action-menu')) return;
+      currentMenu.classList.add('cs-chat-swipe-action-menu-hidden');
+    };
+    document.addEventListener('click', window.__csSwipeActionDismiss, true);
+    document.addEventListener('touchstart', window.__csSwipeActionDismiss, true);
+  }
+}
+""",
             )
             refs.input.on(
                 "keydown",
@@ -293,10 +501,97 @@ event => {
 }
 """,
             )
-            refs.send_btn = ui.button(
-                icon="send",
-                on_click=lambda: send_message(True),
-            ).props("round color=primary unelevated")
+
+            async def _send_from_button(_) -> None:
+                await send_message(True)
+
+            async def _guide_from_long_tap(e) -> None:
+                if isinstance(e.args, list):
+                    value = str(e.args[0] or "") if e.args else ""
+                else:
+                    value = str(e.args or "")
+                parsed = parse_command_input(value)
+                left_text = parsed[0] if parsed is not None else value
+                await send_message(False, f"{left_text.rstrip()}/guide")
+
+            refs.send_btn = ui.button(icon="send").props("round color=primary unelevated")
+            refs.send_btn.on(
+                "click",
+                _send_from_button,
+                js_handler="""
+event => {
+  if (window.__csSendLongTapSuppressClick) {
+    window.__csSendLongTapSuppressClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  emit();
+}
+""",
+            )
+            refs.send_btn.on(
+                "touchstart",
+                _guide_from_long_tap,
+                js_handler="""
+event => {
+  const touch = event.touches && event.touches[0];
+  if (!touch) return;
+  clearTimeout(window.__csSendLongTapTimer);
+  window.__csSendLongTapStart = {
+    x: touch.clientX,
+    y: touch.clientY,
+  };
+  window.__csSendLongTapTriggered = false;
+  window.__csSendLongTapTimer = setTimeout(() => {
+    window.__csSendLongTapTriggered = true;
+    window.__csSendLongTapSuppressClick = true;
+    setTimeout(() => {
+      window.__csSendLongTapSuppressClick = false;
+    }, 1200);
+    const input = document.querySelector('.cs-chat-composer-input textarea');
+    emit(input && typeof input.value === 'string' ? input.value : '');
+  }, 650);
+}
+""",
+            )
+            refs.send_btn.on(
+                "touchmove",
+                js_handler="""
+event => {
+  const start = window.__csSendLongTapStart;
+  const touch = event.touches && event.touches[0];
+  if (!start || !touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  if (Math.hypot(dx, dy) > 14) {
+    clearTimeout(window.__csSendLongTapTimer);
+  }
+}
+""",
+            )
+            refs.send_btn.on(
+                "touchend",
+                js_handler="""
+event => {
+  clearTimeout(window.__csSendLongTapTimer);
+  window.__csSendLongTapStart = null;
+  if (window.__csSendLongTapTriggered) {
+    event.preventDefault();
+  }
+}
+""",
+            )
+            refs.send_btn.on(
+                "touchcancel",
+                js_handler="""
+event => {
+  clearTimeout(window.__csSendLongTapTimer);
+  window.__csSendLongTapStart = null;
+  window.__csSendLongTapTriggered = false;
+}
+""",
+            )
 
 
 def open_new_chat_dialog_for_sheet(
@@ -560,6 +855,54 @@ def token_label(value: int | None) -> str:
     return str(value) if value is not None else "不明"
 
 
+def render_input_mode_indicator(
+    mode: str,
+    image: CharacterImageAsset | None,
+    image_path: Path | None,
+) -> None:
+    label = input_mode_label(mode)
+    if mode == "character":
+        style = cropped_background_style(image, image_path, image.face_rect if image else FaceRect(), 1.0)
+        with ui.element("div") as face:
+            face.classes("cs-chat-mode-face").style(style).tooltip(label)
+            if not style:
+                ui.icon(input_mode_icon(mode))
+        return
+    ui.icon(input_mode_icon(mode)).tooltip(label)
+
+
+def render_input_mode_selector(
+    mode: str,
+    refs: ChatRefs,
+    image: CharacterImageAsset | None,
+    image_path: Path | None,
+    *,
+    set_input_mode: Callable[[str], None],
+) -> None:
+    with ui.button().props("flat dense unelevated aria-label=入力ロールを変更").classes(
+        "cs-chat-mode-icon"
+    ):
+        with ui.element("div").classes("cs-chat-mode-icon-display") as mode_icon:
+            refs.input_mode_icon = mode_icon
+            render_input_mode_indicator(mode, image, image_path)
+        with ui.menu().classes("cs-chat-mode-menu"):
+            for next_mode in ("user", "character", "narration", "memo"):
+                ui.menu_item(
+                    role_menu_label(next_mode),
+                    on_click=lambda selected=next_mode: set_input_mode(selected),
+                )
+
+
+def role_menu_label(mode: str) -> str:
+    labels = {
+        "user": "ユーザー",
+        "character": "キャラクター",
+        "narration": "ナラティブ",
+        "memo": "コメント",
+    }
+    return labels.get(mode, input_mode_label(mode))
+
+
 def render_message(
     message: ChatMessagePreview,
     image: CharacterImageAsset | None,
@@ -575,16 +918,21 @@ def render_message(
 ) -> None:
     is_character = message.speaker == "character"
     is_narration = message.speaker == "narration"
+    is_memo = message.speaker == "memo"
     if is_character:
         row_class = "cs-chat-message-row-character"
     elif is_narration:
         row_class = "cs-chat-message-row-narration"
+    elif is_memo:
+        row_class = "cs-chat-message-row-memo"
     else:
         row_class = "cs-chat-message-row-user"
     with ui.element("div").classes(f"cs-chat-message-row {row_class}"):
         if is_character:
             render_face_avatar(image, image_path)
         with ui.element("div").classes("cs-chat-bubble"):
+            if is_memo:
+                ui.label("コメント").classes("cs-chat-message-kind")
             ui.label(message.text).classes("cs-chat-message-text")
             with ui.element("div").classes("cs-chat-message-meta"):
                 with ui.element("div").classes("cs-chat-message-actions"):
@@ -619,8 +967,11 @@ def render_message(
                         ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
                             "この内容を書き換え"
                         )
-                    if message.speaker in {"user", "narration"} and rewind_message is not None:
-                        rewind_tip = "この地の文まで戻る" if message.speaker == "narration" else "この発言まで戻る"
+                    if message.speaker in {"user", "narration", "memo"} and rewind_message is not None:
+                        rewind_tip = {
+                            "narration": "この地の文まで戻る",
+                            "memo": "このコメントまで戻る",
+                        }.get(message.speaker, "この発言まで戻る")
                         ui.button(
                             icon="undo",
                             on_click=lambda i=index: rewind_message(i),

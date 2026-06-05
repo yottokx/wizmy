@@ -27,7 +27,7 @@ def build_llm_messages(
             result.append(HumanMessage(content=f"{settings.user_persona_name}: {message.text}"))
         elif message.speaker == "narration":
             result.append(HumanMessage(content=f"地の文: {message.text}"))
-        else:
+        elif message.speaker == "character":
             result.append(AIMessage(content=message.text))
     if first_turn:
         result.append(
@@ -90,7 +90,8 @@ def build_user_completion_messages(
     *,
     input_mode: str = "user",
 ) -> list:
-    target_label, system_instruction = input_target_prompt(input_mode, settings)
+    target_label, system_instruction = input_target_prompt(input_mode, settings, sheet)
+    character_context = character_prompt_context(sheet) if input_mode == "character" else ""
     return [
         SystemMessage(
             content=system_instruction
@@ -101,6 +102,7 @@ def build_user_completion_messages(
                 f"ユーザーペルソナ名: {settings.user_persona_name}\n"
                 f"ユーザーペルソナ設定:\n{settings.user_persona_description}\n\n"
                 f"キャラクター名: {sheet.name}\n"
+                f"{character_context}"
                 f"会話履歴:\n{chat_history_for_prompt(messages)}\n\n"
                 f"未完の文:\n{left_text.rstrip()}\n\n"
                 "未完の文の続きを出力してください。前置き、引用符、元の文の繰り返しは禁止です。"
@@ -119,7 +121,8 @@ def build_response_choice_messages(
 ) -> list:
     prefix = left_text.strip()
     prefix_line = f"各候補は次の書き出しに自然につなげる: {prefix}" if prefix else "各候補は独立した短い返答にする。"
-    target_label, system_instruction = input_target_choice_prompt(input_mode, settings)
+    target_label, system_instruction = input_target_choice_prompt(input_mode, settings, sheet)
+    character_context = character_prompt_context(sheet) if input_mode == "character" else ""
     return [
         SystemMessage(
             content=system_instruction
@@ -130,9 +133,42 @@ def build_response_choice_messages(
                 f"ユーザーペルソナ名: {settings.user_persona_name}\n"
                 f"ユーザーペルソナ設定:\n{settings.user_persona_description}\n\n"
                 f"キャラクター名: {sheet.name}\n"
+                f"{character_context}"
                 f"会話履歴:\n{chat_history_for_prompt(messages)}\n\n"
                 f"{prefix_line}\n"
                 "出力は3行だけ。番号や箇条書き記号は付けず、候補本文だけを書いてください。"
+            )
+        ),
+    ]
+
+
+def build_tailored_input_messages(
+    sheet: CharacterSheet,
+    settings: ChatSessionSettings,
+    messages: list[ChatMessagePreview],
+    text: str,
+    *,
+    input_mode: str = "user",
+) -> list:
+    target_label, system_instruction = input_target_tailor_prompt(input_mode, settings, sheet)
+    character_context = character_prompt_context(sheet) if input_mode == "character" else ""
+    return [
+        SystemMessage(
+            content=system_instruction
+        ),
+        HumanMessage(
+            content=(
+                f"現在の入力ロール: {target_label}\n"
+                f"チャットモード: {settings.chat_mode_name}\n"
+                f"チャット前提: {settings.chat_premise}\n"
+                f"ユーザーペルソナ名: {settings.user_persona_name}\n"
+                f"ユーザーペルソナ設定:\n{settings.user_persona_description}\n\n"
+                f"キャラクター名: {sheet.name}\n"
+                f"{character_context}"
+                f"会話履歴:\n{chat_history_for_prompt(messages)}\n\n"
+                f"書き換える文:\n{text.strip()}\n\n"
+                "現在の入力ロールに合う自然な本文へ書き換えてください。"
+                "出力は書き換え後の本文だけ。前置き、引用符、話者名、解説は禁止です。"
             )
         ),
     ]
@@ -164,13 +200,26 @@ def build_chat_title_messages(
     ]
 
 
-def input_target_prompt(input_mode: str, settings: ChatSessionSettings) -> tuple[str, str]:
+def input_target_prompt(
+    input_mode: str,
+    settings: ChatSessionSettings,
+    sheet: CharacterSheet,
+) -> tuple[str, str]:
     if input_mode == "narration":
         return (
             "地の文",
             (
                 "あなたはキャラクターチャットの地の文の続きを補完する編集者です。"
                 "セリフではなく、状況描写として自然につながる続きだけを短く出力してください。"
+            ),
+        )
+    if input_mode == "character":
+        return (
+            f"キャラクター（{sheet.name}）",
+            (
+                "あなたはキャラクター発言の続きを補完する編集者です。"
+                "キャラクターシート、チャット前提、会話履歴に合う本人のセリフとして、"
+                "自然につながる続きだけを短く出力してください。"
             ),
         )
     return (
@@ -182,13 +231,25 @@ def input_target_prompt(input_mode: str, settings: ChatSessionSettings) -> tuple
     )
 
 
-def input_target_choice_prompt(input_mode: str, settings: ChatSessionSettings) -> tuple[str, str]:
+def input_target_choice_prompt(
+    input_mode: str,
+    settings: ChatSessionSettings,
+    sheet: CharacterSheet,
+) -> tuple[str, str]:
     if input_mode == "narration":
         return (
             "地の文",
             (
                 "あなたはキャラクターチャットでユーザーが選べる地の文候補を作る編集者です。"
                 "セリフではなく、状況描写として自然な候補を3つだけ作ってください。"
+            ),
+        )
+    if input_mode == "character":
+        return (
+            f"キャラクター（{sheet.name}）",
+            (
+                "あなたはキャラクターチャットでユーザーが選べるキャラクター発言候補を作る編集者です。"
+                "キャラクターシート、チャット前提、会話履歴に合う本人のセリフを3つだけ作ってください。"
             ),
         )
     return (
@@ -200,11 +261,50 @@ def input_target_choice_prompt(input_mode: str, settings: ChatSessionSettings) -
     )
 
 
+def input_target_tailor_prompt(
+    input_mode: str,
+    settings: ChatSessionSettings,
+    sheet: CharacterSheet,
+) -> tuple[str, str]:
+    if input_mode == "narration":
+        return (
+            "地の文",
+            (
+                "あなたは入力文をキャラクターチャットの地の文へ整える編集者です。"
+                "セリフではなく、状況描写として自然な本文に書き換えてください。"
+            ),
+        )
+    if input_mode == "character":
+        return (
+            f"キャラクター（{sheet.name}）",
+            (
+                "あなたは入力文をキャラクター本人のセリフへ整える編集者です。"
+                "キャラクターシート、チャット前提、会話履歴に合う口調で書き換えてください。"
+            ),
+        )
+    if input_mode == "memo":
+        return (
+            "コメント",
+            (
+                "あなたはチャットログ上に残すコメントを整える編集者です。"
+                "会話本文ではなく、作者向けの短いメモとして自然な本文に書き換えてください。"
+            ),
+        )
+    return (
+        f"ユーザー（{settings.user_persona_name}）",
+        (
+            "あなたは入力文をユーザー発言へ整える編集者です。"
+            "ユーザーペルソナに合う口調で、相手に投げかける自然な本文に書き換えてください。"
+        ),
+    )
+
+
 def chat_history_for_prompt(messages: list[ChatMessagePreview]) -> str:
-    if not messages:
+    visible_messages = [message for message in messages if message.speaker in {"user", "character", "narration"}]
+    if not visible_messages:
         return "（まだ会話はありません）"
     lines: list[str] = []
-    for message in messages[-16:]:
+    for message in visible_messages[-16:]:
         if message.speaker == "user":
             label = "ユーザー"
         elif message.speaker == "character":
@@ -212,7 +312,7 @@ def chat_history_for_prompt(messages: list[ChatMessagePreview]) -> str:
         elif message.speaker == "narration":
             label = "地の文"
         else:
-            label = message.speaker
+            continue
         lines.append(f"{label}: {message.text}")
     return "\n".join(lines)
 
@@ -357,6 +457,13 @@ def character_summary(sheet: CharacterSheet) -> str:
         ("自己紹介", sheet.self_intro),
     ]
     return "\n".join(f"{label}: {value}" for label, value in fields if value)
+
+
+def character_prompt_context(sheet: CharacterSheet) -> str:
+    summary = character_summary(sheet).strip()
+    if not summary:
+        return ""
+    return f"キャラクター概要:\n{summary}\n\n"
 
 
 def message_content_to_text(content) -> str:

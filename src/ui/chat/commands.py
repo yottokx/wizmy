@@ -1,4 +1,4 @@
-"""Pure helpers for slash commands and short LLM text cleanup."""
+"""スラッシュコマンドと短文生成結果を扱う純粋関数。"""
 
 from __future__ import annotations
 
@@ -64,14 +64,25 @@ def clean_short_llm_text(text: str) -> str:
     text = text.strip()
     text = re.sub(r"^```(?:\w+)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    text = re.sub(r"^(?:候補|返答|回答|ユーザー)\s*[:：]\s*", "", text.strip())
+    text = re.sub(r"^(?:候補|返答|回答|ユーザー|キャラクター|キャラ|地の文|ナラティブ|コメント)\s*[:：]\s*", "", text.strip())
     return text.strip()
 
 
 def input_mode_label(mode: str) -> str:
-    return "ナラティブ" if mode == "narration" else "ユーザー"
+    if mode == "narration":
+        return "ナラティブ"
+    if mode == "memo":
+        return "コメント"
+    if mode == "character":
+        return "キャラクター"
+    return "ユーザー"
 
 
 def input_mode_icon(mode: str) -> str:
-    return "notes" if mode == "narration" else "person"
-
+    if mode == "narration":
+        return "notes"
+    if mode == "memo":
+        return "comment"
+    if mode == "character":
+        return "face"
+    return "person"
