@@ -220,7 +220,7 @@ class TTSService:
             if gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
                 caption = voice_caption.strip()
                 if not caption:
-                    raise TTSServiceError("VoiceDesign v3で読み上げるにはTTS用captionが必要です。")
+                    raise TTSServiceError("VoiceDesign v3で読み上げるにはキャプションが必要です。")
                 endpoint = self.resolve_gen_server_voice_design_endpoint()
                 model_id, params = self._gen_server_voice_design_options(gen_server_params or {})
                 return await WizmyGenServerVoiceDesignClient(endpoint).synthesize(

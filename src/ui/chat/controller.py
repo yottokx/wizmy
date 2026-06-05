@@ -522,7 +522,7 @@ class ChatPageController:
             and settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
             and not settings.voice_caption.strip()
         ):
-            ui.notify("VoiceDesign v3モードのTTS用captionを設定してください", type="warning")
+            ui.notify("VoiceDesign v3モードのキャプションを設定してください", type="warning")
             return
         self.state.tts_generating_index = index
         self.refresh_messages()

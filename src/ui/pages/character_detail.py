@@ -796,7 +796,7 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
             placeholder="生成する音声で読み上げる台詞",
         ).props("outlined rows=4").classes("w-full")
         caption_input = ui.textarea(
-            label="TTS用caption",
+            label="キャプション",
             value=initial_caption,
             placeholder="例: 明るく柔らかい少女声、少し早口で元気",
         ).props("outlined rows=4").classes("w-full")
@@ -893,7 +893,7 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                 ui.notify("自己紹介台詞を入力してください。", type="warning")
                 return
             if not caption:
-                ui.notify("声のイメージを入力してください。", type="warning")
+                ui.notify("キャプションを入力してください。", type="warning")
                 return
 
             generate_btn.disable()
@@ -944,14 +944,18 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                     filename=f"voice-design-{index}.wav",
                     content_type="audio/wav",
                 )
+                previous_is_clone = (
+                    saved.media.tts.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_CLONE
+                )
+                clone_params = saved.media.tts.gen_server_params if previous_is_clone else {}
                 settings = saved.media.tts.model_copy(
                     update={
                         "api_type": CHARACTER_TTS_API_GEN_SERVER,
-                        "gen_server_tts_mode": CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
+                        "gen_server_tts_mode": CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
                         "voice_caption": str(item.get("caption") or "").strip(),
                         "gen_server_params": clean_gen_server_mode_defaults(
-                            mode,
-                            item.get("params") if isinstance(item.get("params"), dict) else {},
+                            GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+                            clone_params,
                         ),
                     }
                 )
@@ -1053,7 +1057,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
         mode_select.on_value_change(_on_gen_server_mode_change)
         if gen_server_tts_mode_state["value"] == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
             voice_caption_input = ui.textarea(
-                label="TTS用caption",
+                label="キャプション",
                 value=voice_caption_value,
                 placeholder="例: 明るく柔らかい少女声、少し早口で元気",
             ).props("outlined rows=3").classes("w-full")
@@ -1167,7 +1171,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
             and settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
             and not settings.voice_caption.strip()
         ):
-            ui.notify("VoiceDesign v3モードではTTS用captionを入力してください。", type="warning")
+            ui.notify("VoiceDesign v3モードではキャプションを入力してください。", type="warning")
             return
         synth_btn.disable()
         tts_status.set_text("生成中...")
