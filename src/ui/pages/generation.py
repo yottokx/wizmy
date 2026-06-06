@@ -191,6 +191,7 @@ from ...core.character_generation.prompts import (
     WORLD_OPTIONS,
 )
 from ...services.character_generation import GenerationJob, GenerationJobStatus
+from ..components.character_picker import open_character_picker
 from ..components.progress_stream import ProgressPanel
 from ..layout import page_layout
 from ..state import (
@@ -228,33 +229,6 @@ def _preset_options() -> dict[str, str]:
     ctx = get_context()
     presets = ctx.api_config.get_generation_presets()
     return {p.id: p.name for p in presets}
-
-
-async def _open_char_picker(ctx, on_select) -> None:
-    """作成済みキャラクターを選択するダイアログを開く。"""
-    chars = await ctx.characters.list_all()
-    if not chars:
-        ui.notify("保存済みキャラクターがありません", type="warning")
-        return
-
-    with ui.dialog() as dlg, ui.card().classes("min-w-[400px]"):
-        ui.label("ベースにするキャラクターを選択").classes("text-base font-semibold mb-2")
-        with ui.scroll_area().style("height: 50vh; width: 100%"):
-            with ui.list().props("dense separator").classes("w-full"):
-                for char in chars:
-                    def _make_handler(c):
-                        async def _select():
-                            await on_select(c)
-                            dlg.close()
-                        return _select
-
-                    with ui.item(on_click=_make_handler(char)).classes("cursor-pointer"):
-                        with ui.item_section():
-                            ui.item_label(char.name).classes("font-medium")
-                            desc = " / ".join(filter(None, [char.world, char.occupation]))
-                            if desc:
-                                ui.item_label(desc).props("caption")
-    dlg.open()
 
 
 def _build_generation_log(result, mode_str: str, sheet_md: str = "", request=None, profile=None) -> str:
@@ -604,7 +578,7 @@ async def generation_page() -> None:
                                         "font-weight: 700; color: var(--cs-accent); font-size: 0.95rem;"
                                     )
                                     _refresh_base_char(c)
-                                await _open_char_picker(ctx, _on_select)
+                                await open_character_picker(ctx, _on_select)
 
                             with ui.element("div").style(
                                 "background: var(--cs-accent-bg); border: 1px solid var(--cs-accent-border); "
@@ -647,7 +621,7 @@ async def generation_page() -> None:
                                         "font-weight: 700; color: var(--cs-text); font-size: 0.95rem;"
                                     )
                                     _refresh_base_char(c)
-                                await _open_char_picker(ctx, _on_select)
+                                await open_character_picker(ctx, _on_select)
 
                             with ui.element("div").style(
                                 "background: var(--cs-surface-soft); border: 1px solid var(--cs-border); "

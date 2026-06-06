@@ -28,6 +28,12 @@ from .models import (
 )
 
 
+USER_PERSONA_SOURCE_PERSONA = "persona"
+USER_PERSONA_SOURCE_CHARACTER = "character"
+_PERSONA_SELECT_PREFIX = "persona:"
+_CHARACTER_SELECT_PREFIX = "character:"
+
+
 def render_profile(
     sheet: CharacterSheet,
     image: CharacterImageAsset | None,
@@ -115,6 +121,8 @@ def render_chat(
     sheet: CharacterSheet,
     image: CharacterImageAsset | None,
     image_path: Path | None,
+    user_image: CharacterImageAsset | None,
+    user_image_path: Path | None,
     state: ChatState,
     refs: ChatRefs,
     *,
@@ -132,6 +140,7 @@ def render_chat(
     open_debug,
     set_input_mode,
     set_mobile_sidebar,
+    tts_playable_speakers: set[str] | None = None,
 ) -> None:
     with ui.element("div").classes("cs-chat-main-head"):
         ui.button(icon="menu", on_click=lambda: set_mobile_sidebar(True)).props(
@@ -161,11 +170,14 @@ def render_chat(
                 message,
                 image,
                 image_path,
+                user_image,
+                user_image_path,
                 index=index,
                 rewind_message=rewind_message,
                 rewrite_message=rewrite_message,
                 regenerate_message=regenerate_message,
                 play_tts_message=play_tts_message,
+                tts_playable_speakers=tts_playable_speakers or set(),
                 tts_generating=state.tts_generating_index == index,
                 open_debug=open_debug,
             )
@@ -605,6 +617,7 @@ def open_new_chat_dialog_for_sheet(
     default_persona_id: str,
     get_mode: Callable[[str], ChatMode | None],
     get_persona: Callable[[str], UserPersona | None],
+    pick_character_persona: Callable[[Callable[[CharacterSheet], Awaitable[None]]], Awaitable[None]] | None = None,
     render_mode: Callable[[ChatMode, UserPersona], tuple[str, str]],
     validate_profile: Callable[[str], bool],
     enhance_situation: Callable[[str, ChatMode, UserPersona, str, str], Awaitable[str | None]],
@@ -622,7 +635,7 @@ def open_new_chat_dialog_for_sheet(
                 "text-sm text-negative mt-3"
             )
         if not persona_options:
-            ui.label("ユーザーペルソナが登録されていません。設定画面で追加してください。").classes(
+            ui.label("ユーザーペルソナが登録されていません。キャラクターシートもユーザー役として選択できます。").classes(
                 "text-sm text-negative mt-3"
             )
 
@@ -643,19 +656,73 @@ def open_new_chat_dialog_for_sheet(
             label="チャットモード",
         ).props("outlined").classes("w-full")
 
-        persona_select = ui.select(
-            options=persona_options,
-            value=default_persona_id,
-            label="ユーザーペルソナ",
-        ).props("outlined").classes("w-full")
+        persona_select_options = {
+            f"{_PERSONA_SELECT_PREFIX}{persona_id}": label
+            for persona_id, label in persona_options.items()
+        }
+        selected_character_persona: dict[str, CharacterSheet | None] = {"value": None}
+        default_persona_value = (
+            f"{_PERSONA_SELECT_PREFIX}{default_persona_id}"
+            if default_persona_id
+            else None
+        )
+
+        async def _pick_character_persona() -> None:
+            if pick_character_persona is None:
+                return
+
+            async def _on_select(character: CharacterSheet) -> None:
+                selected_character_persona["value"] = character
+                value = f"{_CHARACTER_SELECT_PREFIX}{character.id}"
+                persona_select.set_options(
+                    {
+                        **persona_select_options,
+                        value: f"{character.name}（キャラクターシート）",
+                    },
+                    value=value,
+                )
+                _sync_situation_default(force=True)
+                _refresh_preview()
+
+            await pick_character_persona(_on_select)
+
+        with ui.row().classes("w-full items-end gap-2"):
+            persona_select = ui.select(
+                options=persona_select_options,
+                value=default_persona_value,
+                label="ユーザーペルソナ",
+            ).props("outlined").classes("flex-1 min-w-0")
+            ui.button(
+                icon="person_search",
+                on_click=_pick_character_persona,
+            ).props("outline color=secondary").classes("mb-1").tooltip(
+                "キャラクターシートをユーザー役にする"
+            )
 
         def _selected_mode() -> ChatMode | None:
             mode_id = mode_select.value or ""
             return get_mode(mode_id) if mode_id else None
 
+        def _selected_persona_source_and_id() -> tuple[str, str]:
+            selected = str(persona_select.value or "")
+            if selected.startswith(_CHARACTER_SELECT_PREFIX):
+                return USER_PERSONA_SOURCE_CHARACTER, selected[len(_CHARACTER_SELECT_PREFIX):]
+            if selected.startswith(_PERSONA_SELECT_PREFIX):
+                return USER_PERSONA_SOURCE_PERSONA, selected[len(_PERSONA_SELECT_PREFIX):]
+            if selected in persona_options:
+                return USER_PERSONA_SOURCE_PERSONA, selected
+            return "", ""
+
         def _selected_persona() -> UserPersona | None:
-            persona_id = persona_select.value or ""
-            return get_persona(persona_id) if persona_id else None
+            source, persona_id = _selected_persona_source_and_id()
+            if not persona_id:
+                return None
+            if source == USER_PERSONA_SOURCE_CHARACTER:
+                character = selected_character_persona["value"]
+                if character is None or character.id != persona_id:
+                    return None
+                return user_persona_from_character_sheet(character)
+            return get_persona(persona_id)
 
         def _render_selected_mode() -> tuple[str, str]:
             mode = _selected_mode()
@@ -708,12 +775,12 @@ def open_new_chat_dialog_for_sheet(
                 except TemplateError as err:
                     ui.label(f"テンプレートエラー: {err}").classes("text-sm text-negative")
                     return
-                with ui.expansion("前提 / ユーザーペルソナ設定", icon="tune").props("dense").classes("w-full"):
+                with ui.expansion("前提 / ユーザー設定", icon="tune").props("dense").classes("w-full"):
                     ui.label("前提").classes("text-xs font-semibold text-grey-6")
                     ui.label(premise or "（未設定）").classes("text-sm").style(
                         "white-space: pre-wrap; overflow-wrap: anywhere;"
                     )
-                    ui.label("ユーザーペルソナ設定").classes("text-xs font-semibold text-grey-6 mt-2")
+                    ui.label("ユーザー設定").classes("text-xs font-semibold text-grey-6 mt-2")
                     ui.label(persona.description or "（未設定）").classes("text-sm").style(
                         "white-space: pre-wrap; overflow-wrap: anywhere;"
                     )
@@ -741,10 +808,10 @@ def open_new_chat_dialog_for_sheet(
                 ui.notify("チャットモードを選択してください", type="warning")
                 return
             if persona is None:
-                ui.notify("ユーザーペルソナを選択してください", type="warning")
+                ui.notify("ユーザー役を選択してください", type="warning")
                 return
             if not persona.description.strip():
-                ui.notify("ユーザーペルソナの設定を入力してください", type="warning")
+                ui.notify("ユーザー役の設定を入力してください", type="warning")
                 return
             try:
                 premise, rendered_situation = render_mode(mode, persona)
@@ -779,10 +846,10 @@ def open_new_chat_dialog_for_sheet(
                 return
             persona = _selected_persona()
             if persona is None:
-                ui.notify("ユーザーペルソナを選択してください", type="warning")
+                ui.notify("ユーザー役を選択してください", type="warning")
                 return
             if not persona.description.strip():
-                ui.notify("ユーザーペルソナの設定を入力してください", type="warning")
+                ui.notify("ユーザー役の設定を入力してください", type="warning")
                 return
             try:
                 premise, rendered_situation = render_mode(mode, persona)
@@ -803,6 +870,7 @@ def open_new_chat_dialog_for_sheet(
                 user_persona_id=persona.id,
                 user_persona_name=persona.name,
                 user_persona_description=persona.description.strip(),
+                user_persona_source=_selected_persona_source_and_id()[0] or USER_PERSONA_SOURCE_PERSONA,
             )
             dlg.close()
             await start_chat(settings, (title_input.value or "").strip())
@@ -893,6 +961,39 @@ def render_input_mode_selector(
                 )
 
 
+def user_persona_from_character_sheet(sheet: CharacterSheet) -> UserPersona:
+    return UserPersona(
+        id=sheet.id,
+        name=sheet.name or "ユーザー",
+        description=character_persona_description(sheet),
+        media=sheet.media,
+    )
+
+
+def character_persona_description(sheet: CharacterSheet) -> str:
+    if sheet.raw_markdown.strip():
+        return sheet.raw_markdown.strip()
+    fields = [
+        ("名前", sheet.name),
+        ("年齢", sheet.age),
+        ("性別", sheet.gender),
+        ("職業・役割", sheet.occupation),
+        ("出身・所属", sheet.origin),
+        ("世界観", sheet.world),
+        ("外見", sheet.appearance),
+        ("性格", sheet.personality),
+        ("動機", sheet.motivation),
+        ("弱点", sheet.weakness),
+        ("背景", sheet.background),
+        ("スキル", sheet.skills),
+        ("個性・クセ", sheet.quirks),
+        ("物語のフック", sheet.story_hooks),
+        ("自己紹介", sheet.self_intro),
+        ("声のイメージ", sheet.voice_image),
+    ]
+    return "\n".join(f"{label}: {value}" for label, value in fields if value)
+
+
 def role_menu_label(mode: str) -> str:
     labels = {
         "user": "ユーザー",
@@ -907,18 +1008,23 @@ def render_message(
     message: ChatMessagePreview,
     image: CharacterImageAsset | None,
     image_path: Path | None,
+    user_image: CharacterImageAsset | None = None,
+    user_image_path: Path | None = None,
     *,
     index: int = -1,
     rewind_message=None,
     rewrite_message=None,
     regenerate_message=None,
     play_tts_message=None,
+    tts_playable_speakers: set[str] | None = None,
     tts_generating: bool = False,
     open_debug=None,
 ) -> None:
     is_character = message.speaker == "character"
+    is_user = message.speaker == "user"
     is_narration = message.speaker == "narration"
     is_memo = message.speaker == "memo"
+    tts_playable_speakers = tts_playable_speakers or set()
     if is_character:
         row_class = "cs-chat-message-row-character"
     elif is_narration:
@@ -936,12 +1042,18 @@ def render_message(
             ui.label(message.text).classes("cs-chat-message-text")
             with ui.element("div").classes("cs-chat-message-meta"):
                 with ui.element("div").classes("cs-chat-message-actions"):
-                    if is_character and play_tts_message is not None and message.text.strip():
+                    if message.speaker in tts_playable_speakers and play_tts_message is not None and message.text.strip():
+                        if is_character:
+                            play_tip = "この台詞を読み上げ"
+                        elif is_narration:
+                            play_tip = "この地の文を読み上げ"
+                        else:
+                            play_tip = "この発言を読み上げ"
                         play_btn = ui.button(
                             icon="play_arrow",
                             on_click=lambda i=index: play_tts_message(i),
                         ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
-                            "この台詞を読み上げ"
+                            play_tip
                         )
                         if tts_generating:
                             play_btn.props("loading")
@@ -967,8 +1079,9 @@ def render_message(
                         ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
                             "この内容を書き換え"
                         )
-                    if message.speaker in {"user", "narration", "memo"} and rewind_message is not None:
+                    if message.speaker in {"character", "user", "narration", "memo"} and rewind_message is not None:
                         rewind_tip = {
+                            "character": "この台詞まで戻る",
                             "narration": "この地の文まで戻る",
                             "memo": "このコメントまで戻る",
                         }.get(message.speaker, "この発言まで戻る")
@@ -977,6 +1090,8 @@ def render_message(
                             on_click=lambda i=index: rewind_message(i),
                         ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(rewind_tip)
                 ui.label(message.time_label).classes("cs-chat-message-time")
+        if is_user and user_image is not None and user_image_path is not None:
+            render_face_avatar(user_image, user_image_path)
 
 
 def render_bust_image(image: CharacterImageAsset | None, image_path: Path | None) -> None:

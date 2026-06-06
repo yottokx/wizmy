@@ -55,6 +55,8 @@ def _default_data() -> dict:
         "tts_config": {
             "endpoints": [],
             "default_endpoint_id": "",
+            "narrator": {},
+            "narrator_voice": None,
         },
         "gen_server_config": {
             "endpoints": [],
@@ -436,11 +438,12 @@ class ApiConfigStore:
 
     def upsert_user_persona(self, persona: UserPersona) -> None:
         personas = self._data.setdefault("user_personas", [])
+        payload = persona.model_dump(mode="json")
         for index, current in enumerate(personas):
             if current["id"] == persona.id:
-                personas[index] = persona.model_dump()
+                personas[index] = payload
                 return
-        personas.append(persona.model_dump())
+        personas.append(payload)
 
     def delete_user_persona(self, persona_id: str) -> None:
         self._data["user_personas"] = [
@@ -529,7 +532,7 @@ class ApiConfigStore:
         return TTSConfig(**self._data.get("tts_config", {}))
 
     def save_tts_config(self, config: TTSConfig) -> None:
-        self._data["tts_config"] = config.model_dump()
+        self._data["tts_config"] = config.model_dump(mode="json")
 
     def get_tts_endpoint(self, endpoint_id: str) -> TTSEndpoint | None:
         for endpoint in self.get_tts_config().endpoints:

@@ -17,10 +17,13 @@ from ...core.chat.templates import TemplateError, render_chat_mode
 from ...core.character.schemas import (
     CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
     CHARACTER_TTS_API_GEN_SERVER,
+    CHARACTER_TTS_API_TTS,
     CharacterSheet,
 )
+from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...core.llm.factory import create_llm
 from ...services.tts import TTSServiceError
+from ..components.character_picker import open_character_picker
 from ..state import get_vault_password
 from . import components
 from .commands import (
@@ -72,6 +75,13 @@ class ChatPageController:
             and self.voice_path
             and ctx.tts.has_voice_playback_api(sheet.media.tts.api_type, sheet.media.tts.endpoint_id)
         )
+        self.user_persona: UserPersona | None = None
+        self.user_persona_character: CharacterSheet | None = None
+        self.user_image = None
+        self.user_image_path = None
+        self.user_voice = None
+        self.user_voice_path = None
+        self.user_tts_configured = False
         self.active_session_id: str | None = None
         self.active_title_is_auto = False
         self.title_generation_attempted = False
@@ -84,7 +94,7 @@ class ChatPageController:
         await self.reload_sessions()
         if self.sessions_by_id:
             latest = next(iter(self.sessions_by_id.values()))
-            self.apply_session(latest)
+            await self.apply_session(latest)
 
     async def reload_sessions(self) -> None:
         sessions = await self.ctx.chats.list_for_character(self.sheet.id)
@@ -123,6 +133,8 @@ class ChatPageController:
                     self.sheet,
                     self.image,
                     self.image_path,
+                    self.user_image,
+                    self.user_image_path,
                     self.state,
                     self.refs,
                     title=self.chat_title(),
@@ -135,7 +147,8 @@ class ChatPageController:
                     rewind_message=self.confirm_rewind_to_message,
                     rewrite_message=self.open_rewrite_message_dialog,
                     regenerate_message=self.confirm_or_regenerate_character_message,
-                    play_tts_message=self.play_tts_message if self.tts_configured else None,
+                    play_tts_message=self.play_tts_message if self.tts_playable_speakers() else None,
+                    tts_playable_speakers=self.tts_playable_speakers(),
                     open_debug=components.open_llm_debug_dialog,
                     set_input_mode=self.set_input_mode,
                     set_mobile_sidebar=self.set_mobile_sidebar,
@@ -171,13 +184,14 @@ class ChatPageController:
             active=session.id == self.active_session_id,
         )
 
-    def apply_session(self, session: ChatSessionRecord) -> None:
+    async def apply_session(self, session: ChatSessionRecord) -> None:
         self.active_session_id = session.id
         self.active_title_is_auto = session.title_is_auto
         self.title_generation_attempted = False
         self.state.title = session.title or DEFAULT_CHAT_TITLE
         self.state.settings = chat_settings_from_dict(session.settings)
         self.state.messages = [chat_message_from_dict(message) for message in session.messages]
+        await self.refresh_user_persona_media()
         self.state.input_mode = "user"
         self.state.sending = False
         self.state.tts_generating_index = None
@@ -190,10 +204,120 @@ class ChatPageController:
         self.state.title = "チャットを開始"
         self.state.settings = None
         self.state.messages = []
+        self.clear_user_persona_media()
         self.state.input_mode = "user"
         self.state.sending = False
         self.state.tts_generating_index = None
         self.threads = [self.thread_preview(current) for current in self.sessions_by_id.values()]
+
+    def clear_user_persona_media(self) -> None:
+        self.user_persona = None
+        self.user_persona_character = None
+        self.user_image = None
+        self.user_image_path = None
+        self.user_voice = None
+        self.user_voice_path = None
+        self.user_tts_configured = False
+
+    async def refresh_user_persona_media(self) -> None:
+        settings = self.state.settings
+        if settings is None or not settings.user_persona_id:
+            self.clear_user_persona_media()
+            return
+        if settings.user_persona_source == components.USER_PERSONA_SOURCE_CHARACTER:
+            character = await self.ctx.characters.get(settings.user_persona_id)
+            if character is None:
+                self.clear_user_persona_media()
+                return
+            self.user_persona = None
+            self.user_persona_character = character
+            self.user_image = character.media.primary_image()
+            self.user_image_path = (
+                self.ctx.characters.media_path(self.user_image.path)
+                if self.user_image
+                else None
+            )
+            self.user_voice = character.media.primary_voice()
+            self.user_voice_path = (
+                self.ctx.characters.media_path(self.user_voice.path)
+                if self.user_voice
+                else None
+            )
+            self.user_tts_configured = self._user_media_tts_configured(character.media.tts)
+            return
+        persona = self.ctx.api_config.get_user_persona(settings.user_persona_id)
+        if persona is None:
+            self.clear_user_persona_media()
+            return
+
+        self.user_persona = persona
+        self.user_persona_character = None
+        self.user_image = persona.media.primary_image()
+        self.user_image_path = (
+            self.ctx.api_config.media_path(self.user_image.path)
+            if self.user_image
+            else None
+        )
+        self.user_voice = persona.media.primary_voice()
+        self.user_voice_path = (
+            self.ctx.api_config.media_path(self.user_voice.path)
+            if self.user_voice
+            else None
+        )
+        self.user_tts_configured = self._user_media_tts_configured(persona.media.tts)
+
+    def _user_media_tts_configured(self, tts_settings) -> bool:
+        voice_design_ready = (
+            tts_settings.api_type == CHARACTER_TTS_API_GEN_SERVER
+            and tts_settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
+            and bool(tts_settings.voice_caption.strip())
+        )
+        voice_registry_ready = (
+            tts_settings.api_type == CHARACTER_TTS_API_TTS
+            and bool(tts_settings.voice_id.strip())
+            and self.ctx.tts.supports_voice_registry(tts_settings.endpoint_id)
+        )
+        return bool(
+            self.ctx.tts.has_voice_playback_api(tts_settings.api_type, tts_settings.endpoint_id)
+            and (self.user_voice_path is not None or voice_design_ready or voice_registry_ready)
+        )
+
+    def _narrator_tts_configured(self, tts_settings=None) -> bool:
+        config = self.ctx.api_config.get_tts_config()
+        settings = tts_settings or config.narrator
+        narrator_voice_path = (
+            self.ctx.api_config.media_path(config.narrator_voice.path)
+            if config.narrator_voice is not None
+            else None
+        )
+        if settings.api_type == CHARACTER_TTS_API_GEN_SERVER:
+            if settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
+                return bool(
+                    settings.voice_caption.strip()
+                    and self.ctx.tts.resolve_gen_server_voice_design_endpoint(raise_on_missing=False) is not None
+                )
+            return bool(
+                narrator_voice_path is not None
+                and self.ctx.tts.resolve_gen_server_voice_clone_endpoint(raise_on_missing=False) is not None
+            )
+        if settings.api_type != CHARACTER_TTS_API_TTS:
+            return False
+        endpoint = self.ctx.api_config.get_tts_endpoint(settings.endpoint_id)
+        if endpoint is None:
+            return False
+        if endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
+            return bool(settings.voice_id.strip())
+        return narrator_voice_path is not None
+
+    def tts_playable_speakers(self) -> set[str]:
+        speakers: set[str] = set()
+        if self.tts_configured:
+            speakers.add("character")
+        if self.user_tts_configured:
+            speakers.add("user")
+        if self._narrator_tts_configured():
+            speakers.add("narration")
+        return speakers
 
     def run_page_javascript(self, code: str) -> None:
         self.page_client.run_javascript(code)
@@ -250,11 +374,14 @@ class ChatPageController:
                     message,
                     self.image,
                     self.image_path,
+                    self.user_image,
+                    self.user_image_path,
                     index=index,
                     rewind_message=self.confirm_rewind_to_message,
                     rewrite_message=self.open_rewrite_message_dialog,
                     regenerate_message=self.confirm_or_regenerate_character_message,
-                    play_tts_message=self.play_tts_message if self.tts_configured else None,
+                    play_tts_message=self.play_tts_message if self.tts_playable_speakers() else None,
+                    tts_playable_speakers=self.tts_playable_speakers(),
                     tts_generating=self.state.tts_generating_index == index,
                     open_debug=components.open_llm_debug_dialog,
                 )
@@ -309,7 +436,7 @@ class ChatPageController:
             self.refresh_history()
             return
         self.sessions_by_id[session.id] = session
-        self.apply_session(session)
+        await self.apply_session(session)
         self.refresh_input_mode_indicator()
         self.refresh_chat_header()
         self.refresh_messages(scroll_to_bottom=True)
@@ -323,7 +450,7 @@ class ChatPageController:
         if index < 0 or index >= len(self.state.messages):
             return
         message = self.state.messages[index]
-        if message.speaker not in {"user", "narration", "memo"}:
+        if message.speaker not in {"character", "user", "narration", "memo"}:
             return
         self.state.messages = self.state.messages[:index]
         if self.refs.input is not None:
@@ -341,7 +468,7 @@ class ChatPageController:
         if index < 0 or index >= len(self.state.messages):
             return
         message = self.state.messages[index]
-        if message.speaker not in {"user", "narration", "memo"}:
+        if message.speaker not in {"character", "user", "narration", "memo"}:
             return
 
         target_label = message_target_label(message.speaker)
@@ -505,20 +632,74 @@ class ChatPageController:
         if self.state.tts_generating_index is not None:
             ui.notify("音声生成中です", type="info")
             return
-        if not self.tts_configured or self.voice is None or self.voice_path is None:
-            ui.notify("TTS設定を確認してください", type="warning")
-            return
         if index < 0 or index >= len(self.state.messages):
             return
         message = self.state.messages[index]
-        if message.speaker != "character":
+        if message.speaker not in {"character", "user", "narration"}:
             return
         text = message.text.strip()
         if not text or text in {"…", "..."}:
-            ui.notify("読み上げる台詞がありません", type="warning")
+            ui.notify("読み上げる本文がありません", type="warning")
             return
 
-        settings = self.sheet.media.tts
+        if message.speaker == "narration":
+            config = self.ctx.api_config.get_tts_config()
+            settings = config.narrator
+            if not self._narrator_tts_configured(settings):
+                ui.notify("ナレーターTTS設定を確認してください", type="warning")
+                return
+            target_id = "narrator"
+            voice = config.narrator_voice
+            voice_path = self.ctx.api_config.media_path(voice.path) if voice else None
+            playback_save = self.ctx.api_config.save_narrator_tts_playback
+        elif message.speaker == "character":
+            if not self.tts_configured or self.voice is None or self.voice_path is None:
+                ui.notify("TTS設定を確認してください", type="warning")
+                return
+            target_id = self.sheet.id
+            settings = self.sheet.media.tts
+            voice = self.voice
+            voice_path = self.voice_path
+            playback_save = lambda audio: self.ctx.characters.save_tts_playback(self.sheet.id, audio)
+        else:
+            if (
+                self.state.settings is not None
+                and self.state.settings.user_persona_source == components.USER_PERSONA_SOURCE_CHARACTER
+            ):
+                if (
+                    not self.user_tts_configured
+                    or self.user_persona_character is None
+                    or (self.user_voice_path is None and not self._user_voice_design_ready())
+                ):
+                    ui.notify("ユーザー役のTTS設定を確認してください", type="warning")
+                    return
+                user_character_id = self.user_persona_character.id
+                target_id = user_character_id
+                settings = self.user_persona_character.media.tts
+                voice = self.user_voice
+                voice_path = self.user_voice_path
+                playback_save = lambda audio, character_id=user_character_id: self.ctx.characters.save_tts_playback(
+                    character_id,
+                    audio,
+                )
+            else:
+                if (
+                    not self.user_tts_configured
+                    or self.user_persona is None
+                    or (self.user_voice_path is None and not self._user_voice_design_ready())
+                ):
+                    ui.notify("ユーザーペルソナのTTS設定を確認してください", type="warning")
+                    return
+                user_persona_id = self.user_persona.id
+                target_id = user_persona_tts_id(user_persona_id)
+                settings = self.user_persona.media.tts
+                voice = self.user_voice
+                voice_path = self.user_voice_path
+                playback_save = lambda audio, persona_id=user_persona_id: self.ctx.api_config.save_user_persona_tts_playback(
+                    persona_id,
+                    audio,
+                )
+
         if (
             settings.api_type == CHARACTER_TTS_API_GEN_SERVER
             and settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
@@ -530,19 +711,19 @@ class ChatPageController:
         self.refresh_messages()
         try:
             audio = await self.ctx.tts.synthesize(
-                self.sheet.id,
-                self.voice_path,
+                target_id,
+                voice_path,
                 text,
                 endpoint_id=settings.endpoint_id,
                 voice_id=settings.voice_id,
-                filename=self.voice.original_name,
-                content_type=self.voice.content_type,
+                filename=voice.original_name if voice else "",
+                content_type=voice.content_type if voice else "",
                 api_type=settings.api_type,
                 gen_server_tts_mode=settings.gen_server_tts_mode,
                 voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
             )
-            playback_path = self.ctx.characters.save_tts_playback(self.sheet.id, audio)
+            playback_path = playback_save(audio)
             audio_url = app.add_static_file(local_file=playback_path, max_cache_age=0)
             self.run_page_javascript(
                 "(() => {"
@@ -557,6 +738,19 @@ class ChatPageController:
         finally:
             self.state.tts_generating_index = None
             self.refresh_messages()
+
+    def _user_voice_design_ready(self) -> bool:
+        if self.user_persona_character is not None:
+            settings = self.user_persona_character.media.tts
+        elif self.user_persona is not None:
+            settings = self.user_persona.media.tts
+        else:
+            return False
+        return (
+            settings.api_type == CHARACTER_TTS_API_GEN_SERVER
+            and settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
+            and bool(settings.voice_caption.strip())
+        )
 
     def set_input_value(self, value: str) -> None:
         if self.refs.input is not None:
@@ -1108,7 +1302,7 @@ setTimeout(() => {
         chat_modes = self.ctx.api_config.get_chat_modes()
         mode_options = {mode.id: mode.name for mode in chat_modes}
         user_personas = self.ctx.api_config.get_user_personas()
-        persona_options = {persona.id: persona.name for persona in user_personas}
+        persona_options = {persona.id: persona.display_name for persona in user_personas}
         components.open_new_chat_dialog_for_sheet(
             sheet=self.sheet,
             profile_options=profile_options,
@@ -1119,6 +1313,11 @@ setTimeout(() => {
             default_persona_id=default_user_persona_id(persona_options),
             get_mode=lambda mode_id: self.ctx.api_config.get_chat_mode(mode_id),
             get_persona=lambda persona_id: self.ctx.api_config.get_user_persona(persona_id),
+            pick_character_persona=lambda on_select: open_character_picker(
+                self.ctx,
+                on_select,
+                title="ユーザー役にするキャラクターを選択",
+            ),
             render_mode=lambda mode, persona: render_mode_for_sheet(mode, self.sheet, persona),
             validate_profile=lambda profile_id: validate_profile_for_start(self.ctx, profile_id),
             enhance_situation=self.enhance_situation,
@@ -1197,7 +1396,7 @@ setTimeout(() => {
                 await self.reload_sessions()
                 if was_active:
                     if self.sessions_by_id:
-                        self.apply_session(next(iter(self.sessions_by_id.values())))
+                        await self.apply_session(next(iter(self.sessions_by_id.values())))
                     else:
                         self.clear_active_session()
                     self.refresh_input_mode_indicator()
@@ -1264,6 +1463,7 @@ setTimeout(() => {
         self.state.title = title or DEFAULT_CHAT_TITLE
         self.state.messages = []
         self.state.input_mode = "user"
+        await self.refresh_user_persona_media()
         self.active_title_is_auto = title_is_auto
         self.title_generation_attempted = False
         if self.refs.input is not None:
@@ -1388,7 +1588,14 @@ def chat_settings_from_dict(data: dict[str, Any]) -> ChatSessionSettings:
         user_persona_id=str(data.get("user_persona_id", "")),
         user_persona_name=str(data.get("user_persona_name", "ユーザー")),
         user_persona_description=str(data.get("user_persona_description", "")),
+        user_persona_source=chat_user_persona_source(str(data.get("user_persona_source", ""))),
     )
+
+
+def chat_user_persona_source(value: str) -> str:
+    if value == components.USER_PERSONA_SOURCE_CHARACTER:
+        return components.USER_PERSONA_SOURCE_CHARACTER
+    return components.USER_PERSONA_SOURCE_PERSONA
 
 
 def input_mode_for_speaker(speaker: str) -> str:
@@ -1403,12 +1610,16 @@ def input_mode_for_speaker(speaker: str) -> str:
 
 def message_target_label(speaker: str) -> str:
     if speaker == "character":
-        return "キャラクターの発言"
+        return "キャラクターの台詞"
     if speaker == "narration":
         return "地の文"
     if speaker == "memo":
         return "コメント"
     return "発言"
+
+
+def user_persona_tts_id(persona_id: str) -> str:
+    return f"user-persona-{persona_id}"
 
 
 def chat_message_to_dict(message: ChatMessagePreview) -> dict[str, Any]:

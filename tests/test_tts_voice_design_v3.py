@@ -18,6 +18,7 @@ from src.core.gen_server.schemas import (
     GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
     GEN_SERVER_MODE_IRODORI_VOICE_DESIGN,
     GenServerEndpoint,
+    clean_gen_server_mode_defaults,
     default_gen_server_mode_defaults,
 )
 from src.services.api_config import ApiConfigService
@@ -49,6 +50,18 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("cfg_scale_speaker", defaults)
         self.assertIn("speaker_kv_scale", defaults)
+
+    def test_clean_defaults_drops_other_voice_mode_default_model_id(self) -> None:
+        cleaned = clean_gen_server_mode_defaults(
+            GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+            {
+                "model_id": "Aratako/Irodori-TTS-600M-v3-VoiceDesign",
+                "steps": 20,
+            },
+        )
+
+        self.assertNotIn("model_id", cleaned)
+        self.assertEqual(cleaned["steps"], 20)
 
     async def test_service_uses_design_client_for_voice_design_v3_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -97,6 +110,50 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(kwargs["model_id"], "Aratako/Irodori-TTS-600M-v3-VoiceDesign")
             self.assertEqual(kwargs["params"]["cfg_scale_speaker"], 4.0)
             self.assertIs(kwargs["params"]["no_ref"], False)
+
+    async def test_service_clone_ignores_carried_voice_design_default_model_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service = _tts_service(Path(tmp))
+            voice_path = Path(tmp) / "voice.wav"
+            voice_path.write_bytes(b"mock")
+            calls: list[dict[str, object]] = []
+
+            class FakeCloneClient:
+                def __init__(self, endpoint: GenServerEndpoint) -> None:
+                    self.endpoint = endpoint
+
+                async def synthesize(
+                    self,
+                    text: str,
+                    voice_path_arg: Path | None,
+                    **kwargs,
+                ) -> bytes:
+                    calls.append({
+                        "endpoint_id": self.endpoint.id,
+                        "text": text,
+                        "voice_path": voice_path_arg,
+                        "kwargs": kwargs,
+                    })
+                    return b"audio"
+
+            with patch("src.services.tts.WizmyGenServerVoiceCloneClient", FakeCloneClient):
+                audio = await service.synthesize(
+                    "char-1",
+                    voice_path,
+                    "hello",
+                    api_type=CHARACTER_TTS_API_GEN_SERVER,
+                    gen_server_tts_mode=CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
+                    gen_server_params={
+                        "model_id": "Aratako/Irodori-TTS-600M-v3-VoiceDesign",
+                        "steps": 20,
+                    },
+                )
+
+            self.assertEqual(audio, b"audio")
+            self.assertEqual(len(calls), 1)
+            kwargs = calls[0]["kwargs"]
+            self.assertEqual(kwargs["model_id"], "Aratako/Irodori-TTS-500M-v3")
+            self.assertEqual(kwargs["params"]["steps"], 20)
 
     async def test_service_rejects_voice_design_v3_without_caption(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

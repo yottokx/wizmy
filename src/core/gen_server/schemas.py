@@ -181,8 +181,31 @@ def clean_gen_server_mode_defaults(mode: str, defaults: dict[str, Any]) -> dict[
     for key, value in defaults.items():
         if key not in fields:
             continue
+        if key == "model_id" and _is_other_voice_mode_default_model_id(mode, value):
+            continue
         cleaned[key] = value
     return cleaned
+
+
+def _is_other_voice_mode_default_model_id(mode: str, value: Any) -> bool:
+    voice_modes = {
+        GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+        GEN_SERVER_MODE_IRODORI_VOICE_DESIGN,
+    }
+    if mode not in voice_modes:
+        return False
+    model_id = str(value or "").strip()
+    if not model_id:
+        return False
+    for other_mode in voice_modes:
+        if other_mode == mode:
+            continue
+        default_model_id = str(
+            GEN_SERVER_DEFAULT_FIELDS[other_mode]["model_id"].get("default") or ""
+        ).strip()
+        if model_id == default_model_id:
+            return True
+    return False
 
 
 def validate_gen_server_base_url(value: str) -> str:

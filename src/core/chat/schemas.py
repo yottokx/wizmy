@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from ..character.schemas import CharacterMedia
 
 
 class ChatMode(BaseModel):
@@ -15,7 +17,13 @@ class ChatMode(BaseModel):
 class UserPersona(BaseModel):
     id: str
     name: str
+    persona_name: str = ""
     description: str = ""
+    media: CharacterMedia = Field(default_factory=CharacterMedia)
+
+    @property
+    def display_name(self) -> str:
+        return self.persona_name.strip() or self.name
 
 
 _DEFAULT_CHAT_MODES = (

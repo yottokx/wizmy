@@ -44,6 +44,7 @@ class ChatSessionSettings:
     user_persona_id: str
     user_persona_name: str
     user_persona_description: str
+    user_persona_source: str = "persona"
 
 
 @dataclass(frozen=True)

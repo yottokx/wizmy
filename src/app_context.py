@@ -27,7 +27,7 @@ class AppContext:
         self._character_repo = CharacterRepository(settings.db_file)
         self._chat_repo = ChatRepository(settings.db_file)
 
-        self.api_config = ApiConfigService(self._api_config_store)
+        self.api_config = ApiConfigService(self._api_config_store, settings.data_dir)
         self.chats = ChatService(self._chat_repo)
         self.characters = CharacterService(self._character_repo, settings.data_dir)
         self.generation = CharacterGenerationService(self.characters)

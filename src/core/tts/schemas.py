@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..character.schemas import CharacterTTSSettings, CharacterVoiceAsset
+
 
 TTS_PROVIDER_IRODORI_GRADIO = "irodori_gradio_07dfa74"
 TTS_PROVIDER_IRODORI_SERVER = "irodori_tts_server"
@@ -34,6 +36,8 @@ class TTSConfig(BaseModel):
 
     endpoints: list[TTSEndpoint] = Field(default_factory=list)
     default_endpoint_id: str = ""
+    narrator: CharacterTTSSettings = Field(default_factory=CharacterTTSSettings)
+    narrator_voice: CharacterVoiceAsset | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -73,6 +77,8 @@ class TTSConfig(BaseModel):
         return {
             "endpoints": endpoints,
             "default_endpoint_id": default_endpoint_id,
+            "narrator": value.get("narrator", {}),
+            "narrator_voice": value.get("narrator_voice"),
         }
 
 
