@@ -778,7 +778,13 @@ class ChatPageController:
             return
         self.refs.input_mode_icon.clear()
         with self.refs.input_mode_icon:
-            components.render_input_mode_indicator(self.state.input_mode, self.image, self.image_path)
+            components.render_input_mode_indicator(
+                self.state.input_mode,
+                self.image,
+                self.image_path,
+                self.user_image,
+                self.user_image_path,
+            )
 
     def set_input_mode(self, mode: str) -> None:
         self.state.input_mode = mode if mode in {"character", "narration", "memo"} else "user"

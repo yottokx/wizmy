@@ -272,6 +272,8 @@ def render_chat(
                 refs,
                 image,
                 image_path,
+                user_image,
+                user_image_path,
                 set_input_mode=set_input_mode,
             )
             with ui.element("div").classes("cs-chat-composer-input-wrap"):
@@ -927,10 +929,19 @@ def render_input_mode_indicator(
     mode: str,
     image: CharacterImageAsset | None,
     image_path: Path | None,
+    user_image: CharacterImageAsset | None = None,
+    user_image_path: Path | None = None,
 ) -> None:
     label = input_mode_label(mode)
-    if mode == "character":
-        style = cropped_background_style(image, image_path, image.face_rect if image else FaceRect(), 1.0)
+    face_image = image if mode == "character" else user_image if mode == "user" else None
+    face_image_path = image_path if mode == "character" else user_image_path if mode == "user" else None
+    if face_image is not None and face_image_path is not None and mode in {"character", "user"}:
+        style = cropped_background_style(
+            face_image,
+            face_image_path,
+            face_image.face_rect,
+            1.0,
+        )
         with ui.element("div") as face:
             face.classes("cs-chat-mode-face").style(style).tooltip(label)
             if not style:
@@ -944,6 +955,8 @@ def render_input_mode_selector(
     refs: ChatRefs,
     image: CharacterImageAsset | None,
     image_path: Path | None,
+    user_image: CharacterImageAsset | None,
+    user_image_path: Path | None,
     *,
     set_input_mode: Callable[[str], None],
 ) -> None:
@@ -952,7 +965,7 @@ def render_input_mode_selector(
     ):
         with ui.element("div").classes("cs-chat-mode-icon-display") as mode_icon:
             refs.input_mode_icon = mode_icon
-            render_input_mode_indicator(mode, image, image_path)
+            render_input_mode_indicator(mode, image, image_path, user_image, user_image_path)
         with ui.menu().classes("cs-chat-mode-menu"):
             for next_mode in ("user", "character", "narration", "memo"):
                 ui.menu_item(

@@ -309,35 +309,65 @@ async def settings_page() -> None:
     with page_layout("設定"):
         tabs = ui.tabs().classes("w-full")
         with tabs:
-            tab_endpoints = ui.tab("エンドポイント", icon="cloud")
-            tab_profiles = ui.tab("LLMプロファイル", icon="tune")
-            tab_chat_modes = ui.tab("チャットモード", icon="forum")
-            tab_personas = ui.tab("ユーザーペルソナ", icon="badge")
-            tab_presets = ui.tab("生成プリセット", icon="bookmark")
-            tab_vault = ui.tab("APIキーボルト", icon="lock")
-            tab_options = ui.tab("生成オプション", icon="list")
+            tab_llm = ui.tab("LLM", icon="psychology")
+            tab_character_generation = ui.tab("キャラクター生成", icon="auto_awesome")
+            tab_chat = ui.tab("チャット", icon="forum")
             tab_media_generation = ui.tab("画像&音声生成", icon="perm_media")
+            tab_vault = ui.tab("APIキーボルト", icon="lock")
             tab_appearance = ui.tab("外観", icon="palette")
 
-        with ui.tab_panels(tabs, value=tab_endpoints).classes("w-full mt-4"):
-            with ui.tab_panel(tab_endpoints):
-                await _build_endpoints_tab(ctx)
-            with ui.tab_panel(tab_profiles):
-                await _build_profiles_tab(ctx)
-            with ui.tab_panel(tab_chat_modes):
-                await _build_chat_modes_tab(ctx)
-            with ui.tab_panel(tab_personas):
-                await _build_user_personas_tab(ctx)
-            with ui.tab_panel(tab_presets):
-                await _build_presets_tab(ctx)
-            with ui.tab_panel(tab_vault):
-                await _build_vault_tab(ctx)
-            with ui.tab_panel(tab_options):
-                _build_options_tab(ctx)
+        with ui.tab_panels(tabs, value=tab_llm).classes("w-full mt-4"):
+            with ui.tab_panel(tab_llm):
+                await _build_llm_settings_tab(ctx)
+            with ui.tab_panel(tab_character_generation):
+                await _build_character_generation_settings_tab(ctx)
+            with ui.tab_panel(tab_chat):
+                await _build_chat_settings_tab(ctx)
             with ui.tab_panel(tab_media_generation):
                 _build_media_generation_tab(ctx)
+            with ui.tab_panel(tab_vault):
+                await _build_vault_tab(ctx)
             with ui.tab_panel(tab_appearance):
                 _build_appearance_tab()
+
+
+async def _build_llm_settings_tab(ctx) -> None:
+    sub_tabs = ui.tabs().classes("w-full")
+    with sub_tabs:
+        tab_endpoints = ui.tab("エンドポイント", icon="cloud")
+        tab_profiles = ui.tab("LLMプロファイル", icon="tune")
+
+    with ui.tab_panels(sub_tabs, value=tab_endpoints).classes("w-full mt-3"):
+        with ui.tab_panel(tab_endpoints):
+            await _build_endpoints_tab(ctx)
+        with ui.tab_panel(tab_profiles):
+            await _build_profiles_tab(ctx)
+
+
+async def _build_character_generation_settings_tab(ctx) -> None:
+    sub_tabs = ui.tabs().classes("w-full")
+    with sub_tabs:
+        tab_presets = ui.tab("生成プリセット", icon="bookmark")
+        tab_options = ui.tab("生成オプション", icon="list")
+
+    with ui.tab_panels(sub_tabs, value=tab_presets).classes("w-full mt-3"):
+        with ui.tab_panel(tab_presets):
+            await _build_presets_tab(ctx)
+        with ui.tab_panel(tab_options):
+            _build_options_tab(ctx)
+
+
+async def _build_chat_settings_tab(ctx) -> None:
+    sub_tabs = ui.tabs().classes("w-full")
+    with sub_tabs:
+        tab_chat_modes = ui.tab("チャットモード", icon="forum")
+        tab_personas = ui.tab("ユーザーペルソナ", icon="badge")
+
+    with ui.tab_panels(sub_tabs, value=tab_chat_modes).classes("w-full mt-3"):
+        with ui.tab_panel(tab_chat_modes):
+            await _build_chat_modes_tab(ctx)
+        with ui.tab_panel(tab_personas):
+            await _build_user_personas_tab(ctx)
 
 
 # ══════════════════════════════════════════
