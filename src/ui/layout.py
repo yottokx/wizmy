@@ -19,6 +19,7 @@ from ..config import PROJECT_ROOT
 NAV_ITEMS = [
     {"label": "キャラクター生成", "icon": "auto_awesome", "path": "/"},
     {"label": "キャラクター一覧", "icon": "people", "path": "/characters"},
+    {"label": "グループチャット", "icon": "groups", "path": "/groups"},
     {"label": "設定", "icon": "settings", "path": "/settings"},
 ]
 
@@ -563,7 +564,9 @@ def page_layout(title: str = ""):
 
         with ui.list().props("dense separator").classes("w-full"):
             for item in NAV_ITEMS:
-                is_active = current_path == item["path"]
+                is_active = current_path == item["path"] or (
+                    item["path"] != "/" and current_path.startswith(f"{item['path']}/")
+                )
                 item_style = (
                     "background-color: var(--cs-accent-bg); border-left: 3px solid var(--cs-accent);"
                     if is_active else "border-left: 3px solid transparent;"

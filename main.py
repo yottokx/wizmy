@@ -19,6 +19,8 @@ from src.ui.pages import (
     character_detail_page,
     characters_page,
     generation_page,
+    group_chat_demo_page,
+    group_chat_page,
     settings_page,
 )
 from src.ui.server_noise import (
