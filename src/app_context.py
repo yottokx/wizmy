@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .config import AppSettings
 from .services.api_config import ApiConfigService
+from .services.ai_jobs import AIJobService
 from .services.chat import ChatService
 from .services.character import CharacterService
 from .services.character_generation import CharacterGenerationService
@@ -31,13 +32,14 @@ class AppContext:
         self._group_chat_repo = GroupChatRepository(settings.db_file)
 
         self.api_config = ApiConfigService(self._api_config_store, settings.data_dir)
+        self.ai_jobs = AIJobService()
         self.chats = ChatService(self._chat_repo)
         self.group_chats = GroupChatService(self._group_chat_repo)
         self.characters = CharacterService(self._character_repo, settings.data_dir)
         self.generation = CharacterGenerationService(self.characters)
-        self.danbooru_prompt = DanbooruPromptService(self.api_config)
-        self.image_generation = ImageGenerationService(self.api_config)
-        self.tts = TTSService(self.api_config)
+        self.danbooru_prompt = DanbooruPromptService(self.api_config, self.ai_jobs)
+        self.image_generation = ImageGenerationService(self.api_config, self.ai_jobs)
+        self.tts = TTSService(self.api_config, self.ai_jobs)
 
     async def startup(self) -> None:
         await self._character_repo.initialize()

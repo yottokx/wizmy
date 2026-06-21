@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import mimetypes
 import secrets
 import wave
+from collections.abc import Awaitable, Callable
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,7 @@ from ..core.tts.schemas import (
     TTSEndpoint,
 )
 from .api_config import ApiConfigService
+from .ai_jobs import AIJobKind, AIJobRecord, AIJobService
 
 
 CHUNK_BOUNDARIES = frozenset("。、，,．.!！?？\n\r")
@@ -45,8 +48,13 @@ class TTSServiceError(RuntimeError):
 
 
 class TTSService:
-    def __init__(self, api_config: ApiConfigService) -> None:
+    def __init__(
+        self,
+        api_config: ApiConfigService,
+        ai_jobs: AIJobService | None = None,
+    ) -> None:
         self._api_config = api_config
+        self._ai_jobs = ai_jobs
 
     def get_endpoints(self) -> list[TTSEndpoint]:
         return self._api_config.get_tts_endpoints()
@@ -59,6 +67,18 @@ class TTSService:
         ):
             return True
         return gen_server_available or bool(endpoints)
+
+    def _voice_clone_client(self, endpoint: GenServerEndpoint):
+        try:
+            return WizmyGenServerVoiceCloneClient(endpoint, self._ai_jobs)
+        except TypeError:
+            return WizmyGenServerVoiceCloneClient(endpoint)
+
+    def _voice_design_client(self, endpoint: GenServerEndpoint):
+        try:
+            return WizmyGenServerVoiceDesignClient(endpoint, self._ai_jobs)
+        except TypeError:
+            return WizmyGenServerVoiceDesignClient(endpoint)
 
     def _has_gen_server_voice_endpoint(self) -> bool:
         return (
@@ -147,10 +167,11 @@ class TTSService:
         filename: str = "",
         content_type: str = "",
         gen_server_params: dict[str, Any] | None = None,
+        ai_job: AIJobRecord | None = None,
     ) -> bytes:
         endpoint = self.resolve_gen_server_voice_design_endpoint()
         model_id, params = self._gen_server_voice_design_options(gen_server_params or {})
-        return await WizmyGenServerVoiceDesignClient(endpoint).synthesize(
+        return await self._voice_design_client(endpoint).synthesize(
             text,
             caption,
             voice_path,
@@ -158,6 +179,7 @@ class TTSService:
             params=params,
             filename=filename,
             content_type=content_type,
+            ai_job=ai_job,
         )
 
     async def register_voice(
@@ -210,6 +232,7 @@ class TTSService:
         gen_server_params: dict[str, Any] | None = None,
         chunking_enabled: bool | None = None,
         chunk_min_chars: int | None = None,
+        ai_job: AIJobRecord | None = None,
     ) -> bytes:
         resolved_chunking_enabled, resolved_chunk_min_chars = self._resolve_chunk_settings(
             chunking_enabled,
@@ -223,7 +246,7 @@ class TTSService:
                     raise TTSServiceError("VoiceDesign v3で読み上げるにはキャプションが必要です。")
                 endpoint = self.resolve_gen_server_voice_design_endpoint()
                 model_id, params = self._gen_server_voice_design_options(gen_server_params or {})
-                return await WizmyGenServerVoiceDesignClient(endpoint).synthesize(
+                return await self._voice_design_client(endpoint).synthesize(
                     text,
                     caption,
                     voice_path,
@@ -233,11 +256,12 @@ class TTSService:
                     content_type=content_type,
                     chunking_enabled=resolved_chunking_enabled,
                     chunk_min_chars=resolved_chunk_min_chars,
+                    ai_job=ai_job,
                 )
 
             endpoint = self.resolve_gen_server_voice_clone_endpoint()
             model_id, params = self._gen_server_voice_clone_options(gen_server_params or {})
-            return await WizmyGenServerVoiceCloneClient(endpoint).synthesize(
+            return await self._voice_clone_client(endpoint).synthesize(
                 text,
                 voice_path,
                 model_id=model_id,
@@ -246,6 +270,7 @@ class TTSService:
                 content_type=content_type,
                 chunking_enabled=resolved_chunking_enabled,
                 chunk_min_chars=resolved_chunk_min_chars,
+                ai_job=ai_job,
             )
 
         endpoint = self.resolve_endpoint(self._resolve_tts_endpoint_id(endpoint_id))
@@ -263,6 +288,108 @@ class TTSService:
             content_type=content_type,
             chunking_enabled=resolved_chunking_enabled,
             chunk_min_chars=resolved_chunk_min_chars,
+        )
+
+    def start_synthesize_job(
+        self,
+        character_id: str,
+        voice_path: Path | None,
+        text: str,
+        *,
+        endpoint_id: str = "",
+        voice_id: str = "",
+        filename: str = "",
+        content_type: str = "",
+        api_type: str = CHARACTER_TTS_API_TTS,
+        gen_server_tts_mode: str = CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
+        voice_caption: str = "",
+        gen_server_params: dict[str, Any] | None = None,
+        chunking_enabled: bool | None = None,
+        chunk_min_chars: int | None = None,
+        label: str = "読み上げ",
+        scope: str = "",
+        metadata: dict[str, Any] | None = None,
+        result_handler: Callable[[bytes, AIJobRecord], Awaitable[Any] | Any] | None = None,
+    ) -> AIJobRecord:
+        if self._ai_jobs is None:
+            raise TTSServiceError("AIジョブサービスが初期化されていません。")
+
+        async def _runner(job: AIJobRecord) -> Any:
+            audio = await self.synthesize(
+                character_id,
+                voice_path,
+                text,
+                endpoint_id=endpoint_id,
+                voice_id=voice_id,
+                filename=filename,
+                content_type=content_type,
+                api_type=api_type,
+                gen_server_tts_mode=gen_server_tts_mode,
+                voice_caption=voice_caption,
+                gen_server_params=gen_server_params,
+                chunking_enabled=chunking_enabled,
+                chunk_min_chars=chunk_min_chars,
+                ai_job=job,
+            )
+            if result_handler is None:
+                return audio
+            handled = result_handler(audio, job)
+            if inspect.isawaitable(handled):
+                handled = await handled
+            if isinstance(handled, dict):
+                self._ai_jobs.set_result_meta(job.id, handled)
+            return handled if handled is not None else audio
+
+        return self._ai_jobs.start_job(
+            kind=AIJobKind.TTS_SYNTHESIS,
+            label=label,
+            scope=scope,
+            metadata=metadata,
+            runner=_runner,
+        )
+
+    def start_design_voice_job(
+        self,
+        text: str,
+        caption: str,
+        *,
+        voice_path: Path | None = None,
+        filename: str = "",
+        content_type: str = "",
+        gen_server_params: dict[str, Any] | None = None,
+        label: str = "ボイスデザイン",
+        scope: str = "",
+        metadata: dict[str, Any] | None = None,
+        result_handler: Callable[[bytes, AIJobRecord], Awaitable[Any] | Any] | None = None,
+    ) -> AIJobRecord:
+        if self._ai_jobs is None:
+            raise TTSServiceError("AIジョブサービスが初期化されていません。")
+
+        async def _runner(job: AIJobRecord) -> Any:
+            audio = await self.design_voice(
+                text,
+                caption,
+                voice_path=voice_path,
+                filename=filename,
+                content_type=content_type,
+                gen_server_params=gen_server_params,
+                ai_job=job,
+            )
+            if result_handler is None:
+                return audio
+            handled = result_handler(audio, job)
+            if inspect.isawaitable(handled):
+                handled = await handled
+            if isinstance(handled, dict):
+                self._ai_jobs.set_result_meta(job.id, handled)
+            return handled if handled is not None else audio
+
+        return self._ai_jobs.start_job(
+            kind=AIJobKind.TTS_DESIGN,
+            label=label,
+            scope=scope,
+            metadata=metadata,
+            runner=_runner,
         )
 
     def _resolve_api_type(self, api_type: str, endpoint_id: str = "") -> str:
@@ -616,8 +743,13 @@ class WizmyGenServerVoiceCloneClient:
     RESPONSE_FORMAT = "wav"
     POLL_LIMIT = 600
 
-    def __init__(self, endpoint: GenServerEndpoint) -> None:
+    def __init__(
+        self,
+        endpoint: GenServerEndpoint,
+        ai_jobs: AIJobService | None = None,
+    ) -> None:
         self._base_url = gen_server_api_root(endpoint.base_url)
+        self._ai_jobs = ai_jobs
         if not self._base_url:
             raise TTSServiceError("Wizmy-Gen-ServerのURLを設定してください。")
 
@@ -632,6 +764,7 @@ class WizmyGenServerVoiceCloneClient:
         content_type: str = "",
         chunking_enabled: bool = True,
         chunk_min_chars: int = DEFAULT_CHUNK_MIN_CHARS,
+        ai_job: AIJobRecord | None = None,
     ) -> bytes:
         if voice_path is None:
             raise TTSServiceError("Wizmy-Gen-Serverで読み上げるには参照音声が必要です。")
@@ -647,6 +780,7 @@ class WizmyGenServerVoiceCloneClient:
                         params=params,
                         filename=filename,
                         content_type=content_type,
+                        ai_job=ai_job,
                     )
                     for chunk in chunks
                 ]
@@ -664,6 +798,7 @@ class WizmyGenServerVoiceCloneClient:
         params: dict[str, Any],
         filename: str,
         content_type: str,
+        ai_job: AIJobRecord | None = None,
     ) -> bytes:
         name = filename or voice_path.name
         media_type = content_type or mimetypes.guess_type(name)[0] or "audio/wav"
@@ -680,7 +815,8 @@ class WizmyGenServerVoiceCloneClient:
         job_id = str(response.json().get("job_id") or "")
         if not job_id:
             raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
-        result = await self._wait_job_result(client, job_id)
+        self._attach_external_job(ai_job, job_id, "tts.clone")
+        result = await self._wait_job_result(client, job_id, ai_job=ai_job)
         audio_url = _first_audio_artifact_url(result)
         if not audio_url:
             raise TTSServiceError("Wizmy-Gen-Serverの生成結果に音声が含まれていません。")
@@ -688,7 +824,13 @@ class WizmyGenServerVoiceCloneClient:
         _raise_for_error(audio_response, "Wizmy-Gen-Server")
         return audio_response.content
 
-    async def _wait_job_result(self, client: httpx.AsyncClient, job_id: str) -> dict[str, Any]:
+    async def _wait_job_result(
+        self,
+        client: httpx.AsyncClient,
+        job_id: str,
+        *,
+        ai_job: AIJobRecord | None = None,
+    ) -> dict[str, Any]:
         for _ in range(self.POLL_LIMIT):
             response = await client.get(f"/v1/jobs/{job_id}/result")
             if response.status_code == 202:
@@ -697,11 +839,37 @@ class WizmyGenServerVoiceCloneClient:
                     delay = max(0.2, min(5.0, float(retry_after)))
                 except (TypeError, ValueError):
                     delay = 1.0
+                if self._ai_jobs is not None and ai_job is not None:
+                    self._ai_jobs.update_progress(ai_job.id, "音声生成中...")
                 await asyncio.sleep(delay)
                 continue
             _raise_for_error(response, "Wizmy-Gen-Server")
             return response.json()
         raise TTSServiceError("Wizmy-Gen-Serverの音声生成がタイムアウトしました。")
+
+    def _attach_external_job(
+        self,
+        ai_job: AIJobRecord | None,
+        job_id: str,
+        kind: str,
+    ) -> None:
+        if ai_job is None:
+            return
+        if self._ai_jobs is not None:
+            self._ai_jobs.add_external_job(
+                ai_job.id,
+                {
+                    "provider": "wizmy-gen-server",
+                    "job_id": job_id,
+                    "kind": kind,
+                },
+            )
+
+        async def _cancel_external(_: AIJobRecord) -> None:
+            async with self._client(timeout=httpx.Timeout(10.0, connect=3.0)) as client:
+                await client.post(f"/v1/jobs/{job_id}/cancel")
+
+        ai_job.add_cancel_callback(_cancel_external)
 
     def _client(self, *, timeout: float | httpx.Timeout = 30.0) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
@@ -720,6 +888,7 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
         content_type: str = "",
         chunking_enabled: bool = True,
         chunk_min_chars: int = DEFAULT_CHUNK_MIN_CHARS,
+        ai_job: AIJobRecord | None = None,
     ) -> bytes:
         if voice_path is None:
             params = {**params, "no_ref": True}
@@ -738,6 +907,7 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
                         params=params,
                         filename=filename,
                         content_type=content_type,
+                        ai_job=ai_job,
                     )
                     for chunk in chunks
                 ]
@@ -756,6 +926,7 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
         params: dict[str, Any],
         filename: str,
         content_type: str,
+        ai_job: AIJobRecord | None = None,
     ) -> bytes:
         data = {
             "text": text,
@@ -776,7 +947,8 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
         job_id = str(response.json().get("job_id") or "")
         if not job_id:
             raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
-        result = await self._wait_job_result(client, job_id)
+        self._attach_external_job(ai_job, job_id, "tts.design")
+        result = await self._wait_job_result(client, job_id, ai_job=ai_job)
         audio_url = _first_audio_artifact_url(result)
         if not audio_url:
             raise TTSServiceError("Wizmy-Gen-Serverの生成結果に音声が含まれていません。")

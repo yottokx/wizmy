@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ from src.core.gen_server.schemas import (
     default_gen_server_mode_defaults,
 )
 from src.services.api_config import ApiConfigService
+from src.services.ai_jobs import AIJobKind, AIJobService, AIJobStatus
 from src.services.tts import (
     TTSService,
     TTSServiceError,
@@ -225,6 +227,66 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
             self.assertIn(b'name="caption"', body)
             self.assertIn("明るく柔らかい声".encode("utf-8"), body)
             self.assertIn(b'name="reference_audio"; filename="voice.wav"', body)
+
+    async def test_design_client_records_external_job_and_calls_cancel(self) -> None:
+        cancel_paths: list[str] = []
+        service = AIJobService()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path == "/v1/tts/design/jobs":
+                return httpx.Response(200, json={"job_id": "job-1"})
+            if request.method == "GET" and request.url.path == "/v1/jobs/job-1/result":
+                await asyncio.sleep(60)
+                return httpx.Response(202, json={"retry_after_seconds": 1})
+            if request.method == "POST" and request.url.path == "/v1/jobs/job-1/cancel":
+                cancel_paths.append(request.url.path)
+                return httpx.Response(200, json={"status": "cancelled"})
+            return httpx.Response(404)
+
+        class MockedDesignClient(WizmyGenServerVoiceDesignClient):
+            def _client(self, *, timeout: float | httpx.Timeout = 30.0) -> httpx.AsyncClient:
+                return httpx.AsyncClient(
+                    base_url=self._base_url,
+                    transport=httpx.MockTransport(handler),
+                    timeout=timeout,
+                )
+
+        client = MockedDesignClient(
+            GenServerEndpoint(
+                id="gen-1",
+                name="Local Gen",
+                base_url="http://127.0.0.1:8008/v1",
+            ),
+            service,
+        )
+
+        job = service.start_job(
+            kind=AIJobKind.TTS_DESIGN,
+            label="外部ジョブ記録",
+            runner=lambda ai_job: client.synthesize(
+                "こんにちは。",
+                "明るい声",
+                None,
+                model_id="design-model",
+                params={},
+                chunking_enabled=False,
+                ai_job=ai_job,
+            ),
+        )
+
+        for _ in range(50):
+            if job.external_jobs:
+                break
+            await asyncio.sleep(0.01)
+
+        self.assertEqual(job.external_jobs[0]["job_id"], "job-1")
+        self.assertEqual(job.external_jobs[0]["kind"], "tts.design")
+
+        await service.cancel_job(job.id)
+        finished = await service.wait(job.id)
+
+        self.assertEqual(finished.status, AIJobStatus.CANCELLED)
+        self.assertEqual(cancel_paths, ["/v1/jobs/job-1/cancel"])
 
 
 def _tts_service(tmp_path: Path) -> TTSService:

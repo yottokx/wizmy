@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from ..config import PROJECT_ROOT
@@ -14,6 +16,7 @@ from ..core.danbooru_prompt import (
 )
 from ..core.llm.factory import create_llm
 from .api_config import ApiConfigService
+from .ai_jobs import AIJobKind, AIJobRecord, AIJobService
 
 
 DEFAULT_TAG_CLASSIFICATION_CSV = PROJECT_ROOT / "assets" / "danbooru_tag_classification_flat.csv"
@@ -29,10 +32,12 @@ class DanbooruPromptService:
     def __init__(
         self,
         api_config: ApiConfigService,
+        ai_jobs: AIJobService | None = None,
         *,
         tag_csv_path: Path = DEFAULT_TAG_CLASSIFICATION_CSV,
     ) -> None:
         self._api_config = api_config
+        self._ai_jobs = ai_jobs
         self._tag_csv_path = tag_csv_path
         self._tag_dictionary: DanbooruTagDictionary | None = None
 
@@ -70,6 +75,47 @@ class DanbooruPromptService:
             sheet,
             count=count,
             seed=seed,
+        )
+
+    def start_generate_candidates_job(
+        self,
+        sheet: CharacterSheet,
+        *,
+        llm_profile_id: str,
+        vault_password: str | None = None,
+        count: int = 3,
+        seed: int | None = None,
+        label: str = "プロンプト生成",
+        scope: str = "",
+        metadata: dict | None = None,
+        result_handler: Callable[[list[DanbooruPromptCandidate], AIJobRecord], Awaitable[object] | object] | None = None,
+    ) -> AIJobRecord:
+        if self._ai_jobs is None:
+            raise DanbooruPromptServiceError("AIジョブサービスが初期化されていません。")
+
+        async def _runner(job: AIJobRecord) -> object:
+            candidates = await self.generate_candidates(
+                sheet,
+                llm_profile_id=llm_profile_id,
+                vault_password=vault_password,
+                count=count,
+                seed=seed,
+            )
+            if result_handler is None:
+                return candidates
+            handled = result_handler(candidates, job)
+            if inspect.isawaitable(handled):
+                handled = await handled
+            if isinstance(handled, dict):
+                self._ai_jobs.set_result_meta(job.id, handled)
+            return handled if handled is not None else candidates
+
+        return self._ai_jobs.start_job(
+            kind=AIJobKind.LLM_PROMPT,
+            label=label,
+            scope=scope,
+            metadata=metadata,
+            runner=_runner,
         )
 
     def _dictionary(self) -> DanbooruTagDictionary:

@@ -41,6 +41,7 @@ from ...core.image_generation.schemas import (
     image_generation_profile_values,
 )
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
+from ...services.ai_jobs import AIJobStatus
 from ...services.character_generation import parse_markdown_to_sheet
 from ...services.danbooru_prompt import DanbooruPromptServiceError
 from ...services.image_generation import ImageGenerationError
@@ -633,12 +634,24 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
             prompt_candidates.clear()
             _render_prompt_candidate_buttons()
             try:
-                candidates = await ctx.danbooru_prompt.generate_candidates(
+                job = ctx.danbooru_prompt.start_generate_candidates_job(
                     sheet,
                     llm_profile_id=llm_profile_id,
                     vault_password=get_vault_password(),
                     count=3,
+                    label=f"{sheet.name or 'キャラクター'}のプロンプト候補生成",
+                    scope=f"character:{character_id}:prompt",
+                    metadata={"character_id": character_id},
                 )
+                ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/characters/{character_id}"})
+                finished = await ctx.ai_jobs.wait(job.id)
+                if finished.status == AIJobStatus.CANCELLED:
+                    prompt_status.set_text("")
+                    ui.notify("プロンプト生成を停止しました", type="info")
+                    return
+                if finished.status != AIJobStatus.SUCCEEDED:
+                    raise DanbooruPromptServiceError(finished.error_message or "プロンプト生成に失敗しました。")
+                candidates = finished.result or []
                 prompt_candidates.extend(candidates)
                 _render_prompt_candidate_buttons()
                 prompt_status.set_text("")
@@ -716,22 +729,42 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
             generate_btn.disable()
             status.set_text("生成中...")
             try:
-                images = await ctx.image_generation.generate_sdxl(
+                def _save_previews(images: list[object], job) -> dict[str, object]:
+                    items: list[dict[str, object]] = []
+                    for image in images:
+                        preview_path = ctx.characters.save_image_preview(
+                            character_id,
+                            image.data,
+                            filename=image.filename,
+                            content_type=image.content_type,
+                            replace_existing=False,
+                        )
+                        items.append({
+                            "image": image,
+                            "path": preview_path,
+                        })
+                    generated.extend(items)
+                    return {
+                        "result_url": f"/characters/{character_id}",
+                        "preview_paths": [str(item["path"]) for item in items],
+                        "image_count": len(items),
+                    }
+
+                job = ctx.image_generation.start_sdxl_job(
                     profile_id=profile_select.value or "",
                     gen_server_params=_read_params(),
+                    label=f"{sheet.name or 'キャラクター'}の画像生成",
+                    scope=f"character:{character_id}:image",
+                    metadata={"character_id": character_id},
+                    result_handler=_save_previews,
                 )
-                for image in images:
-                    preview_path = ctx.characters.save_image_preview(
-                        character_id,
-                        image.data,
-                        filename=image.filename,
-                        content_type=image.content_type,
-                        replace_existing=False,
-                    )
-                    generated.append({
-                        "image": image,
-                        "path": preview_path,
-                    })
+                finished = await ctx.ai_jobs.wait(job.id)
+                if finished.status == AIJobStatus.CANCELLED:
+                    status.set_text("")
+                    ui.notify("画像生成を停止しました", type="info")
+                    return
+                if finished.status != AIJobStatus.SUCCEEDED:
+                    raise ImageGenerationError(finished.error_message or "画像生成に失敗しました。")
                 _render_generated()
                 status.set_text("")
                 ui.notify("画像を生成しました", type="positive")
@@ -899,7 +932,26 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
             generate_btn.disable()
             status.set_text("生成中...")
             try:
-                audio = await ctx.tts.design_voice(
+                params = _read_params()
+
+                def _save_preview(audio: bytes, job) -> dict[str, object]:
+                    preview_path = ctx.characters.save_tts_preview(
+                        character_id,
+                        audio,
+                        replace_existing=False,
+                    )
+                    generated.append({
+                        "audio": audio,
+                        "path": preview_path,
+                        "caption": caption,
+                        "params": params,
+                    })
+                    return {
+                        "result_url": f"/characters/{character_id}",
+                        "preview_path": str(preview_path),
+                    }
+
+                job = ctx.tts.start_design_voice_job(
                     text,
                     caption,
                     voice_path=current_voice_path
@@ -907,19 +959,19 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                     else None,
                     filename=current_voice.original_name if current_voice else "",
                     content_type=current_voice.content_type if current_voice else "",
-                    gen_server_params=_read_params(),
+                    gen_server_params=params,
+                    label=f"{sheet.name or 'キャラクター'}のボイスデザイン",
+                    scope=f"character:{character_id}:tts",
+                    metadata={"character_id": character_id},
+                    result_handler=_save_preview,
                 )
-                preview_path = ctx.characters.save_tts_preview(
-                    character_id,
-                    audio,
-                    replace_existing=False,
-                )
-                generated.append({
-                    "audio": audio,
-                    "path": preview_path,
-                    "caption": caption,
-                    "params": _read_params(),
-                })
+                finished = await ctx.ai_jobs.wait(job.id)
+                if finished.status == AIJobStatus.CANCELLED:
+                    status.set_text("")
+                    ui.notify("ボイスデザインを停止しました", type="info")
+                    return
+                if finished.status != AIJobStatus.SUCCEEDED:
+                    raise TTSServiceError(finished.error_message or "ボイスデザインに失敗しました。")
                 _render_generated()
                 status.set_text("")
                 ui.notify("ボイスデザイン音声を生成しました", type="positive")
@@ -1177,7 +1229,14 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
         tts_status.set_text("生成中...")
         preview_container.clear()
         try:
-            audio = await ctx.tts.synthesize(
+            def _save_preview(audio: bytes, job) -> dict[str, str]:
+                preview_path = ctx.characters.save_tts_preview(character_id, audio)
+                return {
+                    "result_url": f"/characters/{character_id}",
+                    "preview_path": str(preview_path),
+                }
+
+            job = ctx.tts.start_synthesize_job(
                 character_id,
                 voice_path,
                 text,
@@ -1189,8 +1248,21 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
                 gen_server_tts_mode=settings.gen_server_tts_mode,
                 voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
+                label=f"{sheet.name or 'キャラクター'}の読み上げ",
+                scope=f"character:{character_id}:tts",
+                metadata={"character_id": character_id},
+                result_handler=_save_preview,
             )
-            preview_path = ctx.characters.save_tts_preview(character_id, audio)
+            finished = await ctx.ai_jobs.wait(job.id)
+            if finished.status == AIJobStatus.CANCELLED:
+                tts_status.set_text("")
+                ui.notify("読み上げを停止しました", type="info")
+                return
+            if finished.status != AIJobStatus.SUCCEEDED:
+                raise TTSServiceError(finished.error_message or "読み上げに失敗しました。")
+            preview_path = finished.result_meta.get("preview_path")
+            if not preview_path:
+                raise TTSServiceError("読み上げ音声を取得できませんでした。")
             preview_container.clear()
             with preview_container:
                 ui.audio(preview_path).classes("w-full")

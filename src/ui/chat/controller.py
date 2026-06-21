@@ -22,6 +22,7 @@ from ...core.character.schemas import (
 )
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...core.llm.factory import create_llm
+from ...services.ai_jobs import AIJobKind, AIJobStatus
 from ...services.tts import TTSServiceError
 from ..components.character_picker import open_character_picker
 from ..state import get_vault_password
@@ -154,6 +155,15 @@ class ChatPageController:
                     set_mobile_sidebar=self.set_mobile_sidebar,
                 )
         self.scroll_messages_to_bottom()
+        ui.timer(0.1, self.restore_active_ai_job, once=True)
+
+    async def restore_active_ai_job(self) -> None:
+        if self.active_session_id is None:
+            return
+        job = self.ctx.ai_jobs.latest_active_job(scope=self._active_chat_scope())
+        if job is None:
+            return
+        await self._wait_for_active_chat_job(job.id, failure_message="生成に失敗しました")
 
     def render_history_section(self) -> None:
         with ui.element("div").classes("cs-chat-history-section") as section:
@@ -432,6 +442,81 @@ class ChatPageController:
         if refresh_history:
             await self.reload_sessions()
             self.refresh_history()
+
+    async def _save_session_messages_snapshot(
+        self,
+        *,
+        session_id: str,
+        title: str,
+        title_is_auto: bool,
+        settings: ChatSessionSettings,
+        messages: list[ChatMessagePreview],
+    ) -> None:
+        saved = await self.ctx.chats.update_session(
+            session_id=session_id,
+            character_id=self.sheet.id,
+            title=title or DEFAULT_CHAT_TITLE,
+            title_is_auto=title_is_auto,
+            settings=chat_settings_to_dict(settings),
+            messages=[chat_message_to_dict(message) for message in messages],
+        )
+        self.sessions_by_id[saved.id] = saved
+
+    async def _sync_active_session_from_storage(self) -> None:
+        if self.active_session_id is None:
+            return
+        session = await self.ctx.chats.get(self.active_session_id)
+        if session is None:
+            return
+        self.sessions_by_id[session.id] = session
+        await self.apply_session(session)
+        self.refresh_input_mode_indicator()
+        self.refresh_chat_header()
+        self.refresh_messages(scroll_to_bottom=True)
+        await self.reload_sessions()
+        self.refresh_history()
+
+    def _active_chat_scope(self) -> str:
+        return f"chat:{self.active_session_id or 'none'}"
+
+    async def _wait_for_active_chat_job(self, job_id: str, *, failure_message: str) -> bool:
+        self.set_sending(True)
+        try:
+            job = await self.ctx.ai_jobs.wait(job_id)
+            if job.status == AIJobStatus.SUCCEEDED:
+                await self._sync_active_session_from_storage()
+                return True
+            if job.status == AIJobStatus.CANCELLED:
+                ui.notify("生成を停止しました", type="info")
+                await self._sync_active_session_from_storage()
+                return False
+            ui.notify(f"{failure_message}: {job.error_message}", type="negative", timeout=10000)
+            await self._sync_active_session_from_storage()
+            return False
+        finally:
+            self.set_sending(False)
+
+    async def _run_llm_assist_job(self, *, label: str, runner, failure_message: str):
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_ASSIST,
+            label=label,
+            scope=f"assist:{self.active_session_id or self.sheet.id}",
+            metadata={"character_id": self.sheet.id, "session_id": self.active_session_id or ""},
+            runner=lambda _: runner(),
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/characters/{self.sheet.id}/chat"})
+        self.set_sending(True)
+        try:
+            finished = await self.ctx.ai_jobs.wait(job.id)
+            if finished.status == AIJobStatus.SUCCEEDED:
+                return finished.result
+            if finished.status == AIJobStatus.CANCELLED:
+                ui.notify("生成を停止しました", type="info")
+                return None
+            ui.notify(f"{failure_message}: {finished.error_message}", type="negative", timeout=10000)
+            return None
+        finally:
+            self.set_sending(False)
 
     async def select_chat_session(self, session_id: str) -> None:
         if self.state.sending:
@@ -718,7 +803,14 @@ class ChatPageController:
         self.state.tts_generating_index = index
         self.refresh_messages()
         try:
-            audio = await self.ctx.tts.synthesize(
+            def _save_playback(audio: bytes, job) -> dict[str, str]:
+                playback_path = playback_save(audio)
+                return {
+                    "playback_path": str(playback_path),
+                    "result_url": f"/characters/{self.sheet.id}/chat",
+                }
+
+            job = self.ctx.tts.start_synthesize_job(
                 target_id,
                 voice_path,
                 text,
@@ -730,8 +822,22 @@ class ChatPageController:
                 gen_server_tts_mode=settings.gen_server_tts_mode,
                 voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
+                label="チャット読み上げ",
+                scope=f"tts:{self.active_session_id or 'none'}",
+                metadata={"message_index": index, "character_id": self.sheet.id},
+                result_handler=_save_playback,
             )
-            playback_path = playback_save(audio)
+            finished = await self.ctx.ai_jobs.wait(job.id)
+            if finished.status == AIJobStatus.CANCELLED:
+                ui.notify("読み上げを停止しました", type="info")
+                return
+            if finished.status != AIJobStatus.SUCCEEDED:
+                ui.notify(f"読み上げに失敗しました: {finished.error_message}", type="negative", timeout=10000)
+                return
+            playback_path = finished.result_meta.get("playback_path")
+            if not playback_path:
+                ui.notify("読み上げ音声を取得できませんでした", type="negative")
+                return
             audio_url = app.add_static_file(local_file=playback_path, max_cache_age=0)
             self.run_page_javascript(
                 "(() => {"
@@ -832,30 +938,59 @@ class ChatPageController:
         if llm is None:
             return
 
+        if self.active_session_id is None:
+            return
+
         prior_messages = list(self.state.messages)
-        self.state.messages.append(ChatMessagePreview("character", "…", time_label()))
+        placeholder = ChatMessagePreview("character", "…", time_label())
+        self.state.messages.append(placeholder)
         self.refresh_messages(scroll_to_bottom=True)
-        self.set_sending(True)
-        generated_successfully = False
-        try:
-            generated = await self.build_character_message(
-                llm,
-                settings,
-                prior_messages,
-                first_turn=is_first_character_turn(prior_messages),
-                turn_instruction=turn_instruction,
-                empty_reply=empty_reply,
-            )
-            self.state.messages[-1] = generated
-            self.refresh_messages(scroll_to_bottom=True)
-            generated_successfully = True
-        except Exception as err:
-            self.state.messages.pop()
-            self.refresh_messages(scroll_to_bottom=True)
-            ui.notify(f"チャット送信に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            await self.save_current_session()
+        session_id = self.active_session_id
+        title = self.state.title
+        title_is_auto = self.active_title_is_auto
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[ChatMessagePreview]:
+            try:
+                generated = await self.build_character_message(
+                    llm,
+                    settings,
+                    prior_messages,
+                    first_turn=is_first_character_turn(prior_messages),
+                    turn_instruction=turn_instruction,
+                    empty_reply=empty_reply,
+                )
+                messages = prior_messages + [generated]
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings,
+                    messages=messages,
+                )
+                return messages
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings,
+                    messages=prior_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_CHAT,
+            label=f"{self.sheet.name or 'キャラクター'}の返答生成",
+            scope=self._active_chat_scope(),
+            metadata={"session_id": session_id, "character_id": self.sheet.id},
+            runner=_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/characters/{self.sheet.id}/chat"})
+        generated_successfully = await self._wait_for_active_chat_job(
+            job.id,
+            failure_message="チャット送信に失敗しました",
+        )
         if generated_successfully:
             await self.maybe_generate_auto_title(llm, settings)
 
@@ -877,26 +1012,56 @@ class ChatPageController:
         llm = self.configured_llm(settings)
         if llm is None:
             return
+        if self.active_session_id is None:
+            return
 
+        prior_messages = list(self.state.messages)
         self.state.messages.append(ChatMessagePreview("narration", "…", time_label()))
         self.refresh_messages(scroll_to_bottom=True)
-        self.set_sending(True)
-        try:
-            generated = await self.build_narration_message(
-                llm,
-                settings,
-                self.state.messages[:-1],
-                instruction=instruction,
-            )
-            self.state.messages[-1] = generated
-            self.refresh_messages(scroll_to_bottom=True)
-        except Exception as err:
-            self.state.messages.pop()
-            self.refresh_messages(scroll_to_bottom=True)
-            ui.notify(f"地の文生成に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            await self.save_current_session()
+        session_id = self.active_session_id
+        title = self.state.title
+        title_is_auto = self.active_title_is_auto
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[ChatMessagePreview]:
+            try:
+                generated = await self.build_narration_message(
+                    llm,
+                    settings,
+                    prior_messages,
+                    instruction=instruction,
+                )
+                messages = prior_messages + [generated]
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings,
+                    messages=messages,
+                )
+                return messages
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings,
+                    messages=prior_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_NARRATION,
+            label="地の文生成",
+            scope=self._active_chat_scope(),
+            metadata={"session_id": session_id, "character_id": self.sheet.id},
+            runner=_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/characters/{self.sheet.id}/chat"})
+        await self._wait_for_active_chat_job(
+            job.id,
+            failure_message="地の文生成に失敗しました",
+        )
 
     async def run_describe_action(
         self,
@@ -925,8 +1090,7 @@ class ChatPageController:
             return
 
         focus_after_completion = False
-        self.set_sending(True)
-        try:
+        async def _runner() -> str:
             response = await llm.ainvoke(
                 build_user_completion_messages(
                     self.sheet,
@@ -936,17 +1100,21 @@ class ChatPageController:
                     input_mode=self.state.input_mode,
                 )
             )
-            raw_output = message_content_to_text(getattr(response, "content", response))
-            completed = merge_completion(left_text, raw_output)
-            self.set_input_value(completed)
-            focus_after_completion = True
-            ui.notify("続きを補完しました", type="positive")
-        except Exception as err:
-            ui.notify(f"補完に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            if focus_after_completion:
-                self.focus_chat_input_at_end()
+            return message_content_to_text(getattr(response, "content", response))
+
+        raw_output = await self._run_llm_assist_job(
+            label="入力補完",
+            runner=_runner,
+            failure_message="補完に失敗しました",
+        )
+        if raw_output is None:
+            return
+        completed = merge_completion(left_text, raw_output)
+        self.set_input_value(completed)
+        focus_after_completion = True
+        ui.notify("続きを補完しました", type="positive")
+        if focus_after_completion:
+            self.focus_chat_input_at_end()
 
     async def tailor_input_text(self, settings: ChatSessionSettings, left_text: str) -> None:
         if not left_text.strip():
@@ -957,8 +1125,7 @@ class ChatPageController:
             return
 
         focus_after_tailor = False
-        self.set_sending(True)
-        try:
+        async def _runner() -> str:
             response = await llm.ainvoke(
                 build_tailored_input_messages(
                     self.sheet,
@@ -968,20 +1135,24 @@ class ChatPageController:
                     input_mode=self.state.input_mode,
                 )
             )
-            raw_output = message_content_to_text(getattr(response, "content", response))
-            tailored = clean_short_llm_text(raw_output)
-            if not tailored:
-                ui.notify("書き換え結果が空でした", type="warning")
-                return
-            self.set_input_value(tailored)
-            focus_after_tailor = True
-            ui.notify("現在のロール向けに書き換えました", type="positive")
-        except Exception as err:
-            ui.notify(f"書き換えに失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            if focus_after_tailor:
-                self.focus_chat_input_at_end()
+            return message_content_to_text(getattr(response, "content", response))
+
+        raw_output = await self._run_llm_assist_job(
+            label="入力書き換え",
+            runner=_runner,
+            failure_message="書き換えに失敗しました",
+        )
+        if raw_output is None:
+            return
+        tailored = clean_short_llm_text(raw_output)
+        if not tailored:
+            ui.notify("書き換え結果が空でした", type="warning")
+            return
+        self.set_input_value(tailored)
+        focus_after_tailor = True
+        ui.notify("現在のロール向けに書き換えました", type="positive")
+        if focus_after_tailor:
+            self.focus_chat_input_at_end()
 
     async def show_response_choices(self, settings: ChatSessionSettings, left_text: str) -> None:
         llm = self.configured_llm(settings)
@@ -989,8 +1160,7 @@ class ChatPageController:
             return
 
         input_mode = self.state.input_mode
-        self.set_sending(True)
-        try:
+        async def _runner() -> list[str]:
             response = await llm.ainvoke(
                 build_response_choice_messages(
                     self.sheet,
@@ -1004,11 +1174,15 @@ class ChatPageController:
             choices = parse_response_choices(raw_output)
             if left_text.strip():
                 choices = [merge_completion(left_text, choice) for choice in choices]
-        except Exception as err:
-            ui.notify(f"選択肢生成に失敗しました: {err}", type="negative", timeout=10000)
+            return choices
+
+        choices = await self._run_llm_assist_job(
+            label="応答候補生成",
+            runner=_runner,
+            failure_message="選択肢生成に失敗しました",
+        )
+        if choices is None:
             return
-        finally:
-            self.set_sending(False)
 
         if not choices:
             ui.notify("選択肢を生成できませんでした", type="warning")
@@ -1017,25 +1191,16 @@ class ChatPageController:
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg cs-chat-choice-dialog"):
             ui.label("応答を選択").classes("text-base font-semibold")
             target_label = message_target_label(input_mode)
-            ui.label(f"選ぶとその{target_label}を投稿します。").classes("text-sm text-grey-6")
+            ui.label(f"選ぶとその{target_label}を入力欄に入れます。").classes("text-sm text-grey-6")
 
-            async def _choose(choice: str) -> None:
+            def _choose(choice: str) -> None:
                 dlg.close()
-                if input_mode == "narration":
-                    self.clear_input()
-                    await self.post_narration(choice)
-                    self.set_input_mode("user")
-                    return
-                if input_mode == "character":
-                    self.clear_input()
-                    await self.post_character_input(choice)
-                    self.set_input_mode("user")
-                    return
-                await self.send_user_turn(choice)
+                self.set_input_value(choice)
+                self.focus_chat_input_at_end()
 
             def _choice_click_handler(choice: str):
-                async def _handler() -> None:
-                    await _choose(choice)
+                def _handler() -> None:
+                    _choose(choice)
 
                 return _handler
 
@@ -1440,7 +1605,7 @@ setTimeout(() => {
         llm = configured_llm_for_profile(self.ctx, profile_id)
         if llm is None:
             return None
-        try:
+        async def _runner() -> str:
             response = await llm.ainvoke([
                 SystemMessage(content="あなたはキャラクターチャット開始時のシチュエーションを整える編集者です。"),
                 HumanMessage(content=(
@@ -1455,17 +1620,23 @@ setTimeout(() => {
                     f"キャラクター概要:\n{character_summary(self.sheet)}"
                 )),
             ])
-            enhanced = message_content_to_text(getattr(response, "content", response)).strip()
-            enhanced = re.sub(r"^```(?:\w+)?\s*", "", enhanced)
-            enhanced = re.sub(r"\s*```$", "", enhanced).strip()
-            if not enhanced:
-                ui.notify("シチュエーションを補完できませんでした", type="warning")
-                return None
-            ui.notify("シチュエーションを補完しました", type="positive")
-            return enhanced
-        except Exception as err:
-            ui.notify(f"シチュエーション補完に失敗しました: {err}", type="negative", timeout=10000)
+            return message_content_to_text(getattr(response, "content", response))
+
+        raw = await self._run_llm_assist_job(
+            label="シチュエーション補完",
+            runner=_runner,
+            failure_message="シチュエーション補完に失敗しました",
+        )
+        if raw is None:
             return None
+        enhanced = raw.strip()
+        enhanced = re.sub(r"^```(?:\w+)?\s*", "", enhanced)
+        enhanced = re.sub(r"\s*```$", "", enhanced).strip()
+        if not enhanced:
+            ui.notify("シチュエーションを補完できませんでした", type="warning")
+            return None
+        ui.notify("シチュエーションを補完しました", type="positive")
+        return enhanced
 
     def open_system_prompt_dialog(self) -> None:
         settings = self.state.settings
@@ -1522,6 +1693,8 @@ setTimeout(() => {
         llm = self.configured_llm(settings)
         if llm is None:
             return
+        if self.active_session_id is None:
+            return
 
         original_messages = list(self.state.messages)
         prior_messages = self.state.messages[:index]
@@ -1531,29 +1704,51 @@ setTimeout(() => {
             ChatMessagePreview("character", "…", time_label())
         ]
         self.refresh_messages()
-        self.set_sending(True)
-        generated_successfully = False
-        try:
-            generated = await self.build_character_message(
-                llm,
-                settings,
-                prior_messages,
-                first_turn=first_turn,
-                empty_reply="こんにちは。少し話そう。" if first_turn else "……ごめん、うまく言葉にできなかった。",
-            )
-            self.state.messages[-1] = generated
-            self.refresh_messages()
-            generated_successfully = True
-        except Exception as err:
-            if was_latest:
-                self.state.messages = original_messages
-            else:
-                self.state.messages.pop()
-            self.refresh_messages()
-            ui.notify(f"再生成に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            await self.save_current_session()
+        session_id = self.active_session_id
+        title = self.state.title
+        title_is_auto = self.active_title_is_auto
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[ChatMessagePreview]:
+            try:
+                generated = await self.build_character_message(
+                    llm,
+                    settings,
+                    prior_messages,
+                    first_turn=first_turn,
+                    empty_reply="こんにちは。少し話そう。" if first_turn else "……ごめん、うまく言葉にできなかった。",
+                )
+                messages = prior_messages + [generated]
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings,
+                    messages=messages,
+                )
+                return messages
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings,
+                    messages=original_messages if was_latest else prior_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_CHAT,
+            label=f"{self.sheet.name or 'キャラクター'}の再生成",
+            scope=self._active_chat_scope(),
+            metadata={"session_id": session_id, "character_id": self.sheet.id},
+            runner=_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/characters/{self.sheet.id}/chat"})
+        generated_successfully = await self._wait_for_active_chat_job(
+            job.id,
+            failure_message="再生成に失敗しました",
+        )
         if generated_successfully:
             await self.maybe_generate_auto_title(llm, settings)
 

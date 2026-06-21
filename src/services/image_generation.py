@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -20,6 +22,7 @@ from ..core.image_generation.schemas import (
     image_generation_profile_values,
 )
 from .api_config import ApiConfigService
+from .ai_jobs import AIJobKind, AIJobRecord, AIJobService
 
 
 class ImageGenerationError(RuntimeError):
@@ -36,8 +39,13 @@ class GeneratedImage:
 
 
 class ImageGenerationService:
-    def __init__(self, api_config: ApiConfigService) -> None:
+    def __init__(
+        self,
+        api_config: ApiConfigService,
+        ai_jobs: AIJobService | None = None,
+    ) -> None:
         self._api_config = api_config
+        self._ai_jobs = ai_jobs
 
     def resolve_gen_server_sdxl_endpoint(
         self,
@@ -77,13 +85,53 @@ class ImageGenerationService:
         *,
         profile_id: str = "",
         gen_server_params: dict[str, Any] | None = None,
+        ai_job: AIJobRecord | None = None,
     ) -> list[GeneratedImage]:
         profile = self.resolve_image_profile(profile_id)
         if profile is None:
             raise ImageGenerationError("画像生成プロファイルを設定してください。")
         endpoint = self._resolve_wizmy_gen_server_endpoint(profile)
         payload = self._sdxl_payload(profile, gen_server_params or {})
-        return await WizmyGenServerSdxlClient(endpoint).generate(payload)
+        return await WizmyGenServerSdxlClient(endpoint, self._ai_jobs).generate(
+            payload,
+            ai_job=ai_job,
+        )
+
+    def start_sdxl_job(
+        self,
+        *,
+        profile_id: str = "",
+        gen_server_params: dict[str, Any] | None = None,
+        label: str = "画像生成",
+        scope: str = "",
+        metadata: dict[str, Any] | None = None,
+        result_handler: Callable[[list[GeneratedImage], AIJobRecord], Awaitable[Any] | Any] | None = None,
+    ) -> AIJobRecord:
+        if self._ai_jobs is None:
+            raise ImageGenerationError("AIジョブサービスが初期化されていません。")
+
+        async def _runner(job: AIJobRecord) -> Any:
+            images = await self.generate_sdxl(
+                profile_id=profile_id,
+                gen_server_params=gen_server_params,
+                ai_job=job,
+            )
+            if result_handler is None:
+                return images
+            handled = result_handler(images, job)
+            if inspect.isawaitable(handled):
+                handled = await handled
+            if isinstance(handled, dict):
+                self._ai_jobs.set_result_meta(job.id, handled)
+            return handled if handled is not None else images
+
+        return self._ai_jobs.start_job(
+            kind=AIJobKind.IMAGE_SDXL,
+            label=label,
+            scope=scope,
+            metadata=metadata,
+            runner=_runner,
+        )
 
     def _resolve_wizmy_gen_server_endpoint(self, profile: ImageGenerationProfile) -> GenServerEndpoint:
         if profile.provider != IMAGE_PROVIDER_WIZMY_GEN_SERVER:
@@ -136,12 +184,22 @@ class ImageGenerationService:
 class WizmyGenServerSdxlClient:
     POLL_LIMIT = 600
 
-    def __init__(self, endpoint: GenServerEndpoint) -> None:
+    def __init__(
+        self,
+        endpoint: GenServerEndpoint,
+        ai_jobs: AIJobService | None = None,
+    ) -> None:
         self._base_url = gen_server_api_root(endpoint.base_url)
+        self._ai_jobs = ai_jobs
         if not self._base_url:
             raise ImageGenerationError("Wizmy-Gen-ServerのURLを設定してください。")
 
-    async def generate(self, payload: dict[str, Any]) -> list[GeneratedImage]:
+    async def generate(
+        self,
+        payload: dict[str, Any],
+        *,
+        ai_job: AIJobRecord | None = None,
+    ) -> list[GeneratedImage]:
         async with self._client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
             try:
                 response = await client.post("/v1/images/sdxl/jobs", json=payload)
@@ -149,7 +207,8 @@ class WizmyGenServerSdxlClient:
                 job_id = str(response.json().get("job_id") or "")
                 if not job_id:
                     raise ImageGenerationError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
-                result = await self._wait_job_result(client, job_id)
+                self._attach_external_job(ai_job, job_id, "image.sdxl")
+                result = await self._wait_job_result(client, job_id, ai_job=ai_job)
                 artifacts = _image_artifacts(result)
                 if not artifacts:
                     raise ImageGenerationError("Wizmy-Gen-Serverの生成結果に画像が含まれていません。")
@@ -157,7 +216,13 @@ class WizmyGenServerSdxlClient:
             except httpx.HTTPError as exc:
                 raise ImageGenerationError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
 
-    async def _wait_job_result(self, client: httpx.AsyncClient, job_id: str) -> dict[str, Any]:
+    async def _wait_job_result(
+        self,
+        client: httpx.AsyncClient,
+        job_id: str,
+        *,
+        ai_job: AIJobRecord | None = None,
+    ) -> dict[str, Any]:
         for _ in range(self.POLL_LIMIT):
             response = await client.get(f"/v1/jobs/{job_id}/result")
             if response.status_code == 202:
@@ -166,11 +231,37 @@ class WizmyGenServerSdxlClient:
                     delay = max(0.2, min(5.0, float(retry_after)))
                 except (TypeError, ValueError):
                     delay = 1.0
+                if self._ai_jobs is not None and ai_job is not None:
+                    self._ai_jobs.update_progress(ai_job.id, "画像生成中...")
                 await asyncio.sleep(delay)
                 continue
             _raise_for_error(response, "Wizmy-Gen-Server")
             return response.json()
         raise ImageGenerationError("Wizmy-Gen-Serverの画像生成がタイムアウトしました。")
+
+    def _attach_external_job(
+        self,
+        ai_job: AIJobRecord | None,
+        job_id: str,
+        kind: str,
+    ) -> None:
+        if ai_job is None:
+            return
+        if self._ai_jobs is not None:
+            self._ai_jobs.add_external_job(
+                ai_job.id,
+                {
+                    "provider": "wizmy-gen-server",
+                    "job_id": job_id,
+                    "kind": kind,
+                },
+            )
+
+        async def _cancel_external(_: AIJobRecord) -> None:
+            async with self._client(timeout=httpx.Timeout(10.0, connect=3.0)) as client:
+                await client.post(f"/v1/jobs/{job_id}/cancel")
+
+        ai_job.add_cancel_callback(_cancel_external)
 
     async def _download_image(self, client: httpx.AsyncClient, artifact: dict[str, Any]) -> GeneratedImage:
         url = str(artifact.get("url") or "")

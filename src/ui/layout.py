@@ -532,6 +532,114 @@ def page_layout(title: str = ""):
         .props("bordered overlay")
         .style("width: 230px; background: var(--cs-surface);")
     )
+    jobs_drawer = (
+        ui.right_drawer(value=False, top_corner=True, bottom_corner=True)
+        .props("bordered overlay")
+        .style("width: min(420px, 92vw); background: var(--cs-surface);")
+    )
+    jobs_container = None
+
+    def _job_status_text(status: str) -> str:
+        return {
+            "queued": "待機中",
+            "running": "実行中",
+            "succeeded": "完了",
+            "failed": "失敗",
+            "cancelled": "停止済み",
+        }.get(status, status)
+
+    def _job_status_color(status: str) -> str:
+        return {
+            "queued": "warning",
+            "running": "primary",
+            "succeeded": "positive",
+            "failed": "negative",
+            "cancelled": "grey",
+        }.get(status, "grey")
+
+    async def _cancel_ai_job(job_id: str) -> None:
+        try:
+            await get_context().ai_jobs.cancel_job(job_id)
+            _refresh_jobs_drawer()
+        except Exception as exc:
+            ui.notify(f"停止に失敗しました: {exc}", type="negative")
+
+    def _refresh_jobs_drawer() -> None:
+        if jobs_container is None:
+            return
+        jobs_container.clear()
+        try:
+            ctx = get_context()
+            jobs = ctx.ai_jobs.list_jobs(limit=20)
+            character_generation_active = ctx.generation.has_active_jobs()
+        except Exception:
+            jobs = []
+            character_generation_active = False
+
+        with jobs_container:
+            if character_generation_active:
+                with ui.element("div").classes("w-full rounded-md border p-3").style(
+                    "border-color: var(--cs-border); background: var(--cs-surface-soft);"
+                ):
+                    with ui.row().classes("items-center gap-2 w-full"):
+                        ui.icon("auto_awesome").style("color: var(--cs-accent);")
+                        ui.label("キャラクター生成").classes("text-sm font-semibold")
+                        ui.space()
+                        ui.badge("実行中", color="primary")
+                    ui.button(
+                        "生成画面を開く",
+                        icon="open_in_new",
+                        on_click=lambda: ui.navigate.to("/"),
+                    ).props("flat color=primary size=sm").classes("mt-2")
+
+            if not jobs and not character_generation_active:
+                ui.label("実行中または直近のAIジョブはありません。").classes("text-sm text-grey-6")
+                return
+
+            for job in jobs:
+                summary = job.summary()
+                status = str(summary["status"])
+                result_url = str(summary.get("result_url") or "")
+                with ui.element("div").classes("w-full rounded-md border p-3").style(
+                    "border-color: var(--cs-border); background: var(--cs-surface);"
+                ):
+                    with ui.row().classes("items-center gap-2 w-full"):
+                        ui.icon("memory").style("color: var(--cs-accent);")
+                        ui.label(str(summary["label"])).classes("text-sm font-semibold")
+                        ui.space()
+                        ui.badge(_job_status_text(status), color=_job_status_color(status))
+                    ui.label(str(summary.get("kind") or "")).classes("text-xs text-grey-6")
+                    message = str(summary.get("progress_message") or "")
+                    if message:
+                        ui.label(message).classes("text-xs text-grey-6")
+                    if summary.get("error_message"):
+                        ui.label(str(summary["error_message"])).classes("text-xs text-negative")
+                    with ui.row().classes("gap-2 mt-2"):
+                        if result_url:
+                            ui.button(
+                                "開く",
+                                icon="open_in_new",
+                                on_click=lambda url=result_url: ui.navigate.to(url),
+                            ).props("flat color=primary size=sm")
+                        if summary.get("can_cancel"):
+                            async def _cancel(job_id: str = job.id) -> None:
+                                await _cancel_ai_job(job_id)
+
+                            ui.button(
+                                "停止",
+                                icon="stop",
+                                on_click=_cancel,
+                            ).props("flat color=negative size=sm")
+
+    with jobs_drawer:
+        with ui.row().classes("items-center justify-between px-4 py-3 w-full").style(
+            "border-bottom: 1px solid var(--cs-border);"
+        ):
+            ui.label("AIジョブ").classes("text-sm font-semibold").style("color: var(--cs-muted);")
+            ui.button(
+                icon="close", on_click=lambda: jobs_drawer.hide()
+            ).props("flat round dense").style("color: var(--cs-muted);")
+        jobs_container = ui.column().classes("w-full gap-2 p-3")
 
     with ui.header(elevated=False, wrap=False).classes("flex items-center gap-3 px-5").style(
         "background: var(--cs-surface); border-bottom: 1px solid var(--cs-border); "
@@ -541,8 +649,10 @@ def page_layout(title: str = ""):
         ui.html(_wizmy_logo_svg(), sanitize=False).classes("cs-brand-logo")
         if title:
             ui.label(title).classes("text-sm hidden sm:block ml-1").style("color: var(--cs-muted);")
-        generation_indicator = ui.badge("生成中", color=None).classes(
-            "hidden ml-2 text-xs cs-generation-indicator"
+        generation_indicator = (
+            ui.badge("AI使用中", color=None)
+            .classes("hidden ml-2 text-xs cs-generation-indicator cursor-pointer")
+            .on("click", lambda: (_refresh_jobs_drawer(), jobs_drawer.show()))
         )
         ui.space()
         ui.button(icon="menu", on_click=lambda: drawer.toggle()).props(
@@ -586,11 +696,14 @@ def page_layout(title: str = ""):
     with ui.column().classes("w-full px-4 py-4"):
         def _sync_generation_indicator() -> None:
             try:
-                running = get_context().generation.has_active_jobs()
+                ctx = get_context()
+                running = ctx.generation.has_active_jobs() or ctx.ai_jobs.has_active_jobs()
                 if running:
                     generation_indicator.classes(remove="hidden")
                 else:
                     generation_indicator.classes("hidden")
+                if jobs_drawer.value:
+                    _refresh_jobs_drawer()
             except Exception:
                 pass
 

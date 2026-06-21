@@ -24,6 +24,7 @@ from ...core.group_chat.schemas import GroupChatRecord, GroupMember, GroupUserPe
 from ...core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE, GroupChatSessionRecord
 from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
+from ...services.ai_jobs import AIJobKind, AIJobStatus
 from ...services.tts import TTSServiceError
 from ..chat import components as chat_components
 from ..chat.commands import (
@@ -1261,6 +1262,15 @@ class GroupChatPageController:
 
         self.refresh_profiles()
         self.scroll_messages_to_bottom()
+        ui.timer(0.1, self.restore_active_ai_job, once=True)
+
+    async def restore_active_ai_job(self) -> None:
+        if self.active_session_id is None:
+            return
+        job = self.ctx.ai_jobs.latest_active_job(scope=self._active_group_chat_scope())
+        if job is None:
+            return
+        await self._wait_for_active_group_job(job.id, failure_message="生成に失敗しました")
 
     def current_participant(self) -> dict[str, Any] | None:
         for participant in self.participants:
@@ -1925,6 +1935,82 @@ event => {
             await self.reload_sessions()
             self.refresh_history()
 
+    async def _save_session_messages_snapshot(
+        self,
+        *,
+        session_id: str,
+        title: str,
+        title_is_auto: bool,
+        settings: dict[str, Any],
+        messages: list[dict[str, Any]],
+    ) -> None:
+        saved = await self.ctx.group_chats.update_session(
+            session_id=session_id,
+            group_id=self.group.id,
+            title=title or DEFAULT_GROUP_CHAT_TITLE,
+            title_is_auto=title_is_auto,
+            settings=settings,
+            messages=messages,
+        )
+        self.sessions_by_id[saved.id] = saved
+
+    async def _sync_active_session_from_storage(self) -> None:
+        if self.active_session_id is None:
+            return
+        session = await self.ctx.group_chats.get_session(self.active_session_id)
+        if session is None:
+            return
+        self.sessions_by_id[session.id] = session
+        await self.apply_session(session)
+        self.refresh_input_mode_indicator()
+        self.refresh_chat_header()
+        self.refresh_messages(scroll_to_bottom=True)
+        await self.reload_sessions()
+        self.refresh_history()
+
+    def _active_group_chat_scope(self) -> str:
+        return f"group_chat:{self.active_session_id or 'none'}"
+
+    async def _wait_for_active_group_job(self, job_id: str, *, failure_message: str) -> bool:
+        self.set_sending(True)
+        try:
+            job = await self.ctx.ai_jobs.wait(job_id)
+            if job.status == AIJobStatus.SUCCEEDED:
+                await self._sync_active_session_from_storage()
+                return True
+            if job.status == AIJobStatus.CANCELLED:
+                ui.notify("生成を停止しました", type="info")
+                await self._sync_active_session_from_storage()
+                return False
+            ui.notify(f"{failure_message}: {job.error_message}", type="negative", timeout=10000)
+            await self._sync_active_session_from_storage()
+            return False
+        finally:
+            self.set_sending(False)
+
+    async def _run_group_llm_assist_job(self, *, label: str, runner, failure_message: str):
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_ASSIST,
+            label=label,
+            scope=f"group_assist:{self.active_session_id or self.group.id}",
+            metadata={"group_id": self.group.id, "session_id": self.active_session_id or ""},
+            runner=lambda _: runner(),
+        )
+        if self.active_session_id:
+            self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        self.set_sending(True)
+        try:
+            finished = await self.ctx.ai_jobs.wait(job.id)
+            if finished.status == AIJobStatus.SUCCEEDED:
+                return finished.result
+            if finished.status == AIJobStatus.CANCELLED:
+                ui.notify("生成を停止しました", type="info")
+                return None
+            ui.notify(f"{failure_message}: {finished.error_message}", type="negative", timeout=10000)
+            return None
+        finally:
+            self.set_sending(False)
+
     async def rewind_to_message(self, index: int) -> None:
         if index < 0 or index >= len(self.messages):
             return
@@ -2034,42 +2120,66 @@ event => {
         llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
         if llm is None:
             return
+        if self.active_session_id is None:
+            return
 
         original_messages = [dict(item) for item in self.messages]
-        prior_messages = self.messages[:index]
-        was_latest = index == len(original_messages) - 1
-        self.set_sending(True)
-        generated_successfully = False
-        placeholder_added = False
+        prior_messages = [dict(item) for item in self.messages[:index]]
+        rollback_messages = original_messages if index == len(original_messages) - 1 else prior_messages
         self.last_speaker_debug = None
-        try:
-            self.messages = prior_messages
-            speaker = await self.choose_next_speaker(llm, active)
-            speaker_debug = self.last_speaker_debug
-            self.messages = prior_messages + [_group_message("character", "…", member=speaker)]
-            placeholder_added = True
-            self.refresh_messages()
-            generated = await self.build_character_message(
-                llm,
-                speaker,
-                speaker_debug=speaker_debug,
-                prior_messages=prior_messages,
-            )
-            self.messages[-1] = generated
-            self.refresh_messages()
-            generated_successfully = True
-        except Exception as err:
-            if was_latest:
-                self.messages = original_messages
-            elif placeholder_added and self.messages:
-                self.messages.pop()
-            else:
-                self.messages = prior_messages
-            self.refresh_messages()
-            ui.notify(f"再生成に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            await self.save_current_session()
+
+        display_speaker = self._member_by_id(str(message.get("speaker_id", ""))) or active[0]
+        self.messages = prior_messages + [_group_message("character", "…", member=display_speaker)]
+        self.refresh_messages()
+        session_id = self.active_session_id
+        title = self.title
+        title_is_auto = self.active_title_is_auto
+        settings_snapshot = dict(self.settings)
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[dict[str, Any]]:
+            try:
+                self.messages = [dict(item) for item in prior_messages]
+                self.last_speaker_debug = None
+                speaker = await self.choose_next_speaker(llm, active)
+                speaker_debug = self.last_speaker_debug
+                generated = await self.build_character_message(
+                    llm,
+                    speaker,
+                    speaker_debug=speaker_debug,
+                    prior_messages=prior_messages,
+                )
+                messages = prior_messages + [generated]
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings_snapshot,
+                    messages=messages,
+                )
+                return messages
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings_snapshot,
+                    messages=rollback_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_GROUP_CHAT,
+            label=f"{self.group.name or 'グループ'}の再生成",
+            scope=self._active_group_chat_scope(),
+            metadata={"session_id": session_id, "group_id": self.group.id},
+            runner=_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        generated_successfully = await self._wait_for_active_group_job(
+            job.id,
+            failure_message="再生成に失敗しました",
+        )
         if generated_successfully:
             await self.maybe_generate_auto_title(llm)
 
@@ -2150,7 +2260,14 @@ event => {
         self.refresh_messages()
         try:
             voice = target["voice"]
-            audio = await self.ctx.tts.synthesize(
+            def _save_playback(audio: bytes, job) -> dict[str, str]:
+                playback_path = target["playback_save"](audio)
+                return {
+                    "playback_path": str(playback_path),
+                    "result_url": f"/groups/{self.group.id}",
+                }
+
+            job = self.ctx.tts.start_synthesize_job(
                 target["target_id"],
                 target["voice_path"],
                 text,
@@ -2162,8 +2279,22 @@ event => {
                 gen_server_tts_mode=settings.gen_server_tts_mode,
                 voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
+                label="グループチャット読み上げ",
+                scope=f"group_tts:{self.active_session_id or self.group.id}",
+                metadata={"message_index": index, "group_id": self.group.id},
+                result_handler=_save_playback,
             )
-            playback_path = target["playback_save"](audio)
+            finished = await self.ctx.ai_jobs.wait(job.id)
+            if finished.status == AIJobStatus.CANCELLED:
+                ui.notify("読み上げを停止しました", type="info")
+                return
+            if finished.status != AIJobStatus.SUCCEEDED:
+                ui.notify(f"読み上げに失敗しました: {finished.error_message}", type="negative", timeout=10000)
+                return
+            playback_path = finished.result_meta.get("playback_path")
+            if not playback_path:
+                ui.notify("読み上げ音声を取得できませんでした", type="negative")
+                return
             audio_url = app.add_static_file(local_file=playback_path, max_cache_age=0)
             self.page_client.run_javascript(
                 "(() => {"
@@ -2391,15 +2522,23 @@ event => {
         llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
         if llm is None:
             return
+        if self.active_session_id is None:
+            return
 
+        prior_messages = [dict(message) for message in self.messages]
         self.messages.append(_group_message("narration", "…"))
         self.refresh_messages(scroll_to_bottom=True)
-        self.set_sending(True)
-        try:
+        session_id = self.active_session_id
+        title = self.title
+        title_is_auto = self.active_title_is_auto
+        settings_snapshot = dict(self.settings)
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[dict[str, Any]]:
             llm_messages = _build_group_narration_messages(
                 self.group,
-                self.settings,
-                self.messages[:-1],
+                settings_snapshot,
+                prior_messages,
                 instruction=instruction,
             )
             debug_input = format_llm_input(llm_messages)
@@ -2408,19 +2547,45 @@ event => {
             narration = _sanitize_group_narration(raw)
             if not narration:
                 narration = "場面は静かに次の言葉を待っている。"
-            self.messages[-1] = _group_message(
+            messages = prior_messages + [_group_message(
                 "narration",
                 narration,
                 debug=build_debug_info(debug_input, raw, response),
+            )]
+            await self._save_session_messages_snapshot(
+                session_id=session_id,
+                title=title,
+                title_is_auto=title_is_auto,
+                settings=settings_snapshot,
+                messages=messages,
             )
-            self.refresh_messages(scroll_to_bottom=True)
-        except Exception as err:
-            self.messages.pop()
-            self.refresh_messages(scroll_to_bottom=True)
-            ui.notify(f"地の文生成に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            await self.save_current_session()
+            return messages
+
+        async def _safe_runner(job) -> list[dict[str, Any]]:
+            try:
+                return await _runner(job)
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings_snapshot,
+                    messages=prior_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_NARRATION,
+            label="グループ地の文生成",
+            scope=self._active_group_chat_scope(),
+            metadata={"session_id": session_id, "group_id": self.group.id},
+            runner=_safe_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        await self._wait_for_active_group_job(
+            job.id,
+            failure_message="地の文生成に失敗しました",
+        )
 
     async def run_describe_action(self, left_text: str, *, instruction: str = "") -> None:
         if left_text.strip():
@@ -2443,9 +2608,8 @@ event => {
         llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
         if llm is None:
             return
-        self.set_sending(True)
-        focus_after_completion = False
-        try:
+
+        async def _runner() -> str:
             response = await llm.ainvoke(
                 _build_group_input_completion_messages(
                     self.group,
@@ -2456,16 +2620,18 @@ event => {
                     speaker=self._manual_character_speaker(),
                 )
             )
-            raw = message_content_to_text(getattr(response, "content", response))
-            self.set_input_value(merge_completion(left_text, raw))
-            focus_after_completion = True
-            ui.notify("続きを補完しました", type="positive")
-        except Exception as err:
-            ui.notify(f"補完に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            if focus_after_completion:
-                self.focus_chat_input_at_end()
+            return message_content_to_text(getattr(response, "content", response))
+
+        raw = await self._run_group_llm_assist_job(
+            label="グループ入力補完",
+            runner=_runner,
+            failure_message="補完に失敗しました",
+        )
+        if raw is None:
+            return
+        self.set_input_value(merge_completion(left_text, raw))
+        ui.notify("続きを補完しました", type="positive")
+        self.focus_chat_input_at_end()
 
     async def tailor_input_text(self, left_text: str) -> None:
         if self.settings is None:
@@ -2476,9 +2642,8 @@ event => {
         llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
         if llm is None:
             return
-        self.set_sending(True)
-        focus_after_tailor = False
-        try:
+
+        async def _runner() -> str:
             response = await llm.ainvoke(
                 _build_group_tailored_input_messages(
                     self.group,
@@ -2489,20 +2654,22 @@ event => {
                     speaker=self._manual_character_speaker(),
                 )
             )
-            raw = message_content_to_text(getattr(response, "content", response))
-            tailored = clean_short_llm_text(raw)
-            if not tailored:
-                ui.notify("書き換え結果が空でした", type="warning")
-                return
-            self.set_input_value(tailored)
-            focus_after_tailor = True
-            ui.notify("現在のロール向けに書き換えました", type="positive")
-        except Exception as err:
-            ui.notify(f"書き換えに失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            if focus_after_tailor:
-                self.focus_chat_input_at_end()
+            return message_content_to_text(getattr(response, "content", response))
+
+        raw = await self._run_group_llm_assist_job(
+            label="グループ入力書き換え",
+            runner=_runner,
+            failure_message="書き換えに失敗しました",
+        )
+        if raw is None:
+            return
+        tailored = clean_short_llm_text(raw)
+        if not tailored:
+            ui.notify("書き換え結果が空でした", type="warning")
+            return
+        self.set_input_value(tailored)
+        ui.notify("現在のロール向けに書き換えました", type="positive")
+        self.focus_chat_input_at_end()
 
     async def show_response_choices(self, left_text: str) -> None:
         if self.settings is None:
@@ -2512,8 +2679,8 @@ event => {
             return
         input_mode = self.input_mode
         speaker = self._manual_character_speaker()
-        self.set_sending(True)
-        try:
+
+        async def _runner() -> list[str]:
             response = await llm.ainvoke(
                 _build_group_response_choice_messages(
                     self.group,
@@ -2528,11 +2695,15 @@ event => {
             choices = parse_response_choices(raw)
             if left_text.strip():
                 choices = [merge_completion(left_text, choice) for choice in choices]
-        except Exception as err:
-            ui.notify(f"選択肢生成に失敗しました: {err}", type="negative", timeout=10000)
+            return choices
+
+        choices = await self._run_group_llm_assist_job(
+            label="グループ応答候補生成",
+            runner=_runner,
+            failure_message="選択肢生成に失敗しました",
+        )
+        if choices is None:
             return
-        finally:
-            self.set_sending(False)
 
         if not choices:
             ui.notify("選択肢を生成できませんでした", type="warning")
@@ -2541,28 +2712,16 @@ event => {
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg cs-chat-choice-dialog"):
             ui.label("応答を選択").classes("text-base font-semibold")
             target_label = _group_message_target_label(input_mode)
-            ui.label(f"選ぶとその{target_label}を投稿します。").classes("text-sm text-grey-6")
+            ui.label(f"選ぶとその{target_label}を入力欄に入れます。").classes("text-sm text-grey-6")
 
-            async def _choose(choice: str) -> None:
+            def _choose(choice: str) -> None:
                 dlg.close()
-                self.clear_input()
-                if input_mode == "narration":
-                    await self.post_narration(choice)
-                    self.set_input_mode("user")
-                    return
-                if input_mode == "memo":
-                    await self.post_memo(choice)
-                    self.set_input_mode("user")
-                    return
-                if input_mode == "character":
-                    await self.post_character_input(choice, member=speaker)
-                    self.set_input_mode("user")
-                    return
-                await self.send_user_turn(choice)
+                self.set_input_value(choice)
+                self.focus_chat_input_at_end()
 
             def _choice_click_handler(choice: str):
-                async def _handler() -> None:
-                    await _choose(choice)
+                def _handler() -> None:
+                    _choose(choice)
 
                 return _handler
 
@@ -2981,33 +3140,68 @@ setTimeout(() => {
         llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
         if llm is None:
             return
+        if self.active_session_id is None:
+            return
 
-        self.set_sending(True)
+        prior_messages = [dict(message) for message in self.messages]
         placeholder_index = len(self.messages)
         self.last_speaker_debug = None
-        try:
-            speaker = speaker or await self.choose_next_speaker(llm, active)
-            self.messages.append(_group_message("character", "…", member=speaker))
-            self.refresh_messages(scroll_to_bottom=True)
-            generated = await self.build_character_message(
-                llm,
-                speaker,
-                speaker_debug=self.last_speaker_debug,
-                prior_messages=self.messages[:placeholder_index],
-                turn_instruction=turn_instruction,
-            )
-            self.messages[placeholder_index] = generated
-            self.refresh_messages(scroll_to_bottom=True)
-            await self.save_current_session()
+        display_speaker = speaker or active[0]
+        self.messages.append(_group_message("character", "…", member=display_speaker))
+        self.refresh_messages(scroll_to_bottom=True)
+        session_id = self.active_session_id
+        title = self.title
+        title_is_auto = self.active_title_is_auto
+        settings_snapshot = dict(self.settings)
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[dict[str, Any]]:
+            self.messages = [dict(message) for message in prior_messages]
+            self.last_speaker_debug = None
+            try:
+                selected_speaker = speaker or await self.choose_next_speaker(llm, active)
+                speaker_debug = self.last_speaker_debug
+                generated = await self.build_character_message(
+                    llm,
+                    selected_speaker,
+                    speaker_debug=speaker_debug,
+                    prior_messages=prior_messages,
+                    turn_instruction=turn_instruction,
+                )
+                messages = prior_messages + [generated]
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings_snapshot,
+                    messages=messages,
+                )
+                return messages
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings_snapshot,
+                    messages=prior_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_GROUP_CHAT,
+            label=f"{self.group.name or 'グループ'}の発言生成",
+            scope=self._active_group_chat_scope(),
+            metadata={"session_id": session_id, "group_id": self.group.id},
+            runner=_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        generated_successfully = await self._wait_for_active_group_job(
+            job.id,
+            failure_message="グループチャット生成に失敗しました",
+        )
+        self.set_input_mode("user")
+        if generated_successfully:
             await self.maybe_generate_auto_title(llm)
-        except Exception as err:
-            if len(self.messages) > placeholder_index and self.messages[placeholder_index].get("text") == "…":
-                self.messages.pop()
-            self.refresh_messages(scroll_to_bottom=True)
-            ui.notify(f"グループチャット生成に失敗しました: {err}", type="negative", timeout=10000)
-        finally:
-            self.set_sending(False)
-            self.set_input_mode("user")
 
     async def choose_next_speaker(self, llm, active: list[GroupMember]) -> GroupMember:
         last = _last_dialog_message(self.messages)
@@ -3237,7 +3431,8 @@ setTimeout(() => {
             f"- @{member.handle} / {member.character.name}: {_compact_character_summary(member.character)}"
             for member in active
         )
-        try:
+
+        async def _runner() -> str:
             response = await llm.ainvoke([
                 SystemMessage(
                     content=(
@@ -3257,11 +3452,17 @@ setTimeout(() => {
                     )
                 ),
             ])
-        except Exception as err:
-            ui.notify(f"シチュエーション補完に失敗しました: {err}", type="negative", timeout=10000)
+            return message_content_to_text(getattr(response, "content", response))
+
+        raw = await self._run_group_llm_assist_job(
+            label="グループシチュエーション補完",
+            runner=_runner,
+            failure_message="シチュエーション補完に失敗しました",
+        )
+        if raw is None:
             return None
         enhanced = _clean_group_situation_enhancement(
-            message_content_to_text(getattr(response, "content", response))
+            raw
         )
         if not enhanced:
             ui.notify("シチュエーションを補完できませんでした", type="warning")
@@ -4600,7 +4801,7 @@ async def _generate_handles(
             "description": persona.description[:1000],
         },
     }
-    try:
+    async def _runner() -> dict[str, str]:
         response = await llm.ainvoke([
             SystemMessage(content="あなたはグループチャット用のメンションハンドルを作る編集者です。"),
             HumanMessage(content=(
@@ -4612,10 +4813,28 @@ async def _generate_handles(
             )),
         ])
         raw = message_content_to_text(getattr(response, "content", response))
-        suggested = _parse_handle_response(raw)
-    except Exception as err:
-        ui.notify(f"ハンドル生成に失敗しました: {err}", type="negative", timeout=10000)
+        return _parse_handle_response(raw)
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="グループハンドル生成",
+        scope="group_setup:handles",
+        metadata={"character_count": len(characters)},
+        runner=lambda _: _runner(),
+    )
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        ui.notify("ハンドル生成を停止しました", type="info")
         return
+    if finished.status != AIJobStatus.SUCCEEDED:
+        ui.notify(
+            f"ハンドル生成に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
+        )
+        return
+    suggested = finished.result or {}
 
     used: set[str] = set()
     for index, sheet in enumerate(characters, start=1):
@@ -4645,7 +4864,8 @@ async def _enhance_world_click(
     llm = _configured_llm(ctx, profile_id)
     if llm is None:
         return
-    try:
+
+    async def _runner() -> str:
         response = await llm.ainvoke([
             SystemMessage(content=(
                 "あなたはグループチャットの世界観設定を膨らませる編集者です。"
@@ -4661,20 +4881,39 @@ async def _enhance_world_click(
                 f"{current_world}"
             )),
         ])
-        enhanced = _clean_world_enhancement(
-            message_content_to_text(getattr(response, "content", response)),
-            current_world=current_world,
-            group_name=str(name_input.value or ""),
-            characters=characters,
-            persona=persona,
+        return message_content_to_text(getattr(response, "content", response))
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="グループ世界観補完",
+        scope="group_setup:world",
+        metadata={"character_count": len(characters)},
+        runner=lambda _: _runner(),
+    )
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        ui.notify("世界観補完を停止しました", type="info")
+        return
+    if finished.status != AIJobStatus.SUCCEEDED:
+        ui.notify(
+            f"世界観補完に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
         )
-        if not enhanced:
-            ui.notify("世界観を補完できませんでした", type="warning")
-            return
-        world_input.set_value(enhanced)
-        ui.notify("世界観を補完しました", type="positive")
-    except Exception as err:
-        ui.notify(f"世界観補完に失敗しました: {err}", type="negative", timeout=10000)
+        return
+    enhanced = _clean_world_enhancement(
+        str(finished.result or ""),
+        current_world=current_world,
+        group_name=str(name_input.value or ""),
+        characters=characters,
+        persona=persona,
+    )
+    if not enhanced:
+        ui.notify("世界観を補完できませんでした", type="warning")
+        return
+    world_input.set_value(enhanced)
+    ui.notify("世界観を補完しました", type="positive")
 
 
 def _clean_world_enhancement(
