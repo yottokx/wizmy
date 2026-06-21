@@ -144,6 +144,7 @@ async def characters_page() -> None:
                         character_card(
                             sheet,
                             on_click=lambda cid: ui.navigate.to(f"/characters/{cid}"),
+                            on_chat=lambda cid: ui.navigate.to(f"/characters/{cid}/chat"),
                             on_delete=_make_delete(sheet),
                             on_toggle_favorite=_make_toggle_favorite(sheet),
                         )

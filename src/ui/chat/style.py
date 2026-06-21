@@ -252,8 +252,8 @@ CHAT_CSS = """
 .cs-chat-message-row {
   display: flex;
   align-items: flex-end;
-  gap: 9px;
-  max-width: 78%;
+  gap: 12px;
+  max-width: 82%;
 }
 .cs-chat-message-row-character {
   align-self: flex-start;
@@ -273,9 +273,9 @@ CHAT_CSS = """
   max-width: min(680px, 90%);
 }
 .cs-chat-face {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
   border-radius: 999px;
   border: 1px solid var(--cs-border);
   background: var(--cs-surface-soft);
@@ -288,6 +288,9 @@ CHAT_CSS = """
   align-items: center;
   justify-content: center;
   color: var(--cs-muted);
+}
+.cs-chat-face-placeholder .q-icon {
+  font-size: 1.45rem;
 }
 .cs-chat-bubble {
   position: relative;
@@ -303,7 +306,7 @@ CHAT_CSS = """
   content: "";
   position: absolute;
   left: -7px;
-  bottom: 12px;
+  bottom: 18px;
   width: 12px;
   height: 12px;
   background: var(--cs-surface);

@@ -153,6 +153,7 @@ class ChatPageController:
                     set_input_mode=self.set_input_mode,
                     set_mobile_sidebar=self.set_mobile_sidebar,
                 )
+        self.scroll_messages_to_bottom()
 
     def render_history_section(self) -> None:
         with ui.element("div").classes("cs-chat-history-section") as section:
@@ -386,12 +387,7 @@ class ChatPageController:
                     open_debug=components.open_llm_debug_dialog,
                 )
         if scroll_to_bottom:
-            self.run_page_javascript(
-                "setTimeout(() => {"
-                "const el = document.querySelector('.cs-chat-messages');"
-                "if (el) el.scrollTop = el.scrollHeight;"
-                "}, 0);"
-            )
+            self.scroll_messages_to_bottom()
         else:
             self.run_page_javascript(
                 "setTimeout(() => {"
@@ -401,6 +397,18 @@ class ChatPageController:
                 "window.__csChatScrollTop = null;"
                 "}, 0);"
             )
+
+    def scroll_messages_to_bottom(self) -> None:
+        self.run_page_javascript(
+            "(() => {"
+            "const scroll = () => {"
+            "const el = document.querySelector('.cs-chat-messages');"
+            "if (el) el.scrollTop = el.scrollHeight;"
+            "};"
+            "setTimeout(scroll, 0);"
+            "setTimeout(scroll, 50);"
+            "})();"
+        )
 
     def set_sending(self, sending: bool) -> None:
         self.state.sending = sending
@@ -902,7 +910,11 @@ class ChatPageController:
         else:
             self.clear_input()
         self.set_input_mode("user")
-        await self.generate_scene(settings, instruction=instruction)
+        self.clear_input()
+        try:
+            await self.generate_scene(settings, instruction=instruction)
+        finally:
+            self.clear_input()
 
     async def fill_user_text(self, settings: ChatSessionSettings, left_text: str) -> None:
         if not left_text.strip():

@@ -33,6 +33,107 @@ USER_PERSONA_SOURCE_CHARACTER = "character"
 _PERSONA_SELECT_PREFIX = "persona:"
 _CHARACTER_SELECT_PREFIX = "character:"
 
+VOICE_INPUT_CLICK_JS = r"""
+event => {
+  event.preventDefault();
+  event.stopPropagation();
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const input = document.querySelector('.cs-chat-composer-input textarea');
+  const button = event.currentTarget;
+  const notify = (message, type = 'warning') => {
+    if (window.Quasar && window.Quasar.Notify) {
+      window.Quasar.Notify.create({ message, type });
+    }
+  };
+  const focusInput = () => {
+    input && input.focus({ preventScroll: true });
+  };
+  const speechErrorMessage = error => {
+    switch (error) {
+      case 'no-speech':
+        return '音声を検出できませんでした';
+      case 'audio-capture':
+        return 'マイクを取得できません。端末またはブラウザのマイク権限を確認してください';
+      case 'not-allowed':
+        return 'マイクが許可されていません。ブラウザのサイト設定と端末のマイク権限を確認してください';
+      case 'service-not-allowed':
+        return '音声認識サービスが許可されていません。HTTPS接続とマイク権限を確認してください';
+      case 'network':
+        return '音声認識サービスへ接続できません。ネットワーク接続を確認してください';
+      case 'language-not-supported':
+        return 'この環境では日本語の音声認識に対応していません';
+      case 'aborted':
+        return '音声入力を中止しました';
+      default:
+        return `音声入力に失敗しました: ${error || 'unknown'}`;
+    }
+  };
+  if (!input) return;
+  if ((input.value || '').length) return;
+  if (!SpeechRecognition) {
+    notify('このブラウザは音声入力に対応していません');
+    focusInput();
+    return;
+  }
+  const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
+  const isSecureOrigin = window.isSecureContext
+    || window.location.protocol === 'https:'
+    || localHosts.has(window.location.hostname);
+  if (!isSecureOrigin) {
+    notify('音声入力にはHTTPSまたはlocalhostが必要です。安全なURLで開いてください', 'negative');
+    focusInput();
+    return;
+  }
+  if (window.__csSpeechRecognition) {
+    window.__csSpeechRecognition.onerror = null;
+    window.__csSpeechRecognition.onend = null;
+    window.__csSpeechRecognition.abort();
+    window.__csSpeechRecognition = null;
+  }
+  const recognition = new SpeechRecognition();
+  window.__csSpeechRecognition = recognition;
+  recognition.lang = 'ja-JP';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  button && button.classList.add('cs-chat-voice-input-recording');
+  recognition.onresult = resultEvent => {
+    const transcript = Array.from(resultEvent.results || [])
+      .map(result => result && result[0] ? result[0].transcript : '')
+      .join('')
+      .trim();
+    if (!transcript) return;
+    input.value = transcript;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  };
+  recognition.onerror = errorEvent => {
+    const error = errorEvent && errorEvent.error ? errorEvent.error : 'unknown';
+    const messageType = error === 'no-speech' || error === 'aborted' ? 'warning' : 'negative';
+    console.warn('Speech recognition error:', error, errorEvent && errorEvent.message);
+    notify(speechErrorMessage(error), messageType);
+    focusInput();
+  };
+  recognition.onend = () => {
+    button && button.classList.remove('cs-chat-voice-input-recording');
+    if (window.__csSpeechRecognition === recognition) {
+      window.__csSpeechRecognition = null;
+    }
+  };
+  try {
+    recognition.start();
+  } catch (error) {
+    button && button.classList.remove('cs-chat-voice-input-recording');
+    if (window.__csSpeechRecognition === recognition) {
+      window.__csSpeechRecognition = null;
+    }
+    console.warn('Speech recognition start failed:', error);
+    notify('音声入力を開始できませんでした。ブラウザと端末のマイク権限を確認してください', 'negative');
+    focusInput();
+  }
+}
+"""
+
 
 def render_profile(
     sheet: CharacterSheet,
@@ -285,106 +386,7 @@ def render_chat(
                 ).classes("cs-chat-voice-input").tooltip("音声入力")
                 voice_input_btn.on(
                     "click",
-                    js_handler="""
-event => {
-  event.preventDefault();
-  event.stopPropagation();
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const input = document.querySelector('.cs-chat-composer-input textarea');
-  const button = event.currentTarget;
-  const notify = (message, type = 'warning') => {
-    if (window.Quasar && window.Quasar.Notify) {
-      window.Quasar.Notify.create({ message, type });
-    }
-  };
-  const focusInput = () => {
-    input && input.focus({ preventScroll: true });
-  };
-  const speechErrorMessage = error => {
-    switch (error) {
-      case 'no-speech':
-        return '音声を検出できませんでした';
-      case 'audio-capture':
-        return 'マイクを取得できません。端末またはブラウザのマイク権限を確認してください';
-      case 'not-allowed':
-        return 'マイクが許可されていません。ブラウザのサイト設定と端末のマイク権限を確認してください';
-      case 'service-not-allowed':
-        return '音声認識サービスが許可されていません。HTTPS接続とマイク権限を確認してください';
-      case 'network':
-        return '音声認識サービスへ接続できません。ネットワーク接続を確認してください';
-      case 'language-not-supported':
-        return 'この環境では日本語の音声認識に対応していません';
-      case 'aborted':
-        return '音声入力を中止しました';
-      default:
-        return `音声入力に失敗しました: ${error || 'unknown'}`;
-    }
-  };
-  if (!input) return;
-  if ((input.value || '').length) return;
-  if (!SpeechRecognition) {
-    notify('このブラウザは音声入力に対応していません');
-    focusInput();
-    return;
-  }
-  const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
-  const isSecureOrigin = window.isSecureContext
-    || window.location.protocol === 'https:'
-    || localHosts.has(window.location.hostname);
-  if (!isSecureOrigin) {
-    notify('音声入力にはHTTPSまたはlocalhostが必要です。安全なURLで開いてください', 'negative');
-    focusInput();
-    return;
-  }
-  if (window.__csSpeechRecognition) {
-    window.__csSpeechRecognition.onerror = null;
-    window.__csSpeechRecognition.onend = null;
-    window.__csSpeechRecognition.abort();
-    window.__csSpeechRecognition = null;
-  }
-  const recognition = new SpeechRecognition();
-  window.__csSpeechRecognition = recognition;
-  recognition.lang = 'ja-JP';
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-  button && button.classList.add('cs-chat-voice-input-recording');
-  recognition.onresult = resultEvent => {
-    const transcript = Array.from(resultEvent.results || [])
-      .map(result => result && result[0] ? result[0].transcript : '')
-      .join('')
-      .trim();
-    if (!transcript) return;
-    input.value = transcript;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
-  };
-  recognition.onerror = errorEvent => {
-    const error = errorEvent && errorEvent.error ? errorEvent.error : 'unknown';
-    const messageType = error === 'no-speech' || error === 'aborted' ? 'warning' : 'negative';
-    console.warn('Speech recognition error:', error, errorEvent && errorEvent.message);
-    notify(speechErrorMessage(error), messageType);
-    focusInput();
-  };
-  recognition.onend = () => {
-    button && button.classList.remove('cs-chat-voice-input-recording');
-    if (window.__csSpeechRecognition === recognition) {
-      window.__csSpeechRecognition = null;
-    }
-  };
-  try {
-    recognition.start();
-  } catch (error) {
-    button && button.classList.remove('cs-chat-voice-input-recording');
-    if (window.__csSpeechRecognition === recognition) {
-      window.__csSpeechRecognition = null;
-    }
-    console.warn('Speech recognition start failed:', error);
-    notify('音声入力を開始できませんでした。ブラウザと端末のマイク権限を確認してください', 'negative');
-    focusInput();
-  }
-}
-""",
+                    js_handler=VOICE_INPUT_CLICK_JS,
                 )
 
             async def _send_from_enter(e) -> None:

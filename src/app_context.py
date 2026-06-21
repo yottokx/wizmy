@@ -13,11 +13,13 @@ from .services.chat import ChatService
 from .services.character import CharacterService
 from .services.character_generation import CharacterGenerationService
 from .services.danbooru_prompt import DanbooruPromptService
+from .services.group_chat import GroupChatService
 from .services.image_generation import ImageGenerationService
 from .services.tts import TTSService
 from .storage.api_config_store import ApiConfigStore
 from .storage.chat_repository import ChatRepository
 from .storage.character_repository import CharacterRepository
+from .storage.group_chat_repository import GroupChatRepository
 
 
 class AppContext:
@@ -26,9 +28,11 @@ class AppContext:
         self._api_config_store = ApiConfigStore(settings.config_file)
         self._character_repo = CharacterRepository(settings.db_file)
         self._chat_repo = ChatRepository(settings.db_file)
+        self._group_chat_repo = GroupChatRepository(settings.db_file)
 
         self.api_config = ApiConfigService(self._api_config_store, settings.data_dir)
         self.chats = ChatService(self._chat_repo)
+        self.group_chats = GroupChatService(self._group_chat_repo)
         self.characters = CharacterService(self._character_repo, settings.data_dir)
         self.generation = CharacterGenerationService(self.characters)
         self.danbooru_prompt = DanbooruPromptService(self.api_config)
@@ -38,6 +42,7 @@ class AppContext:
     async def startup(self) -> None:
         await self._character_repo.initialize()
         await self._chat_repo.initialize()
+        await self._group_chat_repo.initialize()
 
     async def shutdown(self) -> None:
         pass

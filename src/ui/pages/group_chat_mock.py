@@ -590,8 +590,8 @@ MOCK_THREADS = [
 ]
 
 
-@ui.page("/groups")
-async def group_chat_page() -> None:
+@ui.page("/group-chat-mock")
+async def group_chat_mock_page() -> None:
     with page_layout("グループチャット"):
         ui.add_head_html(GROUP_CHAT_MOCK_CSS)
 
@@ -622,8 +622,8 @@ async def group_chat_page() -> None:
                             _render_recent_item(thread)
 
 
-@ui.page("/groups/demo")
-async def group_chat_demo_page() -> None:
+@ui.page("/group-chat-mock/demo")
+async def group_chat_mock_demo_page() -> None:
     selected = {"handle": MOCK_CHARACTERS[0]["handle"]}
 
     with page_layout("星灯りの作戦室"):
@@ -767,7 +767,7 @@ def open_new_group_dialog() -> None:
                         ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
 
                 ui.button(
-                    "一括で自動生成",
+                    "一括でハンドル生成",
                     icon="auto_fix_high",
                     on_click=lambda: _fill_mock_handles(handle_inputs),
                 ).props("flat color=primary").classes("w-fit")
@@ -854,7 +854,7 @@ def _render_group_card(group: dict) -> None:
             ui.button(
                 "開く",
                 icon="open_in_new",
-                on_click=lambda: ui.navigate.to("/groups/demo"),
+                on_click=lambda: ui.navigate.to("/group-chat-mock/demo"),
             ).props("flat color=primary dense")
         ui.label(f"更新: {group['updated']}").classes("text-xs text-grey-6")
 
