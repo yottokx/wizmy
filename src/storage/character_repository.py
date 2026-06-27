@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS characters (
     quirks TEXT NOT NULL DEFAULT '',
     story_hooks TEXT NOT NULL DEFAULT '',
     self_intro TEXT NOT NULL DEFAULT '',
+    sample_dialogues TEXT NOT NULL DEFAULT '',
     voice_image TEXT NOT NULL DEFAULT '',
     media TEXT NOT NULL DEFAULT '{}',
     is_favorite INTEGER NOT NULL DEFAULT 0,
@@ -94,6 +95,7 @@ def _sheet_to_row(sheet: CharacterSheet) -> dict:
         "quirks": sheet.quirks,
         "story_hooks": sheet.story_hooks,
         "self_intro": sheet.self_intro,
+        "sample_dialogues": sheet.sample_dialogues,
         "voice_image": sheet.voice_image,
         "media": json.dumps(sheet.media.model_dump(mode="json"), ensure_ascii=False),
         "is_favorite": 1 if sheet.is_favorite else 0,
@@ -126,6 +128,8 @@ class CharacterRepository:
             await db.execute("ALTER TABLE characters ADD COLUMN media TEXT NOT NULL DEFAULT '{}'")
         if "is_favorite" not in columns:
             await db.execute("ALTER TABLE characters ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
+        if "sample_dialogues" not in columns:
+            await db.execute("ALTER TABLE characters ADD COLUMN sample_dialogues TEXT NOT NULL DEFAULT ''")
 
     async def save(self, sheet: CharacterSheet) -> CharacterSheet:
         sheet.updated_at = datetime.now()
@@ -137,13 +141,13 @@ class CharacterRepository:
                     id, name, age, gender, occupation, origin, world,
                     appearance, personality, motivation, weakness, background,
                     skills, relationships, quirks, story_hooks, self_intro,
-                    voice_image, media, is_favorite, tags, raw_markdown, generation_meta,
+                    sample_dialogues, voice_image, media, is_favorite, tags, raw_markdown, generation_meta,
                     created_at, updated_at
                 ) VALUES (
                     :id, :name, :age, :gender, :occupation, :origin, :world,
                     :appearance, :personality, :motivation, :weakness, :background,
                     :skills, :relationships, :quirks, :story_hooks, :self_intro,
-                    :voice_image, :media, :is_favorite, :tags, :raw_markdown, :generation_meta,
+                    :sample_dialogues, :voice_image, :media, :is_favorite, :tags, :raw_markdown, :generation_meta,
                     :created_at, :updated_at
                 ) ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name, age=excluded.age, gender=excluded.gender,
@@ -153,7 +157,8 @@ class CharacterRepository:
                     weakness=excluded.weakness, background=excluded.background,
                     skills=excluded.skills, relationships=excluded.relationships,
                     quirks=excluded.quirks, story_hooks=excluded.story_hooks,
-                    self_intro=excluded.self_intro, voice_image=excluded.voice_image,
+                    self_intro=excluded.self_intro, sample_dialogues=excluded.sample_dialogues,
+                    voice_image=excluded.voice_image,
                     media=excluded.media, is_favorite=excluded.is_favorite,
                     tags=excluded.tags, raw_markdown=excluded.raw_markdown,
                     generation_meta=excluded.generation_meta, updated_at=excluded.updated_at

@@ -127,6 +127,7 @@ def _parse_sheet_to_structured(sheet_md: str, sheet_id: str) -> CharacterSheet:
         quirks=extract_section(sheet_md, "個性・クセ・口癖"),
         story_hooks=extract_section(sheet_md, "物語のフック"),
         self_intro=extract_section(sheet_md, "自己紹介台詞"),
+        sample_dialogues=extract_section(sheet_md, "サンプル台詞"),
         voice_image=extract_section(sheet_md, "声のイメージ"),
         raw_markdown=sheet_md,
         created_at=datetime.now(),

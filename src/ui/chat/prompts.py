@@ -455,6 +455,7 @@ def character_summary(sheet: CharacterSheet) -> str:
         ("性格", sheet.personality),
         ("背景", sheet.background),
         ("自己紹介", sheet.self_intro),
+        ("サンプル台詞", sheet.sample_dialogues),
     ]
     return "\n".join(f"{label}: {value}" for label, value in fields if value)
 

@@ -4711,6 +4711,7 @@ def _participant_profile_text(participant: dict[str, Any]) -> str:
         sheet.motivation,
         sheet.background,
         sheet.self_intro,
+        sheet.sample_dialogues,
     ]
     return "\n".join(value for value in values if value).strip() or "未設定"
 

@@ -219,7 +219,7 @@ def _build_related_assembly_user(
     )
 
     name_note = f"\n**名前は「{new_char_name}」で固定してください（変更禁止）**\n" if new_char_name else ""
-    name_in_header = new_char_name if new_char_name else "「キャラクター名」の選択結果から"
+    name_in_header = new_char_name if new_char_name else "キャラクター名の選択結果"
 
     constraints: list[str] = []
     if role_in_base:
@@ -244,7 +244,7 @@ def _build_related_assembly_user(
 ## 新規キャラクター属性（このキャラクターのシートを作成する素材・これのみ使用すること）
 {name_note}{primary_text}
 
-## 矛盾解決メモ（「過去・背景」か「物語のフック」への補足としてのみ使用可）
+## 矛盾解決メモ（「過去・背景」への補足としてのみ使用可）
 {resolution_text}
 
 ## 必須制約（以下を必ず守ること）
@@ -252,14 +252,17 @@ def _build_related_assembly_user(
 
 ## 出力フォーマット
 上記の「新規キャラクター属性」と「必須制約」に従い、以下の形式で**新規キャラクター**のシートを作成してください。
-既存シートの設定・ストーリー・物語のフックを流用することは禁止。{name_note}
+既存シートの設定やストーリーを丸写しすることは禁止。{name_note}
+シート冒頭の `#` 見出しと「## 基本情報」の「名前」欄には、{name_in_header}を必ず設定してください。
+出力時は「キャラクター名の選択結果」という文字を残さず、選択済みの具体的な名前に置き換えてください。
+空欄、「名前」「キャラクター名」「名称未設定」などのプレースホルダは禁止。
 ---
 # [{name_in_header}]
 
 ## 基本情報
 | 項目 | 内容 |
 |------|------|
-| 名前 | |
+| 名前 | {name_in_header} |
 | 年齢 | |
 | 性別 | |
 | 職業・役割 | |
@@ -293,15 +296,17 @@ def _build_related_assembly_user(
 ## 個性・クセ・口癖
 （口癖・クセの選択結果のみ記載）
 
-## 物語のフック
-（このキャラクター固有の設定から自然に導かれる物語の種を2〜3個）
-
 ## 自己紹介台詞
-（初対面の相手に自己紹介するセリフを1〜3文。一人称・口調・話し方を性格・職業・世界観・性別に合わせる）
+（初対面の相手に自己紹介するセリフを1〜3文。一人称を必ず含め、一人称・口調・話し方を性格・職業・世界観・性別に合わせる。
+ 括弧付きのト書き・動作説明・表情説明は禁止。発話本文だけを書く）
 
-## 声のイメージ
-（プレーンテキスト1行・見出し記号「#」不使用。「男性話者」「女性話者」「中性的な話者」と
- 年齢層を表す語（幼い・若い・大人の・中年の・年老いた 等）を必ず含め、15〜30字で記述）
+## サンプル台詞
+（必ず3つ。1つずつ順番に生成する。
+ 1つ目: 自己紹介台詞を参照し、自己紹介とは別の状況の台詞にする。
+ 2つ目: 自己紹介台詞と1つ目を生成済み台詞として参照し、既存台詞とは別の側面を見せる。
+ 3つ目: 自己紹介台詞と1つ目・2つ目を生成済み台詞として参照し、既存台詞とはさらに別の側面を見せる。
+ 台詞内で新しい固有名詞・過去・関係性・能力を追加しないこと。
+ 括弧付きのト書き・動作説明・表情説明は禁止。発話本文だけを書く）
 
 ---
 """
@@ -358,10 +363,11 @@ def score_completion(
     """ツール結果数・フェーズカバレッジ・必須ヘッダーから品質スコアを算出する。"""
     tool_count = len(tool_calls)
     header_score = sum(1 for h in REQUIRED_SHEET_HEADERS if h in sheet) / len(REQUIRED_SHEET_HEADERS)
+    name_score = 1.0 if extract_character_name_from_markdown(sheet, default="").strip() else 0.0
 
     if mode == GenerationMode.MODIFY:
-        quality = min(tool_count / 4, 1.0) * 0.6 + header_score * 0.4
-        if tool_count >= 1 and header_score >= 0.6:
+        quality = min(tool_count / 4, 1.0) * 0.50 + header_score * 0.35 + name_score * 0.15
+        if tool_count >= 1 and header_score >= 0.6 and name_score:
             quality_status = "complete"
         elif tool_count >= 1:
             quality_status = "partial"
@@ -377,11 +383,12 @@ def score_completion(
                 phase_coverage[phase] = True
         phases_covered = sum(phase_coverage.values())
 
-        tool_score = min(tool_count / 14, 1.0)
+        expected_tool_count = 14 if mode == GenerationMode.RELATED else 13
+        tool_score = min(tool_count / expected_tool_count, 1.0)
         phase_score = phases_covered / len(PHASE_LABELS)
-        quality = tool_score * 0.35 + phase_score * 0.40 + header_score * 0.25
+        quality = tool_score * 0.30 + phase_score * 0.35 + header_score * 0.25 + name_score * 0.10
 
-        if quality >= 0.75 and phases_covered >= 3 and header_score >= 0.6:
+        if quality >= 0.75 and phases_covered >= 3 and header_score >= 0.6 and name_score:
             quality_status = "complete"
         elif quality >= 0.40 and tool_count >= 4:
             quality_status = "partial"
@@ -393,6 +400,7 @@ def score_completion(
         "phase_coverage": phase_coverage,
         "phases_covered": phases_covered,
         "header_score": round(header_score, 2),
+        "name_score": round(name_score, 2),
         "quality": round(quality, 2),
         "quality_status": quality_status,
     }

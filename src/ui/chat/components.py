@@ -1004,6 +1004,7 @@ def character_persona_description(sheet: CharacterSheet) -> str:
         ("個性・クセ", sheet.quirks),
         ("物語のフック", sheet.story_hooks),
         ("自己紹介", sheet.self_intro),
+        ("サンプル台詞", sheet.sample_dialogues),
         ("声のイメージ", sheet.voice_image),
     ]
     return "\n".join(f"{label}: {value}" for label, value in fields if value)

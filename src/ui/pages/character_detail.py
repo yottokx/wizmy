@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from nicegui import app, ui
 from nicegui.events import MouseEventArguments
 
@@ -24,6 +25,7 @@ from ...core.character.schemas import (
     CHARACTER_TTS_API_GEN_SERVER,
     CHARACTER_TTS_API_TTS,
     CharacterImageAsset,
+    CharacterSheet,
     CharacterTTSSettings,
     FaceRect,
 )
@@ -40,6 +42,7 @@ from ...core.image_generation.schemas import (
     ImageGenerationProfile,
     image_generation_profile_values,
 )
+from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobStatus
 from ...services.character_generation import parse_markdown_to_sheet
@@ -66,6 +69,11 @@ _GENERATED_NEGATIVE_PROMPT_RE = re.compile(
     r".*?</(?:span|strong)>\s*",
     re.IGNORECASE | re.DOTALL,
 )
+_VOICE_CAPTION_LABEL_RE = re.compile(
+    r"^(?:voice\s*design\s*)?(?:caption|キャプション|ボイスキャプション|音声キャプション)\s*[:：]\s*",
+    re.IGNORECASE,
+)
+_VOICE_IMAGE_SECTION_RE = re.compile(r"(?ms)^## 声のイメージ\s*\n.*?(?=^## |\Z)")
 
 
 @ui.page("/characters/{character_id}")
@@ -425,6 +433,140 @@ def _open_media_upload_dialog(
         ).props(f"accept={accept} flat bordered").classes("w-full cs-media-upload")
 
     dlg.open()
+
+
+def _voice_caption_sheet_source(sheet: CharacterSheet) -> str:
+    raw_markdown = _VOICE_IMAGE_SECTION_RE.sub("", sheet.raw_markdown or "").strip()
+    if raw_markdown:
+        return raw_markdown
+
+    sections: list[str] = [f"# {sheet.name or 'キャラクター'}"]
+    basic_rows = [
+        ("名前", sheet.name),
+        ("年齢", sheet.age),
+        ("性別", sheet.gender),
+        ("職業・役割", sheet.occupation),
+        ("出身・所属", sheet.origin),
+    ]
+    basic = "\n".join(f"- {label}: {value}" for label, value in basic_rows if str(value or "").strip())
+    if basic:
+        sections.append(f"## 基本情報\n{basic}")
+
+    for label, value in [
+        ("世界観・舞台", sheet.world),
+        ("外見", sheet.appearance),
+        ("性格・内面", sheet.personality),
+        ("動機・目標", sheet.motivation),
+        ("弱点・コンプレックス", sheet.weakness),
+        ("過去・背景", sheet.background),
+        ("スキル・能力", sheet.skills),
+        ("個性・クセ・口癖", sheet.quirks),
+        ("自己紹介台詞", sheet.self_intro),
+        ("サンプル台詞", sheet.sample_dialogues),
+    ]:
+        text = str(value or "").strip()
+        if text:
+            sections.append(f"## {label}\n{text}")
+
+    if sheet.relationships:
+        relationships = "\n".join(
+            f"- {rel.name}: {rel.description}".strip()
+            for rel in sheet.relationships
+            if (rel.name or rel.description)
+        )
+        if relationships:
+            sections.append(f"## 人間関係\n{relationships}")
+
+    return "\n\n".join(sections).strip()
+
+
+def _message_content_text(message: object) -> str:
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if text:
+                    parts.append(str(text))
+        return "\n".join(parts)
+    return str(content or "")
+
+
+def _clean_voice_caption(value: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"^```(?:\w+)?\s*|\s*```$", "", text).strip()
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    caption = lines[0].lstrip("-・* ").strip()
+    caption = _VOICE_CAPTION_LABEL_RE.sub("", caption).strip()
+    return caption.strip("「」『』\"'")
+
+
+def _select_voice_caption_llm_profile(ctx) -> Any | None:
+    profiles = ctx.api_config.get_llm_profiles()
+    if not profiles:
+        return None
+    app_llm_config = ctx.api_config.get_app_llm_config()
+    selected = ctx.api_config.get_llm_profile(app_llm_config.generation_profile_id)
+    if selected is not None and selected.model_id:
+        return selected
+    return next((profile for profile in profiles if profile.model_id), profiles[0])
+
+
+def _create_voice_caption_llm(ctx):
+    profile = _select_voice_caption_llm_profile(ctx)
+    if profile is None:
+        raise RuntimeError("LLMプロファイルを設定してください。")
+    if not profile.model_id:
+        raise RuntimeError("LLMプロファイルのモデルIDが未設定です。")
+
+    endpoint = ctx.api_config.get_endpoint(profile.endpoint_id)
+    if endpoint is None:
+        raise RuntimeError("LLMプロファイルのエンドポイントが見つかりません。")
+
+    api_key = ctx.api_config.get_api_key(profile.endpoint_id, get_vault_password())
+    if ctx.api_config.is_api_key_locked(profile.endpoint_id, api_key):
+        raise RuntimeError("APIキーボルトをロック解除してください。")
+    return create_llm(profile, endpoint, api_key)
+
+
+async def _generate_voice_caption_from_sheet(sheet: CharacterSheet, ctx) -> str:
+    source = _voice_caption_sheet_source(sheet)
+    if not source:
+        raise RuntimeError("キャラクターシート情報が不足しています。")
+
+    llm = _create_voice_caption_llm(ctx)
+    response = await llm.ainvoke([
+        SystemMessage(
+            content=(
+                "あなたはVoiceDesign v3用の短い音声キャプションを書くアシスタントです。"
+                "出力はキャプション本文1行のみ。見出し、箇条書き、引用符、補足説明は出力しません。"
+            )
+        ),
+        HumanMessage(
+            content=(
+                "以下のキャラクターシートから、声質・話速・距離感・感情トーンが伝わる"
+                "VoiceDesign v3用キャプションを生成してください。\n\n"
+                "条件:\n"
+                "- 20〜50字程度の日本語1文にする\n"
+                "- 「男性話者」「女性話者」「中性的な話者」のいずれかを必ず含める\n"
+                "- 年齢感を表す語を含める。判断が難しい場合は「若い」または「大人の」を使う\n"
+                "- キャラクターシートにない固有名詞、過去、関係性、能力は追加しない\n"
+                "- 音声系の既存メモには依存しない\n\n"
+                f"## キャラクターシート\n{source}"
+            )
+        ),
+    ])
+    caption = _clean_voice_caption(_message_content_text(response))
+    if not caption:
+        raise RuntimeError("キャプションを生成できませんでした。")
+    return caption
 
 
 def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> None:
@@ -816,7 +958,7 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
     generated: list[dict[str, object]] = []
     current_voice = sheet.media.primary_voice()
     current_voice_path = ctx.characters.media_path(current_voice.path) if current_voice else None
-    initial_caption = sheet.media.tts.voice_caption or sheet.voice_image
+    initial_caption = sheet.media.tts.voice_caption
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
         with ui.row().classes("w-full items-center justify-between gap-2"):
@@ -828,11 +970,17 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
             value=sheet.self_intro,
             placeholder="生成する音声で読み上げる台詞",
         ).props("outlined rows=4").classes("w-full")
-        caption_input = ui.textarea(
-            label="キャプション",
-            value=initial_caption,
-            placeholder="例: 明るく柔らかい少女声、少し早口で元気",
-        ).props("outlined rows=4").classes("w-full")
+        with ui.row().classes("w-full items-end gap-2 flex-wrap"):
+            caption_input = ui.textarea(
+                label="キャプション",
+                value=initial_caption,
+                placeholder="例: 明るく柔らかい少女声、少し早口で元気",
+            ).props("outlined rows=4").classes("flex-1 min-w-[260px]")
+            caption_generate_btn = ui.button(
+                "生成",
+                icon="auto_awesome",
+            ).props("outline color=secondary").classes("mb-1")
+            caption_generate_btn.tooltip("キャラクターシートからキャプションを生成")
         reference_checkbox = None
         if current_voice_path is not None:
             reference_checkbox = ui.checkbox(
@@ -918,6 +1066,20 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                                 on_click=lambda item=item, index=index: _save_voice(item, index),
                             ).props("outline color=primary")
                         ui.audio(audio_path).classes("w-full")
+
+        async def _generate_caption() -> None:
+            caption_generate_btn.disable()
+            status.set_text("キャプション生成中...")
+            try:
+                caption = await _generate_voice_caption_from_sheet(sheet, ctx)
+                caption_input.set_value(caption)
+                status.set_text("")
+                ui.notify("キャプションを生成しました", type="positive")
+            except Exception as err:
+                status.set_text("")
+                ui.notify(f"キャプション生成に失敗しました: {err}", type="negative", timeout=10000)
+            finally:
+                caption_generate_btn.enable()
 
         async def _generate() -> None:
             text = (text_input.value or "").strip()
@@ -1019,6 +1181,8 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
             except Exception as err:
                 ui.notify(f"音声の保存に失敗しました: {err}", type="negative")
 
+        caption_generate_btn.on("click", _generate_caption)
+
         with ui.row().classes("justify-end gap-2 mt-3"):
             ui.button("キャンセル", on_click=dlg.close).props("flat")
             generate_btn = ui.button("生成", icon="auto_awesome", on_click=_generate).props(
@@ -1052,7 +1216,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
             current_settings.gen_server_params,
         )
     }
-    voice_caption_value = current_settings.voice_caption or sheet.voice_image
+    voice_caption_value = current_settings.voice_caption
 
     endpoint_select = ui.select(
         options=endpoint_options,
@@ -1089,6 +1253,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
 
     mode_select = None
     voice_caption_input = None
+    voice_caption_generate_btn = None
     if _is_gen_server_voice_api(selected_value):
         mode_select = ui.select(
             options=_GEN_SERVER_TTS_MODE_OPTIONS,
@@ -1108,11 +1273,17 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
 
         mode_select.on_value_change(_on_gen_server_mode_change)
         if gen_server_tts_mode_state["value"] == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
-            voice_caption_input = ui.textarea(
-                label="キャプション",
-                value=voice_caption_value,
-                placeholder="例: 明るく柔らかい少女声、少し早口で元気",
-            ).props("outlined rows=3").classes("w-full")
+            with ui.row().classes("w-full items-end gap-2 flex-wrap"):
+                voice_caption_input = ui.textarea(
+                    label="キャプション",
+                    value=voice_caption_value,
+                    placeholder="例: 明るく柔らかい少女声、少し早口で元気",
+                ).props("outlined rows=3").classes("flex-1 min-w-[220px]")
+                voice_caption_generate_btn = ui.button(
+                    "生成",
+                    icon="auto_awesome",
+                ).props("outline color=secondary").classes("mb-1")
+                voice_caption_generate_btn.tooltip("キャラクターシートからキャプションを生成")
 
         ui.button(
             "パラメータ設定",
@@ -1138,6 +1309,22 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
     tts_status = ui.label("").classes("text-xs text-grey-6")
     preview_container = ui.column().classes("w-full gap-2")
 
+    async def _generate_voice_caption_for_tts() -> None:
+        if voice_caption_input is None or voice_caption_generate_btn is None:
+            return
+        voice_caption_generate_btn.disable()
+        tts_status.set_text("キャプション生成中...")
+        try:
+            caption = await _generate_voice_caption_from_sheet(sheet, ctx)
+            voice_caption_input.set_value(caption)
+            tts_status.set_text("")
+            ui.notify("キャプションを生成しました", type="positive")
+        except Exception as err:
+            tts_status.set_text("")
+            ui.notify(f"キャプション生成に失敗しました: {err}", type="negative", timeout=10000)
+        finally:
+            voice_caption_generate_btn.enable()
+
     def _current_tts_settings() -> CharacterTTSSettings:
         api_type, endpoint_id = _parse_voice_api_value(endpoint_select.value)
         selected_mode = (
@@ -1148,7 +1335,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
         caption = (
             (voice_caption_input.value or "").strip()
             if voice_caption_input is not None
-            else (current_settings.voice_caption or sheet.voice_image).strip()
+            else current_settings.voice_caption.strip()
         )
         backend_mode = _gen_server_backend_mode(selected_mode)
         return CharacterTTSSettings(
@@ -1278,6 +1465,8 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
             synth_btn.enable()
 
     save_settings_btn.on("click", lambda: _save_tts_settings())
+    if voice_caption_generate_btn is not None:
+        voice_caption_generate_btn.on("click", _generate_voice_caption_for_tts)
     if selected_endpoint is not None and selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
         register_btn.on("click", _register_tts_voice)
         delete_btn.on("click", _delete_tts_voice)

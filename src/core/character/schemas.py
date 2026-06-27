@@ -112,6 +112,7 @@ class CharacterSheet(BaseModel):
     quirks: str = ""
     story_hooks: str = ""
     self_intro: str = ""
+    sample_dialogues: str = ""
     voice_image: str = ""
     media: CharacterMedia = Field(default_factory=CharacterMedia)
     is_favorite: bool = False
