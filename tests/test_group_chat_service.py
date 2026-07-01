@@ -2,7 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.core.character.schemas import CharacterSheet, GenerationMeta
+from src.core.character.schemas import (
+    CHARACTER_TTS_API_GEN_SERVER,
+    CharacterImageAsset,
+    CharacterMedia,
+    CharacterSheet,
+    CharacterTTSSettings,
+    FaceRect,
+    GenerationMeta,
+)
 from src.core.chat.schemas import UserPersona
 from src.core.group_chat.schemas import (
     GroupChatRecord,
@@ -439,6 +447,158 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertIsNone(result)
+
+    async def test_group_member_image_bytes_are_saved_without_deleting_source_media(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir) / "data"
+            service = GroupChatService(
+                GroupChatRepository(Path(tmp_dir) / "wizmy.db"),
+                data_dir,
+            )
+            await service.initialize()
+
+            source_rel = Path("characters") / "character-1" / "images" / "source.png"
+            source_path = data_dir / source_rel
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.write_bytes(b"source-image")
+            original = CharacterSheet(
+                id="character-1",
+                name="画像テスト",
+                media=CharacterMedia(
+                    images=[
+                        CharacterImageAsset(
+                            id="source-image",
+                            path=source_rel.as_posix(),
+                            content_type="image/png",
+                        )
+                    ],
+                    primary_image_id="source-image",
+                ),
+            )
+            group = await service.create_group(
+                name="テストグループ",
+                world="テスト用の世界",
+                completion_profile_id="",
+                members=[(original, "Alice")],
+                user_persona=UserPersona(id="persona-1", name="テストユーザー"),
+                user_handle="User",
+            )
+            member_id = group.members[0].id
+
+            saved = await service.save_member_image_bytes(
+                group.id,
+                member_id,
+                b"group-image-1",
+                filename="first.png",
+                content_type="image/png",
+                width=120,
+                height=80,
+            )
+
+            self.assertIsNotNone(saved)
+            assert saved is not None
+            image = saved.character.media.primary_image()
+            self.assertIsNotNone(image)
+            assert image is not None
+            self.assertTrue(image.path.startswith(f"groups/{group.id}/members/{member_id}/images/"))
+            self.assertEqual(120, image.width)
+            self.assertEqual(80, image.height)
+            first_path = service.media_path(image.path)
+            self.assertIsNotNone(first_path)
+            assert first_path is not None
+            self.assertEqual(b"group-image-1", first_path.read_bytes())
+            self.assertEqual(b"source-image", source_path.read_bytes())
+
+            saved_again = await service.save_member_image_bytes(
+                group.id,
+                member_id,
+                b"group-image-2",
+                filename="second.webp",
+                content_type="image/webp",
+            )
+
+            self.assertIsNotNone(saved_again)
+            self.assertFalse(first_path.exists())
+            self.assertEqual(b"source-image", source_path.read_bytes())
+
+    async def test_group_member_voice_rect_and_tts_settings_are_saved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir) / "data"
+            service = GroupChatService(
+                GroupChatRepository(Path(tmp_dir) / "wizmy.db"),
+                data_dir,
+            )
+            await service.initialize()
+
+            group = await service.create_group(
+                name="テストグループ",
+                world="テスト用の世界",
+                completion_profile_id="",
+                members=[(CharacterSheet(id="character-1", name="音声テスト"), "Alice")],
+                user_persona=UserPersona(id="persona-1", name="テストユーザー"),
+                user_handle="User",
+            )
+            member_id = group.members[0].id
+            await service.save_member_image_bytes(group.id, member_id, b"image", width=256, height=128)
+
+            saved_voice = await service.save_member_voice_bytes(
+                group.id,
+                member_id,
+                b"voice-bytes",
+                filename="voice.wav",
+                content_type="audio/wav",
+            )
+            self.assertIsNotNone(saved_voice)
+            assert saved_voice is not None
+            voice = saved_voice.character.media.primary_voice()
+            self.assertIsNotNone(voice)
+            assert voice is not None
+            self.assertTrue(voice.path.startswith(f"groups/{group.id}/members/{member_id}/voices/"))
+            voice_path = service.media_path(voice.path)
+            self.assertIsNotNone(voice_path)
+            assert voice_path is not None
+            self.assertEqual(b"voice-bytes", voice_path.read_bytes())
+
+            updated_face = await service.update_member_face_rect(
+                group.id,
+                member_id,
+                FaceRect(x=-0.5, y=0.25, width=2.0, height=1.0),
+                image_width=256,
+                image_height=128,
+            )
+            self.assertIsNotNone(updated_face)
+            assert updated_face is not None
+            image = updated_face.character.media.primary_image()
+            self.assertIsNotNone(image)
+            assert image is not None
+            self.assertEqual(FaceRect(x=0.0, y=0.25, width=1.0, height=0.75), image.face_rect)
+
+            updated_bust = await service.update_member_bust_rect(
+                group.id,
+                member_id,
+                FaceRect(x=0.1, y=0.2, width=0.3, height=0.4),
+            )
+            self.assertIsNotNone(updated_bust)
+            assert updated_bust is not None
+            image = updated_bust.character.media.primary_image()
+            self.assertIsNotNone(image)
+            assert image is not None
+            self.assertEqual(FaceRect(x=0.1, y=0.2, width=0.3, height=0.4), image.bust_rect)
+
+            settings = CharacterTTSSettings(
+                api_type=CHARACTER_TTS_API_GEN_SERVER,
+                voice_caption="穏やかな声",
+            )
+            updated_tts = await service.update_member_tts_settings(group.id, member_id, settings)
+            self.assertIsNotNone(updated_tts)
+            assert updated_tts is not None
+            self.assertEqual(CHARACTER_TTS_API_GEN_SERVER, updated_tts.character.media.tts.api_type)
+            self.assertEqual("穏やかな声", updated_tts.character.media.tts.voice_caption)
+
+            preview = service.save_member_tts_preview(group.id, member_id, b"preview")
+            playback = service.save_member_tts_playback(group.id, member_id, b"playback")
+            self.assertEqual(b"preview", preview.read_bytes())
+            self.assertEqual(b"playback", playback.read_bytes())
 
     async def test_add_members_stores_world_entry_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

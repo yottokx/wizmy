@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,77 @@ _VOICE_CAPTION_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 _VOICE_IMAGE_SECTION_RE = re.compile(r"(?ms)^## 声のイメージ\s*\n.*?(?=^## |\Z)")
+
+
+@dataclass(slots=True)
+class CharacterMediaActions:
+    """キャラクターメディアUIが保存先を差し替えるための操作セット。"""
+
+    target_id: str
+    result_url: str
+    scope_prefix: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+    media_path: Callable[[str], Path | None] | None = None
+    save_image: Callable[[Any], Awaitable[CharacterSheet]] | None = None
+    save_image_bytes: Callable[..., Awaitable[CharacterSheet]] | None = None
+    save_voice: Callable[[Any], Awaitable[CharacterSheet]] | None = None
+    save_voice_bytes: Callable[..., Awaitable[CharacterSheet]] | None = None
+    update_tts_settings: Callable[[CharacterTTSSettings], Awaitable[CharacterSheet]] | None = None
+    update_face_rect: Callable[..., Awaitable[CharacterSheet]] | None = None
+    update_bust_rect: Callable[..., Awaitable[CharacterSheet]] | None = None
+    save_tts_preview: Callable[..., Path] | None = None
+    save_image_preview: Callable[..., Path] | None = None
+    save_tts_playback: Callable[[bytes], Path] | None = None
+
+
+def character_media_actions(ctx, character_id: str) -> CharacterMediaActions:
+    return CharacterMediaActions(
+        target_id=character_id,
+        result_url=f"/characters/{character_id}",
+        scope_prefix=f"character:{character_id}",
+        metadata={"character_id": character_id},
+        media_path=ctx.characters.media_path,
+        save_image=lambda upload: ctx.characters.save_image(character_id, upload),
+        save_image_bytes=lambda image_bytes, **kwargs: ctx.characters.save_image_bytes(
+            character_id,
+            image_bytes,
+            **kwargs,
+        ),
+        save_voice=lambda upload: ctx.characters.save_voice(character_id, upload),
+        save_voice_bytes=lambda audio_bytes, **kwargs: ctx.characters.save_voice_bytes(
+            character_id,
+            audio_bytes,
+            **kwargs,
+        ),
+        update_tts_settings=lambda settings: ctx.characters.update_tts_settings(
+            character_id,
+            settings,
+        ),
+        update_face_rect=lambda rect, **kwargs: ctx.characters.update_face_rect(
+            character_id,
+            rect,
+            **kwargs,
+        ),
+        update_bust_rect=lambda rect, **kwargs: ctx.characters.update_bust_rect(
+            character_id,
+            rect,
+            **kwargs,
+        ),
+        save_tts_preview=lambda audio_bytes, **kwargs: ctx.characters.save_tts_preview(
+            character_id,
+            audio_bytes,
+            **kwargs,
+        ),
+        save_image_preview=lambda image_bytes, **kwargs: ctx.characters.save_image_preview(
+            character_id,
+            image_bytes,
+            **kwargs,
+        ),
+        save_tts_playback=lambda audio_bytes: ctx.characters.save_tts_playback(
+            character_id,
+            audio_bytes,
+        ),
+    )
 
 
 @ui.page("/characters/{character_id}")
@@ -308,16 +380,23 @@ async def character_detail_page(character_id: str) -> None:
             ui.navigate.to("/characters")
 
 
-def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
+def render_character_media_panel(
+    sheet,
+    ctx,
+    character_id: str,
+    refresh_fn,
+    actions: CharacterMediaActions | None = None,
+) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center gap-2 mb-2"):
             ui.icon("image").style("color: #6E9572;")
             ui.label("画像").classes("text-base font-semibold")
 
         image = sheet.media.primary_image()
-        image_path = ctx.characters.media_path(image.path) if image else None
+        image_path = actions.media_path(image.path) if image and actions.media_path else None
         if image and image_path:
-            _render_image_editor(sheet, ctx, character_id, image, image_path, refresh_fn)
+            _render_image_editor(sheet, ctx, character_id, image, image_path, refresh_fn, actions)
             if image.original_name:
                 ui.label(image.original_name).classes("text-xs text-grey-6 break-all")
         else:
@@ -329,7 +408,9 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
 
         async def _on_image_upload(e) -> bool:
             try:
-                saved = await ctx.characters.save_image(character_id, e.file)
+                if actions.save_image is None:
+                    raise RuntimeError("画像の保存処理が設定されていません。")
+                saved = await actions.save_image(e.file)
                 sheet.media = saved.media
                 ui.notify("画像を保存しました", type="positive")
                 refresh_fn()
@@ -353,7 +434,7 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
         ui.button(
             "画像生成",
             icon="auto_awesome",
-            on_click=lambda: _open_image_generation_dialog(sheet, ctx, character_id, refresh_fn),
+            on_click=lambda: _open_image_generation_dialog(sheet, ctx, character_id, refresh_fn, actions),
         ).props("outline color=secondary").classes("w-full")
 
     with ui.card().classes("w-full"):
@@ -362,7 +443,7 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
             ui.label("音声").classes("text-base font-semibold")
 
         voice = sheet.media.primary_voice()
-        voice_path = ctx.characters.media_path(voice.path) if voice else None
+        voice_path = actions.media_path(voice.path) if voice and actions.media_path else None
         if voice and voice_path:
             ui.audio(voice_path).classes("w-full")
             if voice.original_name:
@@ -376,7 +457,9 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
 
         async def _on_voice_upload(e) -> bool:
             try:
-                saved = await ctx.characters.save_voice(character_id, e.file)
+                if actions.save_voice is None:
+                    raise RuntimeError("音声の保存処理が設定されていません。")
+                saved = await actions.save_voice(e.file)
                 sheet.media = saved.media
                 ui.notify("音声を保存しました", type="positive")
                 refresh_fn()
@@ -400,12 +483,16 @@ def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
         ui.button(
             "ボイスデザイン",
             icon="record_voice_over",
-            on_click=lambda: _open_voice_design_dialog(sheet, ctx, character_id, refresh_fn),
+            on_click=lambda: _open_voice_design_dialog(sheet, ctx, character_id, refresh_fn, actions),
         ).props("outline color=secondary").classes("w-full")
 
         if voice and voice_path:
-            _render_tts_controls(sheet, ctx, character_id, voice, voice_path, refresh_fn)
+            _render_tts_controls(sheet, ctx, character_id, voice, voice_path, refresh_fn, actions)
             return
+
+
+def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:
+    render_character_media_panel(sheet, ctx, character_id, refresh_fn)
 
 
 def _open_media_upload_dialog(
@@ -569,7 +656,14 @@ async def _generate_voice_caption_from_sheet(sheet: CharacterSheet, ctx) -> str:
     return caption
 
 
-def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> None:
+def _open_image_generation_dialog(
+    sheet,
+    ctx,
+    character_id: str,
+    refresh_fn,
+    actions: CharacterMediaActions | None = None,
+) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     profiles = ctx.api_config.get_image_generation_profiles()
     if not profiles:
         ui.notify("設定で画像生成プロファイルを追加してください。", type="warning")
@@ -782,10 +876,10 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
                     vault_password=get_vault_password(),
                     count=3,
                     label=f"{sheet.name or 'キャラクター'}のプロンプト候補生成",
-                    scope=f"character:{character_id}:prompt",
-                    metadata={"character_id": character_id},
+                    scope=f"{actions.scope_prefix}:prompt",
+                    metadata=dict(actions.metadata),
                 )
-                ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/characters/{character_id}"})
+                ctx.ai_jobs.set_result_meta(job.id, {"result_url": actions.result_url})
                 finished = await ctx.ai_jobs.wait(job.id)
                 if finished.status == AIJobStatus.CANCELLED:
                     prompt_status.set_text("")
@@ -872,10 +966,11 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
             status.set_text("生成中...")
             try:
                 def _save_previews(images: list[object], job) -> dict[str, object]:
+                    if actions.save_image_preview is None:
+                        raise RuntimeError("画像プレビューの保存処理が設定されていません。")
                     items: list[dict[str, object]] = []
                     for image in images:
-                        preview_path = ctx.characters.save_image_preview(
-                            character_id,
+                        preview_path = actions.save_image_preview(
                             image.data,
                             filename=image.filename,
                             content_type=image.content_type,
@@ -887,7 +982,7 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
                         })
                     generated.extend(items)
                     return {
-                        "result_url": f"/characters/{character_id}",
+                        "result_url": actions.result_url,
                         "preview_paths": [str(item["path"]) for item in items],
                         "image_count": len(items),
                     }
@@ -896,8 +991,8 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
                     profile_id=profile_select.value or "",
                     gen_server_params=_read_params(),
                     label=f"{sheet.name or 'キャラクター'}の画像生成",
-                    scope=f"character:{character_id}:image",
-                    metadata={"character_id": character_id},
+                    scope=f"{actions.scope_prefix}:image",
+                    metadata=dict(actions.metadata),
                     result_handler=_save_previews,
                 )
                 finished = await ctx.ai_jobs.wait(job.id)
@@ -924,8 +1019,9 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
                 ui.notify("先に画像を生成してください。", type="warning")
                 return
             try:
-                saved = await ctx.characters.save_image_bytes(
-                    character_id,
+                if actions.save_image_bytes is None:
+                    raise RuntimeError("画像の保存処理が設定されていません。")
+                saved = await actions.save_image_bytes(
                     image.data,
                     filename=_generated_image_filename(image, index),
                     content_type=image.content_type,
@@ -946,7 +1042,14 @@ def _open_image_generation_dialog(sheet, ctx, character_id: str, refresh_fn) -> 
     dlg.open()
 
 
-def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None:
+def _open_voice_design_dialog(
+    sheet,
+    ctx,
+    character_id: str,
+    refresh_fn,
+    actions: CharacterMediaActions | None = None,
+) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     if ctx.tts.resolve_gen_server_voice_design_endpoint(raise_on_missing=False) is None:
         ui.notify("設定でボイスデザインにWizmy-Gen-Serverを割り当ててください。", type="warning")
         return
@@ -957,7 +1060,7 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
     controls: dict[str, object] = {}
     generated: list[dict[str, object]] = []
     current_voice = sheet.media.primary_voice()
-    current_voice_path = ctx.characters.media_path(current_voice.path) if current_voice else None
+    current_voice_path = actions.media_path(current_voice.path) if current_voice and actions.media_path else None
     initial_caption = sheet.media.tts.voice_caption
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
@@ -1097,8 +1200,9 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                 params = _read_params()
 
                 def _save_preview(audio: bytes, job) -> dict[str, object]:
-                    preview_path = ctx.characters.save_tts_preview(
-                        character_id,
+                    if actions.save_tts_preview is None:
+                        raise RuntimeError("音声プレビューの保存処理が設定されていません。")
+                    preview_path = actions.save_tts_preview(
                         audio,
                         replace_existing=False,
                     )
@@ -1109,7 +1213,7 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                         "params": params,
                     })
                     return {
-                        "result_url": f"/characters/{character_id}",
+                        "result_url": actions.result_url,
                         "preview_path": str(preview_path),
                     }
 
@@ -1123,8 +1227,8 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                     content_type=current_voice.content_type if current_voice else "",
                     gen_server_params=params,
                     label=f"{sheet.name or 'キャラクター'}のボイスデザイン",
-                    scope=f"character:{character_id}:tts",
-                    metadata={"character_id": character_id},
+                    scope=f"{actions.scope_prefix}:tts",
+                    metadata=dict(actions.metadata),
                     result_handler=_save_preview,
                 )
                 finished = await ctx.ai_jobs.wait(job.id)
@@ -1152,8 +1256,9 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                 ui.notify("先に音声を生成してください。", type="warning")
                 return
             try:
-                saved = await ctx.characters.save_voice_bytes(
-                    character_id,
+                if actions.save_voice_bytes is None or actions.update_tts_settings is None:
+                    raise RuntimeError("音声の保存処理が設定されていません。")
+                saved = await actions.save_voice_bytes(
                     audio,
                     filename=f"voice-design-{index}.wav",
                     content_type="audio/wav",
@@ -1173,7 +1278,7 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
                         ),
                     }
                 )
-                updated = await ctx.characters.update_tts_settings(character_id, settings)
+                updated = await actions.update_tts_settings(settings)
                 sheet.media = updated.media
                 ui.notify("生成音声をキャラ音声に保存しました", type="positive")
                 dlg.close()
@@ -1192,7 +1297,16 @@ def _open_voice_design_dialog(sheet, ctx, character_id: str, refresh_fn) -> None
     dlg.open()
 
 
-def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path, refresh_fn) -> None:
+def _render_tts_controls(
+    sheet,
+    ctx,
+    character_id: str,
+    voice,
+    voice_path: Path,
+    refresh_fn,
+    actions: CharacterMediaActions | None = None,
+) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     ui.separator().classes("my-3")
     endpoints = ctx.tts.get_endpoints()
     gen_server_config = ctx.api_config.get_gen_server_config()
@@ -1225,7 +1339,9 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
     ).props("outlined").classes("w-full")
 
     async def _change_endpoint() -> None:
-        saved = await ctx.characters.update_tts_settings(character_id, _current_tts_settings())
+        if actions.update_tts_settings is None:
+            raise RuntimeError("TTS設定の保存処理が設定されていません。")
+        saved = await actions.update_tts_settings(_current_tts_settings())
         sheet.media = saved.media
         refresh_fn()
 
@@ -1236,7 +1352,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
 
     voice_id_input = None
     if selected_endpoint is not None and selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
-        default_voice_id = ctx.tts.voice_id_for_character(character_id, current_settings.voice_id)
+        default_voice_id = ctx.tts.voice_id_for_character(actions.target_id, current_settings.voice_id)
         voice_id_input = ui.input(
             label="Voice ID",
             value=current_settings.voice_id,
@@ -1352,7 +1468,9 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
 
     async def _save_tts_settings(*, notify: bool = True) -> CharacterTTSSettings:
         settings = _current_tts_settings()
-        saved = await ctx.characters.update_tts_settings(character_id, settings)
+        if actions.update_tts_settings is None:
+            raise RuntimeError("TTS設定の保存処理が設定されていません。")
+        saved = await actions.update_tts_settings(settings)
         sheet.media = saved.media
         if notify:
             ui.notify("TTS設定を保存しました", type="positive")
@@ -1363,7 +1481,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
         register_btn.disable()
         try:
             await ctx.tts.register_voice(
-                character_id,
+                actions.target_id,
                 voice_path,
                 endpoint_id=settings.endpoint_id,
                 voice_id=settings.voice_id,
@@ -1383,7 +1501,7 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
         delete_btn.disable()
         try:
             deleted = await ctx.tts.delete_voice(
-                character_id,
+                actions.target_id,
                 endpoint_id=settings.endpoint_id,
                 voice_id=settings.voice_id,
             )
@@ -1417,14 +1535,16 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
         preview_container.clear()
         try:
             def _save_preview(audio: bytes, job) -> dict[str, str]:
-                preview_path = ctx.characters.save_tts_preview(character_id, audio)
+                if actions.save_tts_preview is None:
+                    raise RuntimeError("音声プレビューの保存処理が設定されていません。")
+                preview_path = actions.save_tts_preview(audio)
                 return {
-                    "result_url": f"/characters/{character_id}",
+                    "result_url": actions.result_url,
                     "preview_path": str(preview_path),
                 }
 
             job = ctx.tts.start_synthesize_job(
-                character_id,
+                actions.target_id,
                 voice_path,
                 text,
                 endpoint_id=settings.endpoint_id,
@@ -1436,8 +1556,8 @@ def _render_tts_controls(sheet, ctx, character_id: str, voice, voice_path: Path,
                 voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
                 label=f"{sheet.name or 'キャラクター'}の読み上げ",
-                scope=f"character:{character_id}:tts",
-                metadata={"character_id": character_id},
+                scope=f"{actions.scope_prefix}:tts",
+                metadata=dict(actions.metadata),
                 result_handler=_save_preview,
             )
             finished = await ctx.ai_jobs.wait(job.id)
@@ -1945,7 +2065,16 @@ def _read_jpeg_size(f) -> tuple[int, int] | None:
         f.seek(max(length - 2, 0), 1)
 
 
-def _render_image_editor(sheet, ctx, character_id: str, image: CharacterImageAsset, image_path, refresh_fn) -> None:
+def _render_image_editor(
+    sheet,
+    ctx,
+    character_id: str,
+    image: CharacterImageAsset,
+    image_path,
+    refresh_fn,
+    actions: CharacterMediaActions | None = None,
+) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     size = _image_size(image, image_path)
     ui.interactive_image(
         image_path,
@@ -1958,16 +2087,41 @@ def _render_image_editor(sheet, ctx, character_id: str, image: CharacterImageAss
         ui.button(
             "顔範囲を設定",
             icon="crop_free",
-            on_click=lambda: _open_face_rect_dialog(sheet, ctx, character_id, image, image_path, refresh_fn),
+            on_click=lambda: _open_face_rect_dialog(
+                sheet,
+                ctx,
+                character_id,
+                image,
+                image_path,
+                refresh_fn,
+                actions,
+            ),
         ).props("flat color=primary")
         ui.button(
             "バストショット範囲を設定",
             icon="crop_portrait",
-            on_click=lambda: _open_bust_rect_dialog(sheet, ctx, character_id, image, image_path, refresh_fn),
+            on_click=lambda: _open_bust_rect_dialog(
+                sheet,
+                ctx,
+                character_id,
+                image,
+                image_path,
+                refresh_fn,
+                actions,
+            ),
         ).props("flat color=secondary")
 
 
-def _open_face_rect_dialog(sheet, ctx, character_id: str, image: CharacterImageAsset, image_path, refresh_fn) -> None:
+def _open_face_rect_dialog(
+    sheet,
+    ctx,
+    character_id: str,
+    image: CharacterImageAsset,
+    image_path,
+    refresh_fn,
+    actions: CharacterMediaActions | None = None,
+) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     _open_image_rect_dialog(
         sheet,
         ctx,
@@ -1982,10 +2136,20 @@ def _open_face_rect_dialog(sheet, ctx, character_id: str, image: CharacterImageA
         too_small_message="顔範囲が小さすぎます",
         saved_message="顔範囲を保存しました",
         color="#6E9572",
+        actions=actions,
     )
 
 
-def _open_bust_rect_dialog(sheet, ctx, character_id: str, image: CharacterImageAsset, image_path, refresh_fn) -> None:
+def _open_bust_rect_dialog(
+    sheet,
+    ctx,
+    character_id: str,
+    image: CharacterImageAsset,
+    image_path,
+    refresh_fn,
+    actions: CharacterMediaActions | None = None,
+) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     _open_image_rect_dialog(
         sheet,
         ctx,
@@ -2000,6 +2164,7 @@ def _open_bust_rect_dialog(sheet, ctx, character_id: str, image: CharacterImageA
         too_small_message="バストショット範囲が小さすぎます",
         saved_message="バストショット範囲を保存しました",
         color="#3A7CA5",
+        actions=actions,
     )
 
 
@@ -2018,7 +2183,9 @@ def _open_image_rect_dialog(
     too_small_message: str,
     saved_message: str,
     color: str,
+    actions: CharacterMediaActions | None = None,
 ) -> None:
+    actions = actions or character_media_actions(ctx, character_id)
     size = _image_size(image, image_path)
     state: dict[str, Any] = {
         "width": size[0] if size else image.width,
@@ -2102,15 +2269,17 @@ def _open_image_rect_dialog(
                 ui.notify(too_small_message, type="warning")
                 return
             if rect_kind == "face":
-                saved = await ctx.characters.update_face_rect(
-                    character_id,
+                if actions.update_face_rect is None:
+                    raise RuntimeError("顔範囲の保存処理が設定されていません。")
+                saved = await actions.update_face_rect(
                     rect,
                     image_width=width,
                     image_height=height,
                 )
             elif rect_kind == "bust":
-                saved = await ctx.characters.update_bust_rect(
-                    character_id,
+                if actions.update_bust_rect is None:
+                    raise RuntimeError("バストショット範囲の保存処理が設定されていません。")
+                saved = await actions.update_bust_rect(
                     rect,
                     image_width=width,
                     image_height=height,

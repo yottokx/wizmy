@@ -56,6 +56,7 @@ from ..chat.prompts import (
 from ..chat.style import CHAT_CSS
 from ..components.character_picker import open_character_picker
 from ..layout import page_layout
+from .character_detail import CharacterMediaActions, render_character_media_panel
 from ..state import get_vault_password
 
 
@@ -1169,6 +1170,108 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
 
         _render_basic_info()
 
+        def _media_actions() -> CharacterMediaActions:
+            def _apply_saved(saved_member: GroupMember | None) -> CharacterSheet:
+                nonlocal member, sheet
+                if saved_member is None:
+                    raise ValueError("グループ内キャラクターが見つかりませんでした。")
+                member = saved_member
+                sheet = saved_member.character
+                title_label.set_text(sheet.name)
+                _render_basic_info()
+                return sheet
+
+            async def _save_image(upload: Any) -> CharacterSheet:
+                return _apply_saved(
+                    await ctx.group_chats.save_member_image(group.id, member.id, upload)
+                )
+
+            async def _save_image_bytes(image_bytes: bytes, **kwargs: Any) -> CharacterSheet:
+                return _apply_saved(
+                    await ctx.group_chats.save_member_image_bytes(
+                        group.id,
+                        member.id,
+                        image_bytes,
+                        **kwargs,
+                    )
+                )
+
+            async def _save_voice(upload: Any) -> CharacterSheet:
+                return _apply_saved(
+                    await ctx.group_chats.save_member_voice(group.id, member.id, upload)
+                )
+
+            async def _save_voice_bytes(audio_bytes: bytes, **kwargs: Any) -> CharacterSheet:
+                return _apply_saved(
+                    await ctx.group_chats.save_member_voice_bytes(
+                        group.id,
+                        member.id,
+                        audio_bytes,
+                        **kwargs,
+                    )
+                )
+
+            async def _update_tts_settings(settings) -> CharacterSheet:
+                return _apply_saved(
+                    await ctx.group_chats.update_member_tts_settings(
+                        group.id,
+                        member.id,
+                        settings,
+                    )
+                )
+
+            async def _update_face_rect(rect, **kwargs: Any) -> CharacterSheet:
+                return _apply_saved(
+                    await ctx.group_chats.update_member_face_rect(
+                        group.id,
+                        member.id,
+                        rect,
+                        **kwargs,
+                    )
+                )
+
+            async def _update_bust_rect(rect, **kwargs: Any) -> CharacterSheet:
+                return _apply_saved(
+                    await ctx.group_chats.update_member_bust_rect(
+                        group.id,
+                        member.id,
+                        rect,
+                        **kwargs,
+                    )
+                )
+
+            return CharacterMediaActions(
+                target_id=_group_member_tts_id(group.id, member.id),
+                result_url=f"/groups/{group.id}/members/{member.id}",
+                scope_prefix=f"group_member:{group.id}:{member.id}",
+                metadata={"group_id": group.id, "member_id": member.id},
+                media_path=ctx.group_chats.media_path,
+                save_image=_save_image,
+                save_image_bytes=_save_image_bytes,
+                save_voice=_save_voice,
+                save_voice_bytes=_save_voice_bytes,
+                update_tts_settings=_update_tts_settings,
+                update_face_rect=_update_face_rect,
+                update_bust_rect=_update_bust_rect,
+                save_tts_preview=lambda audio_bytes, **kwargs: ctx.group_chats.save_member_tts_preview(
+                    group.id,
+                    member.id,
+                    audio_bytes,
+                    **kwargs,
+                ),
+                save_image_preview=lambda image_bytes, **kwargs: ctx.group_chats.save_member_image_preview(
+                    group.id,
+                    member.id,
+                    image_bytes,
+                    **kwargs,
+                ),
+                save_tts_playback=lambda audio_bytes: ctx.group_chats.save_member_tts_playback(
+                    group.id,
+                    member.id,
+                    audio_bytes,
+                ),
+            )
+
         with ui.row().classes("w-full items-start gap-4 flex-col lg:flex-row"):
             with ui.column().classes("w-full lg:flex-1 min-w-0"):
                 with ui.card().classes("w-full"):
@@ -1191,6 +1294,21 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
                     sheet_container = ui.element("div").classes("w-full")
                     with sheet_container:
                         ui.markdown(sheet.raw_markdown).classes("prose prose-sm max-w-none")
+
+            media_panel = ui.column().classes("w-full lg:w-[360px] gap-4 shrink-0")
+
+        def _refresh_media_panel() -> None:
+            media_panel.clear()
+            with media_panel:
+                render_character_media_panel(
+                    sheet,
+                    ctx,
+                    sheet.id,
+                    _refresh_media_panel,
+                    _media_actions(),
+                )
+
+        _refresh_media_panel()
 
         def _toggle_raw() -> None:
             if edit_mode["active"]:
@@ -4494,7 +4612,7 @@ event => {
 
     def _character_tts_configured(self, member: GroupMember) -> bool:
         voice = member.character.media.primary_voice()
-        voice_path = self.ctx.characters.media_path(voice.path) if voice else None
+        voice_path = self.ctx.group_chats.media_path(voice.path) if voice else None
         return bool(
             voice
             and voice_path
@@ -4579,15 +4697,16 @@ event => {
                 ui.notify("TTS設定を確認してください", type="warning")
                 return None
             voice = member.character.media.primary_voice()
-            voice_path = self.ctx.characters.media_path(voice.path) if voice else None
-            character_id = member.character.id or member.source_character_id
+            voice_path = self.ctx.group_chats.media_path(voice.path) if voice else None
+            target_id = _group_member_tts_id(self.group.id, member.id)
             return {
-                "target_id": character_id,
+                "target_id": target_id,
                 "settings": member.character.media.tts,
                 "voice": voice,
                 "voice_path": voice_path,
-                "playback_save": lambda audio, target_id=character_id: self.ctx.characters.save_tts_playback(
-                    target_id,
+                "playback_save": lambda audio, member_id=member.id: self.ctx.group_chats.save_member_tts_playback(
+                    self.group.id,
+                    member_id,
                     audio,
                 ),
             }
@@ -6646,6 +6765,10 @@ def _group_user_persona_tts_id(persona_id: str) -> str:
     return f"user-persona-{persona_id}"
 
 
+def _group_member_tts_id(group_id: str, member_id: str) -> str:
+    return f"group-{group_id}-member-{member_id}"
+
+
 def _group_message(
     role: str,
     text: str,
@@ -8375,7 +8498,7 @@ def _participant_media_style(ctx, participant: dict[str, Any], *, rect_kind: str
     if participant.get("kind") == "user":
         image_path = ctx.api_config.media_path(image.path)
     else:
-        image_path = ctx.characters.media_path(image.path)
+        image_path = ctx.group_chats.media_path(image.path)
     rect = image.bust_rect if rect_kind == "bust" else image.face_rect
     return cropped_background_style(image, image_path, rect, 1.0) if image_path else ""
 
@@ -8462,7 +8585,7 @@ def _render_face(ctx, media: CharacterMedia, source: str) -> None:
     if source == "persona":
         image_path = ctx.api_config.media_path(image.path) if image else None
     else:
-        image_path = ctx.characters.media_path(image.path) if image else None
+        image_path = ctx.group_chats.media_path(image.path) if image else None
     style = cropped_background_style(image, image_path, image.face_rect, 1.0) if image and image_path else ""
     with ui.element("div").classes("cs-group-face").style(style):
         if not style:

@@ -34,7 +34,7 @@ class AppContext:
         self.api_config = ApiConfigService(self._api_config_store, settings.data_dir)
         self.ai_jobs = AIJobService()
         self.chats = ChatService(self._chat_repo)
-        self.group_chats = GroupChatService(self._group_chat_repo)
+        self.group_chats = GroupChatService(self._group_chat_repo, settings.data_dir)
         self.characters = CharacterService(self._character_repo, settings.data_dir)
         self.generation = CharacterGenerationService(self.characters)
         self.danbooru_prompt = DanbooruPromptService(self.api_config, self.ai_jobs)
