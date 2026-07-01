@@ -218,6 +218,76 @@ def render_history(
                             ).tooltip("チャット削除")
 
 
+def _chat_header_menu_handler(menu, action: Callable[[], Any]):
+    async def _handler() -> None:
+        menu.close()
+        result = action()
+        if isinstance(result, Awaitable):
+            await result
+
+    return _handler
+
+
+def _render_chat_header_menu_item(
+    menu,
+    *,
+    icon: str,
+    label: str,
+    action: Callable[[], Any],
+    danger: bool = False,
+) -> None:
+    classes = "cs-chat-main-menu-item"
+    if danger:
+        classes += " cs-chat-main-menu-item-danger"
+    item = ui.item(on_click=_chat_header_menu_handler(menu, action)).props("clickable dense")
+    with item.classes(classes):
+        with ui.item_section().props("avatar"):
+            ui.icon(icon).classes("cs-chat-main-menu-icon")
+        with ui.item_section():
+            ui.label(label).classes("cs-chat-main-menu-label")
+
+
+def render_chat_header_menu(
+    *,
+    open_new_chat_dialog: Callable[[], Any],
+    open_system_prompt: Callable[[], Any],
+    open_rename_current_chat: Callable[[], Any],
+    confirm_delete_current_chat: Callable[[], Any],
+) -> None:
+    with ui.button(icon="keyboard_arrow_down").props(
+        "flat round dense aria-label=チャットメニュー"
+    ).classes("cs-chat-main-menu-trigger"):
+        with ui.menu().props('anchor="bottom right" self="top right"').classes(
+            "cs-chat-main-menu"
+        ) as menu:
+            _render_chat_header_menu_item(
+                menu,
+                icon="add_comment",
+                label="新しいチャット",
+                action=open_new_chat_dialog,
+            )
+            _render_chat_header_menu_item(
+                menu,
+                icon="edit",
+                label="タイトル変更",
+                action=open_rename_current_chat,
+            )
+            _render_chat_header_menu_item(
+                menu,
+                icon="article",
+                label="システムプロンプト",
+                action=open_system_prompt,
+            )
+            ui.separator().classes("cs-chat-main-menu-separator")
+            _render_chat_header_menu_item(
+                menu,
+                icon="delete",
+                label="チャット削除",
+                action=confirm_delete_current_chat,
+                danger=True,
+            )
+
+
 def render_chat(
     sheet: CharacterSheet,
     image: CharacterImageAsset | None,
@@ -250,19 +320,12 @@ def render_chat(
         with ui.column().classes("gap-0 cs-chat-main-title"):
             refs.title = ui.label(title).classes("text-base font-bold")
             refs.subtitle = ui.label(subtitle).classes("text-xs text-grey-6")
-        with ui.row().classes("items-center gap-1"):
-            ui.button(icon="article", on_click=open_system_prompt).props("flat round dense").tooltip(
-                "システムプロンプト"
-            )
-            ui.button(icon="edit", on_click=open_rename_current_chat).props("flat round dense").tooltip(
-                "タイトル変更"
-            )
-            ui.button(icon="delete", on_click=confirm_delete_current_chat).props(
-                "flat round dense color=negative"
-            ).tooltip("チャット削除")
-            ui.button(icon="add", on_click=open_new_chat_dialog).props("flat round dense").tooltip(
-                "新しいチャット"
-            )
+        render_chat_header_menu(
+            open_new_chat_dialog=open_new_chat_dialog,
+            open_system_prompt=open_system_prompt,
+            open_rename_current_chat=open_rename_current_chat,
+            confirm_delete_current_chat=confirm_delete_current_chat,
+        )
 
     with ui.element("div").classes("cs-chat-messages") as messages_container:
         refs.messages = messages_container

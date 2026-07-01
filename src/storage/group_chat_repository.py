@@ -10,7 +10,12 @@ from typing import Any
 
 import aiosqlite
 
-from ..core.group_chat.schemas import GroupChatRecord, GroupMember, GroupUserPersona
+from ..core.group_chat.schemas import (
+    GroupChatRecord,
+    GroupMember,
+    GroupRelationship,
+    GroupUserPersona,
+)
 from ..core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE, GroupChatSessionRecord
 
 
@@ -19,9 +24,12 @@ CREATE TABLE IF NOT EXISTS group_chats (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     world TEXT NOT NULL DEFAULT '',
+    world_source_type TEXT NOT NULL DEFAULT 'new',
+    world_source_character_id TEXT NOT NULL DEFAULT '',
     completion_profile_id TEXT NOT NULL DEFAULT '',
     members TEXT NOT NULL DEFAULT '[]',
     user_persona TEXT NOT NULL DEFAULT '{}',
+    relationships TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -65,6 +73,8 @@ def _row_to_group(row: aiosqlite.Row) -> GroupChatRecord:
         id=data["id"],
         name=data.get("name") or "名称未設定",
         world=data.get("world") or "",
+        world_source_type=data.get("world_source_type") or "new",
+        world_source_character_id=data.get("world_source_character_id") or "",
         completion_profile_id=data.get("completion_profile_id") or "",
         members=[
             GroupMember(**member)
@@ -72,6 +82,11 @@ def _row_to_group(row: aiosqlite.Row) -> GroupChatRecord:
             if isinstance(member, dict)
         ],
         user_persona=persona,
+        relationships=[
+            GroupRelationship(**relationship)
+            for relationship in _loads_json(data.get("relationships", "[]"), [])
+            if isinstance(relationship, dict)
+        ],
         created_at=datetime.fromisoformat(data["created_at"]),
         updated_at=datetime.fromisoformat(data["updated_at"]),
     )
@@ -82,6 +97,8 @@ def _group_to_row(group: GroupChatRecord) -> dict[str, Any]:
         "id": group.id,
         "name": group.name,
         "world": group.world,
+        "world_source_type": group.world_source_type,
+        "world_source_character_id": group.world_source_character_id,
         "completion_profile_id": group.completion_profile_id,
         "members": json.dumps(
             [member.model_dump(mode="json") for member in group.members],
@@ -89,6 +106,10 @@ def _group_to_row(group: GroupChatRecord) -> dict[str, Any]:
         ),
         "user_persona": json.dumps(
             group.user_persona.model_dump(mode="json") if group.user_persona else {},
+            ensure_ascii=False,
+        ),
+        "relationships": json.dumps(
+            [relationship.model_dump(mode="json") for relationship in group.relationships],
             ensure_ascii=False,
         ),
         "created_at": group.created_at.isoformat(),
@@ -131,10 +152,28 @@ class GroupChatRepository:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(_CREATE_TABLE)
+            await self._ensure_columns(db)
             await db.execute(_CREATE_UPDATED_INDEX)
             await db.execute(_CREATE_SESSIONS_TABLE)
             await db.execute(_CREATE_SESSIONS_GROUP_INDEX)
             await db.commit()
+
+    async def _ensure_columns(self, db: aiosqlite.Connection) -> None:
+        async with db.execute("PRAGMA table_info(group_chats)") as cursor:
+            rows = await cursor.fetchall()
+        columns = {row[1] for row in rows}
+        if "world_source_type" not in columns:
+            await db.execute(
+                "ALTER TABLE group_chats ADD COLUMN world_source_type TEXT NOT NULL DEFAULT 'new'"
+            )
+        if "world_source_character_id" not in columns:
+            await db.execute(
+                "ALTER TABLE group_chats ADD COLUMN world_source_character_id TEXT NOT NULL DEFAULT ''"
+            )
+        if "relationships" not in columns:
+            await db.execute(
+                "ALTER TABLE group_chats ADD COLUMN relationships TEXT NOT NULL DEFAULT '[]'"
+            )
 
     async def save(self, group: GroupChatRecord) -> GroupChatRecord:
         saved = group.model_copy(update={"updated_at": datetime.now()}, deep=True)
@@ -143,17 +182,22 @@ class GroupChatRepository:
             await db.execute(
                 """
                 INSERT INTO group_chats (
-                    id, name, world, completion_profile_id, members, user_persona,
+                    id, name, world, world_source_type, world_source_character_id,
+                    completion_profile_id, members, user_persona, relationships,
                     created_at, updated_at
                 ) VALUES (
-                    :id, :name, :world, :completion_profile_id, :members, :user_persona,
+                    :id, :name, :world, :world_source_type, :world_source_character_id,
+                    :completion_profile_id, :members, :user_persona, :relationships,
                     :created_at, :updated_at
                 ) ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,
                     world=excluded.world,
+                    world_source_type=excluded.world_source_type,
+                    world_source_character_id=excluded.world_source_character_id,
                     completion_profile_id=excluded.completion_profile_id,
                     members=excluded.members,
                     user_persona=excluded.user_persona,
+                    relationships=excluded.relationships,
                     updated_at=excluded.updated_at
                 """,
                 row,

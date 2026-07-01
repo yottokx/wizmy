@@ -239,6 +239,68 @@ CHAT_CSS = """
   flex: 1;
   overflow-wrap: anywhere;
 }
+.cs-chat-main-menu-trigger {
+  flex: 0 0 auto;
+  border-radius: 8px !important;
+  color: var(--cs-muted) !important;
+}
+.cs-chat-main-menu-trigger:hover {
+  background: var(--cs-accent-bg) !important;
+  color: var(--cs-accent) !important;
+}
+.cs-chat-main-menu {
+  width: min(240px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  background: var(--cs-surface);
+  box-shadow: 0 14px 32px rgba(0,0,0,0.18);
+  box-sizing: border-box;
+  overflow-x: hidden !important;
+}
+.cs-chat-main-menu .q-list {
+  min-width: 0;
+  overflow-x: hidden;
+}
+.cs-chat-main-menu-item {
+  width: 100%;
+  max-width: 100%;
+  min-height: 40px;
+  border-radius: 7px;
+  color: var(--cs-text);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.cs-chat-main-menu-item:hover {
+  background: var(--cs-accent-bg);
+  background: color-mix(in srgb, var(--cs-accent-bg) 76%, transparent);
+}
+.cs-chat-main-menu-item .q-item__section--avatar {
+  min-width: 30px;
+  padding-right: 8px;
+}
+.cs-chat-main-menu-item .q-item__section {
+  min-width: 0;
+}
+.cs-chat-main-menu-icon {
+  color: var(--cs-muted);
+  font-size: 19px;
+}
+.cs-chat-main-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.cs-chat-main-menu-item-danger,
+.cs-chat-main-menu-item-danger .cs-chat-main-menu-icon {
+  color: #b23a48;
+}
+.cs-chat-main-menu-separator {
+  margin: 6px 8px;
+}
 .cs-chat-messages {
   flex: 1;
   min-height: 0;

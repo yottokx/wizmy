@@ -27,7 +27,7 @@ class DanbooruPromptServiceError(Exception):
 
 
 class DanbooruPromptService:
-    """キャラシートから画像生成向けDanbooruタグプロンプト候補を作る。"""
+    """キャラクターシートから画像生成向けDanbooruタグプロンプト候補を作る。"""
 
     def __init__(
         self,

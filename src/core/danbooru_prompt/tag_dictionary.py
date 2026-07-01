@@ -225,7 +225,7 @@ class DanbooruTagDictionary:
         limit: int = 6,
         allow_lower_body: bool = False,
     ) -> list[str]:
-        """キャラシートの文字列からカテゴリ内のタグを単純照合する。"""
+        """キャラクターシートの文字列からカテゴリ内のタグを単純照合する。"""
         haystack = _normalize_search_text(text)
         scored: list[tuple[int, int, str]] = []
         seen: set[str] = set()

@@ -292,7 +292,7 @@ class DanbooruPromptGenerator:
         tag_guide: dict[str, object],
     ) -> str:
         return f"""\
-## キャラシート
+## キャラクターシート
 {_sheet_text(sheet)}
 
 ## すでに固定されているタグ
@@ -302,7 +302,7 @@ class DanbooruPromptGenerator:
 {json.dumps(tag_guide, ensure_ascii=False, indent=2)}
 
 ## 依頼
-- キャラシートに明記された「全候補で絶対に変えてはいけない外見・持ち物・服の状態・肌色・髪・目・顔・表情」のアンカーだけを抽出してください。
+- キャラクターシートに明記された「全候補で絶対に変えてはいけない外見・持ち物・服の状態・肌色・髪・目・顔・表情」のアンカーだけを抽出してください。
 - CSVタグで表せそうなものは required_tags または required_tag_terms に入れてください。
 - required_tag_terms は日本語表現を英語のDanbooru風検索語へ翻訳してください。タグが曖昧なときは複数の短い検索語を入れてください。
 - CSVタグで表しにくいが全候補で残すべきものは freeform_feature_hints に入れてください。
@@ -328,7 +328,7 @@ class DanbooruPromptGenerator:
         seed: int | None,
     ) -> str:
         return f"""\
-## キャラシート
+## キャラクターシート
 {_sheet_text(sheet)}
 
 ## コードが固定したタグ
@@ -342,16 +342,16 @@ class DanbooruPromptGenerator:
 
 ## 依頼
 - キャラ崩壊を避けるため、服装・アクセサリー・髪飾り・表情を中心に候補プール検索方針を作ってください。
-- キャラシートに明記された外見、持ち物、服の状態、肌色、髪、目、顔の特徴は必須アンカーとして抽出してください。
+- キャラクターシートに明記された外見、持ち物、服の状態、肌色、髪、目、顔の特徴は必須アンカーとして抽出してください。
 - 必須アンカーのうちCSVタグで表せそうなものは required_tags または required_tag_terms に入れてください。
-- required_tag_terms は日本語キャラシから英語のDanbooru風検索語へ翻訳してください。例: 青白い肌 -> pale skin、ローブ -> robe、書物袋/革袋 -> belt pouch または pouch。
+- required_tag_terms は日本語キャラクターシートから英語のDanbooru風検索語へ翻訳してください。例: 青白い肌 -> pale skin、ローブ -> robe、書物袋/革袋 -> belt pouch または pouch。
 - CSVタグで表しにくい必須アンカーは freeform_feature_hints に入れてください。
 - 髪・目・顔・表情はキャラの性格を反映する重要領域として、検索語や方針に含めてください。
 - 表情カテゴリもCSVに分類済みなので、タグで表せそうな表情・目つき・口元・頬/顔色・涙/汗/反応は検索語やinclude_categoriesに含めてください。
 - 一部の目や顔の関係タグは「目」や「その他の顔の特徴」ではなく「表情」配下に分類されています。
 - 小カテゴリはタグ一覧を直接見てよいです。
 - 大カテゴリは代表タグと頻出トークンを見て、検索語を選んでください。
-- 正規タグにしにくいが画像に反映したいキャラシの重要特徴や表情のニュアンスだけを freeform_feature_hints に入れてください。
+- 正規タグにしにくいが画像に反映したいキャラクターシートの重要特徴や表情のニュアンスだけを freeform_feature_hints に入れてください。
 - ボトムス、履き物、下半身、下着、過度な露出、版権固有衣装、alternate系は避けてください。
 - 出力はJSONのみです。
 - 候補数: {count}
@@ -386,7 +386,7 @@ class DanbooruPromptGenerator:
     ) -> str:
         small_categories = tag_guide.get("small_categories", [])
         return f"""\
-## キャラシート
+## キャラクターシート
 {_sheet_text(sheet)}
 
 ## 必ず維持する固定タグ
@@ -425,9 +425,9 @@ class DanbooruPromptGenerator:
 - 目つきや顔の関係タグの一部は表情カテゴリへ分類されています。「目/その他」や「その他の顔の特徴」だけでなく表情カテゴリも確認してください。
 - 性格が出る表情や雰囲気は、まず表情カテゴリの正規タグで表してください。
 - freeform_tagsには、正規タグで表しきれない候補ごとの表情・雰囲気ニュアンスだけを1案あたり0〜2個入れてください。全候補共通にしたい外見・設定特徴は自由特徴アンカー側にあります。
-- 種族、年齢、肌色、体形、髪色、目色はキャラシートと固定タグに反しないでください。
+- 種族、年齢、肌色、体形、髪色、目色はキャラクターシートと固定タグに反しないでください。
 - 服装タグは1案あたり2〜5個までを目安にしてください。
-- 正規タグでは表しにくいキャラシの重要特徴も freeform_tags に入れてください。
+- 正規タグでは表しにくいキャラクターシートの重要特徴も freeform_tags に入れてください。
 - freeform_tags はDanbooru正規タグでなくて構いませんが、画像生成プロンプトとして自然な短い英語または日本語のフレーズにしてください。
 - 候補同士が完全に同じタグ列にならないようにしてください。
 - variant_tags はCSVにありそうなDanbooruタグのみを使ってください。
@@ -611,7 +611,7 @@ class DanbooruPromptGenerator:
         return self.tag_dictionary.has_tag(tag) or tag in FIXED_ALLOWED_TAGS or tag in AGE_TAGS
 
     def _appearance_anchor_tags(self, sheet: CharacterSheet) -> list[str]:
-        """キャラシートに明記された外見特徴を全候補共通の固定タグにする。"""
+        """キャラクターシートに明記された外見特徴を全候補共通の固定タグにする。"""
         text = "\n".join([
             sheet.appearance,
             sheet.raw_markdown,
@@ -685,13 +685,13 @@ async def generate_danbooru_prompt_candidates(
 
 ANCHOR_SYSTEM_PROMPT = """\
 あなたはキャラクター外見の不変アンカー抽出器です。
-キャラシートに明記された、全プロンプト候補で必ず維持すべき外見・持ち物・服の状態だけをJSONで返してください。
+キャラクターシートに明記された、全プロンプト候補で必ず維持すべき外見・持ち物・服の状態だけをJSONで返してください。
 説明文やMarkdownは出力しないでください。
 """
 
 SEARCH_POLICY_SYSTEM_PROMPT = """\
 あなたはDanbooruタグ辞書を使う画像生成プロンプト設計者です。
-キャラシートを壊さず、タグ辞書内にありそうな服装・アクセサリー候補を探すための検索方針だけをJSONで返してください。
+キャラクターシートを壊さず、タグ辞書内にありそうな服装・アクセサリー候補を探すための検索方針だけをJSONで返してください。
 説明文やMarkdownは出力しないでください。
 """
 

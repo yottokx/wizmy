@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import difflib
+import html as _html
 import json
 import random
 import re
@@ -20,11 +22,17 @@ from ...core.character.schemas import (
     CharacterMedia,
     CharacterSheet,
 )
-from ...core.group_chat.schemas import GroupChatRecord, GroupMember, GroupUserPersona
+from ...core.group_chat.schemas import (
+    GroupChatRecord,
+    GroupMember,
+    GroupRelationship,
+    GroupUserPersona,
+)
 from ...core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE, GroupChatSessionRecord
 from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
+from ...services.character_generation import parse_markdown_to_sheet
 from ...services.tts import TTSServiceError
 from ..chat import components as chat_components
 from ..chat.commands import (
@@ -398,6 +406,17 @@ GROUP_CHAT_CSS = """
   border-color: var(--cs-accent-border) !important;
   color: var(--cs-accent) !important;
 }
+.cs-group-profile-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cs-group-profile-action {
+  width: fit-content;
+  border-color: var(--cs-accent-border) !important;
+  color: var(--cs-accent) !important;
+}
 .cs-group-profile-card {
   display: grid;
   gap: 8px;
@@ -411,6 +430,40 @@ GROUP_CHAT_CSS = """
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.02em;
+}
+.cs-group-relationship-list {
+  display: grid;
+  gap: 8px;
+}
+.cs-group-relationship-row {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--cs-border);
+  border-radius: 8px;
+  background: var(--cs-surface);
+}
+.cs-group-relationship-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.cs-group-relationship-pair {
+  min-width: 0;
+  color: var(--cs-text);
+  font-size: 0.8rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.cs-group-relationship-text {
+  color: var(--cs-text);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .cs-group-profile-grid {
   display: grid;
@@ -606,6 +659,11 @@ GROUP_CHAT_CSS = """
 .cs-chat-message-row .cs-group-face .q-icon {
   font-size: 1.45rem;
 }
+.cs-group-face-guest {
+  background: var(--cs-accent-bg);
+  border-color: var(--cs-accent-border);
+  color: var(--cs-accent);
+}
 .cs-group-message-row-user .cs-chat-bubble {
   background: var(--cs-accent);
   border-color: var(--cs-accent);
@@ -614,6 +672,114 @@ GROUP_CHAT_CSS = """
 .cs-group-message-row-user .cs-group-speaker,
 .cs-group-message-row-user .cs-chat-message-time {
   color: rgba(255,255,255,0.78);
+}
+.cs-group-guide-actor-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.cs-group-guide-actor-icon {
+  min-width: 40px !important;
+  width: 40px;
+  height: 40px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cs-border);
+  border-radius: 8px;
+  background: var(--cs-surface-soft);
+  color: var(--cs-muted);
+}
+.cs-group-guide-actor-icon:hover {
+  background: var(--cs-accent-bg);
+  color: var(--cs-accent);
+}
+.cs-group-guide-actor-icon .q-btn__content {
+  width: 100%;
+  height: 100%;
+}
+.cs-group-guide-actor-icon-content {
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cs-group-guide-actor-icon .cs-group-face {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+}
+.cs-group-guide-actor-wrap {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+.cs-group-guide-actor-wrap .q-field {
+  width: 100%;
+}
+.cs-group-guide-suggestions {
+  position: fixed;
+  z-index: 7000;
+  left: var(--cs-guide-suggestion-left, 0px);
+  top: var(--cs-guide-suggestion-top, 0px);
+  width: var(--cs-guide-suggestion-width, min(560px, calc(100vw - 32px)));
+  display: grid;
+  gap: 2px;
+  max-height: min(220px, calc(100vh - var(--cs-guide-suggestion-top, 0px) - 16px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  border: 1px solid var(--cs-border);
+  border-radius: 8px;
+  background: var(--cs-surface);
+  box-shadow: 0 14px 32px rgba(0,0,0,0.18);
+  box-sizing: border-box;
+}
+.cs-group-guide-suggestion {
+  width: 100%;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cs-text);
+  text-align: left;
+  cursor: pointer;
+}
+.cs-group-guide-suggestion:hover {
+  background: var(--cs-accent-bg);
+  background: color-mix(in srgb, var(--cs-accent-bg) 76%, transparent);
+}
+.cs-group-guide-suggestion-active {
+  background: var(--cs-accent-bg);
+  background: color-mix(in srgb, var(--cs-accent-bg) 76%, transparent);
+  outline: 1px solid var(--cs-accent-border);
+}
+.cs-group-guide-suggestion-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.cs-group-guide-suggestion-state {
+  color: var(--cs-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cs-group-system-message .cs-chat-bubble {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--cs-muted-bg) 70%, transparent);
 }
 .cs-group-chat-empty {
   flex: 1;
@@ -934,6 +1100,341 @@ async def group_chat_detail_page(group_id: str) -> None:
         controller.render_shell()
 
 
+@ui.page("/groups/{group_id}/members/{member_id}")
+async def group_member_detail_page(group_id: str, member_id: str) -> None:
+    ctx = get_context()
+    group = await ctx.group_chats.get(group_id)
+    if group is None:
+        with page_layout("グループが見つかりません"):
+            ui.label("指定されたグループは存在しません。").classes("text-grey-6")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props(
+                "flat color=primary"
+            )
+        return
+
+    member = next((item for item in group.members if item.id == member_id), None)
+    if member is None:
+        with page_layout("メンバーが見つかりません"):
+            ui.label("指定されたメンバーはこのグループに存在しません。").classes("text-grey-6")
+            ui.button(
+                "グループに戻る",
+                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+            ).props("flat color=primary")
+        return
+
+    sheet = member.character
+
+    with page_layout(sheet.name):
+        ui.add_head_html(GROUP_CHAT_CSS)
+        with ui.row().classes("items-center gap-2 mb-4 flex-wrap"):
+            ui.button(
+                icon="arrow_back",
+                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+            ).props("flat round")
+            title_label = ui.label(sheet.name).classes("text-2xl font-bold flex-1")
+            ui.badge("グループ内コピー").props("outline color=primary")
+            ui.button(
+                icon="download",
+                on_click=lambda: ui.download(sheet.raw_markdown.encode("utf-8"), f"{sheet.name}.md"),
+            ).props("flat round").tooltip("Markdownをダウンロード")
+            ui.button(
+                icon="content_copy",
+                on_click=lambda: _copy_to_clipboard(),
+            ).props("flat round").tooltip("Markdownをコピー")
+
+        basic_container = ui.element("div").classes("w-full")
+        edit_mode = {"active": False}
+        view_mode = {"raw": False}
+        edit_area: dict[str, Any] = {"ref": None}
+
+        def _render_basic_info() -> None:
+            basic_container.clear()
+            with basic_container:
+                with ui.card().classes("w-full mb-4"):
+                    with ui.row().classes("gap-6 flex-wrap"):
+                        for label, value in [
+                            ("グループ", group.name),
+                            ("ハンドル", f"@{member.handle}"),
+                            *sheet.to_display_dict().items(),
+                        ]:
+                            if value:
+                                with ui.column().classes("gap-0"):
+                                    ui.label(label).classes("text-xs text-grey-6")
+                                    ui.label(value).classes("text-sm font-medium")
+
+                    if sheet.tags:
+                        with ui.row().classes("gap-2 mt-3 flex-wrap"):
+                            for tag in sheet.tags:
+                                ui.badge(tag).props("outline color=primary")
+
+        _render_basic_info()
+
+        with ui.row().classes("w-full items-start gap-4 flex-col lg:flex-row"):
+            with ui.column().classes("w-full lg:flex-1 min-w-0"):
+                with ui.card().classes("w-full"):
+                    with ui.row().classes("items-center justify-between mb-2"):
+                        ui.label("キャラクターシート").classes("text-base font-semibold")
+                        with ui.row().classes("gap-1"):
+                            toggle_raw_btn = ui.button("Markdown表示", on_click=lambda: _toggle_raw()).props(
+                                "flat size=sm"
+                            )
+                            edit_btn = ui.button("編集", icon="edit", on_click=lambda: _enter_edit()).props(
+                                "flat size=sm color=primary"
+                            )
+                            save_edit_btn = ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
+                                "unelevated size=sm color=primary"
+                            ).classes("hidden")
+                            cancel_edit_btn = ui.button("キャンセル", on_click=lambda: _cancel_edit()).props(
+                                "flat size=sm"
+                            ).classes("hidden")
+
+                    sheet_container = ui.element("div").classes("w-full")
+                    with sheet_container:
+                        ui.markdown(sheet.raw_markdown).classes("prose prose-sm max-w-none")
+
+        def _toggle_raw() -> None:
+            if edit_mode["active"]:
+                return
+            view_mode["raw"] = not view_mode["raw"]
+            sheet_container.clear()
+            with sheet_container:
+                if view_mode["raw"]:
+                    ui.code(sheet.raw_markdown, language="markdown").classes("w-full text-xs")
+                    toggle_raw_btn.set_text("レンダリング表示")
+                else:
+                    ui.markdown(sheet.raw_markdown).classes("prose prose-sm max-w-none")
+                    toggle_raw_btn.set_text("Markdown表示")
+
+        def _enter_edit() -> None:
+            edit_mode["active"] = True
+            sheet_container.clear()
+            with sheet_container:
+                ta = ui.textarea(value=sheet.raw_markdown).classes("w-full font-mono text-sm").props(
+                    "rows=30 outlined"
+                )
+                edit_area["ref"] = ta
+                with ui.row().classes("justify-end gap-2 mt-2"):
+                    ui.button("キャンセル", on_click=lambda: _cancel_edit()).props("flat size=sm")
+                    ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
+                        "unelevated size=sm color=primary"
+                    )
+            toggle_raw_btn.classes("hidden")
+            edit_btn.classes("hidden")
+            save_edit_btn.classes(remove="hidden")
+            cancel_edit_btn.classes(remove="hidden")
+
+        async def _save_edit() -> None:
+            nonlocal member, sheet
+
+            ta = edit_area["ref"]
+            if ta is None:
+                return
+            new_md = str(ta.value or "").strip()
+            if not new_md:
+                ui.notify("シートが空です", type="warning")
+                return
+
+            updated = parse_markdown_to_sheet(new_md, sheet.id)
+            updated.tags = sheet.tags
+            updated.media = sheet.media
+            updated.is_favorite = sheet.is_favorite
+            updated.generation_meta = sheet.generation_meta
+            updated.created_at = sheet.created_at
+            saved_member = await ctx.group_chats.update_member_character(group.id, member.id, updated)
+            if saved_member is None:
+                ui.notify("グループ内キャラクターが見つかりませんでした", type="warning")
+                return
+
+            member = saved_member
+            sheet = saved_member.character
+            title_label.set_text(sheet.name)
+            _render_basic_info()
+            ui.notify(f"「{sheet.name}」を保存しました", type="positive")
+            _cancel_edit()
+
+        def _cancel_edit() -> None:
+            edit_mode["active"] = False
+            sheet_container.clear()
+            with sheet_container:
+                if view_mode["raw"]:
+                    ui.code(sheet.raw_markdown, language="markdown").classes("w-full text-xs")
+                else:
+                    ui.markdown(sheet.raw_markdown).classes("prose prose-sm max-w-none")
+            toggle_raw_btn.classes(remove="hidden")
+            edit_btn.classes(remove="hidden")
+            save_edit_btn.classes("hidden")
+            cancel_edit_btn.classes("hidden")
+
+        def _copy_to_clipboard() -> None:
+            ui.run_javascript(f"navigator.clipboard.writeText({repr(sheet.raw_markdown)})")
+            ui.notify("コピーしました", type="positive")
+
+
+@ui.page("/groups/{group_id}/persona")
+async def group_persona_detail_page(group_id: str) -> None:
+    ctx = get_context()
+    group = await ctx.group_chats.get(group_id)
+    if group is None:
+        with page_layout("グループが見つかりません"):
+            ui.label("指定されたグループは存在しません。").classes("text-grey-6")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props(
+                "flat color=primary"
+            )
+        return
+
+    persona = group.user_persona
+    if persona is None:
+        with page_layout("ユーザーペルソナが見つかりません"):
+            ui.label("このグループにはユーザーペルソナが設定されていません。").classes("text-grey-6")
+            ui.button(
+                "グループに戻る",
+                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+            ).props("flat color=primary")
+        return
+
+    def _persona_title() -> str:
+        return persona.display_name or persona.name or "ユーザー"
+
+    with page_layout(_persona_title()):
+        ui.add_head_html(GROUP_CHAT_CSS)
+        with ui.row().classes("items-center gap-2 mb-4 flex-wrap"):
+            ui.button(
+                icon="arrow_back",
+                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+            ).props("flat round")
+            title_label = ui.label(_persona_title()).classes("text-2xl font-bold flex-1")
+            ui.badge("グループ内コピー").props("outline color=primary")
+
+        edit_mode = {"active": False}
+        basic_container = ui.element("div").classes("w-full")
+
+        def _render_basic_info() -> None:
+            basic_container.clear()
+            with basic_container:
+                with ui.card().classes("w-full mb-4"):
+                    with ui.row().classes("gap-6 flex-wrap"):
+                        for label, value in [
+                            ("グループ", group.name),
+                            ("ハンドル", f"@{persona.handle}"),
+                            ("表示名", persona.display_name),
+                            ("名前", persona.name),
+                        ]:
+                            if value:
+                                with ui.column().classes("gap-0"):
+                                    ui.label(label).classes("text-xs text-grey-6")
+                                    ui.label(value).classes("text-sm font-medium")
+
+        _render_basic_info()
+
+        with ui.card().classes("w-full"):
+            with ui.row().classes("items-center justify-between mb-2"):
+                ui.label("ユーザーペルソナ").classes("text-base font-semibold")
+                with ui.row().classes("gap-1"):
+                    edit_btn = ui.button("編集", icon="edit", on_click=lambda: _enter_edit()).props(
+                        "flat size=sm color=primary"
+                    )
+                    save_btn = ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
+                        "unelevated size=sm color=primary"
+                    ).classes("hidden")
+                    cancel_btn = ui.button("キャンセル", on_click=lambda: _cancel_edit()).props(
+                        "flat size=sm"
+                    ).classes("hidden")
+
+            handle_input = {"ref": None}
+            name_input = {"ref": None}
+            display_name_input = {"ref": None}
+            description_input = {"ref": None}
+            detail_container = ui.element("div").classes("w-full")
+
+            def _render_view() -> None:
+                detail_container.clear()
+                with detail_container:
+                    with ui.element("div").classes("cs-group-profile-grid"):
+                        for label, value in [
+                            ("ハンドル", f"@{persona.handle}"),
+                            ("表示名", persona.display_name),
+                            ("名前", persona.name),
+                        ]:
+                            ui.label(label).classes("cs-group-profile-label")
+                            ui.label(value or "未設定").classes("cs-group-profile-value")
+                    ui.label("説明").classes("cs-group-profile-card-title mt-4")
+                    ui.label(persona.description or "未設定").classes("cs-group-profile-summary")
+
+            _render_view()
+
+        def _enter_edit() -> None:
+            edit_mode["active"] = True
+            detail_container.clear()
+            with detail_container:
+                handle_input["ref"] = ui.input(
+                    label="ハンドル",
+                    value=persona.handle,
+                ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
+                display_name_input["ref"] = ui.input(
+                    label="表示名",
+                    value=persona.display_name,
+                ).props("outlined dense").classes("w-full")
+                name_input["ref"] = ui.input(
+                    label="名前",
+                    value=persona.name,
+                ).props("outlined dense").classes("w-full")
+                description_input["ref"] = ui.textarea(
+                    label="説明",
+                    value=persona.description,
+                ).props("outlined rows=8").classes("w-full")
+            edit_btn.classes("hidden")
+            save_btn.classes(remove="hidden")
+            cancel_btn.classes(remove="hidden")
+
+        async def _save_edit() -> None:
+            nonlocal persona
+
+            handle = str(handle_input["ref"].value if handle_input["ref"] is not None else "").strip()
+            display_name = str(
+                display_name_input["ref"].value if display_name_input["ref"] is not None else ""
+            ).strip()
+            name = str(name_input["ref"].value if name_input["ref"] is not None else "").strip()
+            description = str(
+                description_input["ref"].value if description_input["ref"] is not None else ""
+            ).strip()
+
+            sanitized_handle = _sanitize_handle(handle, persona.handle or "User")
+            used_handles = {member.handle.lower() for member in group.members}
+            if sanitized_handle.lower() in used_handles:
+                ui.notify("同じハンドルのメンバーが既にいます", type="warning")
+                return
+            if not name:
+                ui.notify("名前を入力してください", type="warning")
+                return
+
+            updated = persona.model_copy(
+                update={
+                    "handle": sanitized_handle,
+                    "name": name,
+                    "display_name": display_name or name,
+                    "description": description,
+                },
+                deep=True,
+            )
+            saved = await ctx.group_chats.update_user_persona(group.id, updated)
+            if saved is None:
+                ui.notify("ユーザーペルソナが見つかりませんでした", type="warning")
+                return
+
+            persona = saved
+            title_label.set_text(_persona_title())
+            _render_basic_info()
+            ui.notify(f"「{_persona_title()}」を保存しました", type="positive")
+            _cancel_edit()
+
+        def _cancel_edit() -> None:
+            edit_mode["active"] = False
+            _render_view()
+            edit_btn.classes(remove="hidden")
+            save_btn.classes("hidden")
+            cancel_btn.classes("hidden")
+
+
 def open_new_group_dialog(
     ctx,
     refresh_groups: Callable[[], Awaitable[None]],
@@ -942,8 +1443,28 @@ def open_new_group_dialog(
     personas = ctx.api_config.get_user_personas()
     profile_options = _profile_options(ctx, profiles)
     persona_options = {persona.id: persona.display_name for persona in personas}
+    page_client = ui.context.client
     selected = {"characters": []}
     handle_inputs: dict[str, Any] = {}
+    controls: dict[str, Any] = {}
+    state: dict[str, Any] = {
+        "step": 0,
+        "name": "",
+        "profile_id": _default_profile_id(ctx, profile_options),
+        "persona_id": _default_persona_id(persona_options),
+        "user_handle": "User",
+        "handle_values": {},
+        "world_source": "new",
+        "world_text": "",
+        "entry_modes": {},
+        "arrival_reasons": {},
+        "adaptation_notes": {},
+        "adaptation_instructions": {},
+        "draft_sheets": {},
+        "user_description_draft": "",
+        "relationships": [],
+        "relationship_sequence": 0,
+    }
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl").style(
         "max-width: min(760px, 94vw); height: min(860px, 94vh); "
@@ -953,99 +1474,258 @@ def open_new_group_dialog(
             ui.label("新しいグループ").classes("text-lg font-semibold")
             ui.button(icon="close", on_click=dlg.close).props("flat round dense")
 
+        step_head = ui.element("div").classes("w-full")
         with ui.scroll_area().style("flex: 1; min-height: 0; width: 100%;"):
-            with ui.column().classes("w-full gap-3 pr-2"):
-                name_input = ui.input(label="グループ名").props("outlined clearable").classes("w-full")
-                profile_select = ui.select(
+            body = ui.column().classes("w-full gap-3 pr-2")
+        nav = ui.row().classes("justify-end gap-2 mt-4")
+        busy_state: dict[str, Any] = {"active": False, "job_id": ""}
+        with ui.dialog().props("persistent") as busy_dialog, ui.card().classes(
+            "items-center gap-3 px-6 py-5"
+        ).style("min-width: min(320px, 86vw);"):
+            ui.spinner(size="lg")
+            busy_label = ui.label("処理中です").classes("text-sm font-semibold text-center")
+            busy_cancel_btn = ui.button(
+                "キャンセル",
+                icon="close",
+                on_click=lambda: _cancel_busy_job(),
+            ).props("outline color=negative")
+            busy_cancel_btn.disable()
+
+        def _begin_busy(label: str) -> None:
+            busy_state["active"] = True
+            busy_state["job_id"] = ""
+            busy_label.set_text(label)
+            busy_cancel_btn.disable()
+            busy_dialog.open()
+
+        def _set_busy_job(job_id: str) -> None:
+            if not busy_state.get("active"):
+                return
+            busy_state["job_id"] = job_id
+            busy_cancel_btn.enable()
+
+        def _end_busy() -> None:
+            busy_state["active"] = False
+            busy_state["job_id"] = ""
+            busy_cancel_btn.disable()
+            busy_dialog.close()
+
+        async def _cancel_busy_job() -> None:
+            job_id = str(busy_state.get("job_id") or "")
+            if not job_id:
+                return
+            busy_label.set_text("停止要求中...")
+            busy_cancel_btn.disable()
+            await ctx.ai_jobs.cancel_job(job_id)
+
+        def _selected_persona_obj():
+            return _selected_persona(ctx, str(state.get("persona_id") or ""))
+
+        def _current_world_source_character_id() -> str:
+            source = str(state.get("world_source") or "new")
+            return source.removeprefix("character:") if source.startswith("character:") else ""
+
+        def _current_world_text() -> str:
+            source_id = _current_world_source_character_id()
+            if source_id:
+                source_sheet = next((sheet for sheet in selected["characters"] if sheet.id == source_id), None)
+                return (source_sheet.world if source_sheet else "").strip()
+            return str(state.get("world_text") or "").strip()
+
+        def _participant_key_for_sheet(sheet: CharacterSheet) -> str:
+            return f"character:{sheet.id}"
+
+        def _capture_step() -> None:
+            if "name_input" in controls:
+                state["name"] = str(controls["name_input"].value or "").strip()
+            if "profile_select" in controls:
+                state["profile_id"] = str(controls["profile_select"].value or "")
+            if "persona_select" in controls:
+                persona_id = str(controls["persona_select"].value or "")
+                if persona_id != state["persona_id"]:
+                    state["user_description_draft"] = ""
+                    state["adaptation_notes"].pop("user", None)
+                    state["adaptation_instructions"].pop("user", None)
+                    state["arrival_reasons"].pop("user", None)
+                    state["relationships"] = [
+                        relationship for relationship in state["relationships"]
+                        if "user" not in {
+                            relationship["participant_a_key"],
+                            relationship["participant_b_key"],
+                        }
+                    ]
+                state["persona_id"] = persona_id
+            if "user_handle_input" in controls:
+                state["user_handle"] = str(controls["user_handle_input"].value or "").strip()
+            if handle_inputs:
+                handle_values = dict(state.get("handle_values", {}))
+                for character_id, input_ in handle_inputs.items():
+                    handle_values[character_id] = str(input_.value or "")
+                state["handle_values"] = handle_values
+            if "world_source_select" in controls:
+                state["world_source"] = str(controls["world_source_select"].value or "new")
+            if "world_input" in controls:
+                state["world_text"] = str(controls["world_input"].value or "").strip()
+            for key, select in controls.get("entry_selects", {}).items():
+                state["entry_modes"][key] = str(select.value or "native")
+            for key, input_ in controls.get("arrival_inputs", {}).items():
+                state["arrival_reasons"][key] = str(input_.value or "").strip()
+
+        def _validate_step(step: int) -> bool:
+            _capture_step()
+            if step == 0:
+                if not state["profile_id"]:
+                    ui.notify("補完用LLMプロファイルを選択してください", type="warning")
+                    return False
+                if not selected["characters"]:
+                    ui.notify("キャラクターを選択してください", type="warning")
+                    return False
+                if _selected_persona_obj() is None:
+                    ui.notify("ユーザーペルソナを選択してください", type="warning")
+                    return False
+                if _validate_handles_from_values(selected["characters"], state["handle_values"], state["user_handle"]) is None:
+                    return False
+            if step == 1:
+                if not state["name"]:
+                    ui.notify("グループ名を入力してください", type="warning")
+                    return False
+                if not _current_world_text():
+                    ui.notify("ワールドを確定してください", type="warning")
+                    return False
+            if step == 2:
+                source_id = _current_world_source_character_id()
+                for sheet in selected["characters"]:
+                    if sheet.id == source_id:
+                        continue
+                    key = _participant_key_for_sheet(sheet)
+                    if state["entry_modes"].get(key, "native") == "visitor" and not state["arrival_reasons"].get(key, "").strip():
+                        ui.notify(f"{sheet.name} の来訪理由を入力してください", type="warning")
+                        return False
+                if state["entry_modes"].get("user", "native") == "visitor" and not state["arrival_reasons"].get("user", "").strip():
+                    ui.notify("ユーザーペルソナの来訪理由を入力してください", type="warning")
+                    return False
+            return True
+
+        def _render_step_head() -> None:
+            labels = ["参加者", "ワールド", "適応", "関係性"]
+            step_head.clear()
+            with step_head:
+                with ui.row().classes("items-center gap-2 flex-wrap"):
+                    for index, label in enumerate(labels):
+                        color = "primary" if index == state["step"] else "grey"
+                        ui.badge(f"{index + 1}. {label}").props(f"outline color={color}")
+
+        def _render_selected_list(container) -> None:
+            previous_handles = {
+                character_id: str(input_.value or "")
+                for character_id, input_ in handle_inputs.items()
+            }
+            handle_values = dict(state.get("handle_values", {}))
+            handle_values.update(previous_handles)
+            state["handle_values"] = handle_values
+            handle_inputs.clear()
+            container.clear()
+            with container:
+                if not selected["characters"]:
+                    ui.label("キャラクター未選択").classes("text-sm text-grey-6")
+                    return
+                for sheet in selected["characters"]:
+                    _render_selected_character_row(
+                        ctx,
+                        sheet,
+                        handle_inputs,
+                        value=handle_values.get(sheet.id),
+                        remove=lambda character_id=sheet.id: _remove_character(character_id),
+                    )
+
+        def _remove_character(character_id: str) -> None:
+            selected["characters"] = [
+                sheet for sheet in selected["characters"] if sheet.id != character_id
+            ]
+            handle_inputs.pop(character_id, None)
+            state["handle_values"].pop(character_id, None)
+            state["entry_modes"].pop(f"character:{character_id}", None)
+            state["arrival_reasons"].pop(f"character:{character_id}", None)
+            state["adaptation_instructions"].pop(f"character:{character_id}", None)
+            state["draft_sheets"].pop(character_id, None)
+            if state["world_source"] == f"character:{character_id}":
+                state["world_source"] = "new"
+            state["relationships"] = [
+                relationship for relationship in state["relationships"]
+                if f"character:{character_id}" not in {
+                    relationship["participant_a_key"],
+                    relationship["participant_b_key"],
+                }
+            ]
+            render_step()
+
+        async def _open_picker() -> None:
+            async def _add_character(sheet: CharacterSheet) -> None:
+                if any(current.id == sheet.id for current in selected["characters"]):
+                    ui.notify("このキャラクターは選択済みです", type="warning")
+                    return
+                selected["characters"].append(sheet)
+                state["entry_modes"].setdefault(f"character:{sheet.id}", "native")
+                render_step()
+
+            await open_character_picker(
+                ctx,
+                _add_character,
+                title="グループに取り込むキャラクターを選択",
+                empty_message="取り込めるキャラクターがありません",
+            )
+
+        def _render_setup_step() -> None:
+            controls.clear()
+            handle_inputs.clear()
+            with body:
+                controls["profile_select"] = ui.select(
                     options=profile_options,
-                    value=_default_profile_id(ctx, profile_options),
+                    value=state["profile_id"] if state["profile_id"] in profile_options else _default_profile_id(ctx, profile_options),
                     label="補完用LLMプロファイル",
                 ).props("outlined dense").classes("w-full")
-
                 with ui.element("div").classes("cs-group-modal-section"):
                     with ui.element("div").classes("cs-group-modal-actions"):
                         with ui.column().classes("gap-0"):
                             ui.label("グループに取り込むキャラクター").classes("text-sm font-semibold")
-                            ui.label("選択したキャラクターはグループ内コピーとして保存します。").classes(
-                                "cs-group-note"
-                            )
-
-                        async def _open_picker() -> None:
-                            async def _add_character(sheet: CharacterSheet) -> None:
-                                if any(current.id == sheet.id for current in selected["characters"]):
-                                    ui.notify("このキャラクターは選択済みです", type="warning")
-                                    return
-                                selected["characters"].append(sheet)
-                                _refresh_selected_list()
-
-                            await open_character_picker(
-                                ctx,
-                                _add_character,
-                                title="グループに取り込むキャラクターを選択",
-                                empty_message="取り込めるキャラクターがありません",
-                            )
-
+                            ui.label("選択したキャラクターはグループ内コピーとして保存します。").classes("cs-group-note")
                         ui.button(
                             "キャラクターを追加",
                             icon="person_search",
                             on_click=_open_picker,
-                        ).props("color=primary unelevated").style(
-                            "border-radius: 8px; font-weight: 700;"
-                        )
-
+                        ).props("color=primary unelevated").style("border-radius: 8px; font-weight: 700;")
                     selected_list = ui.element("div").classes("cs-group-selected-list")
-
-                    def _refresh_selected_list() -> None:
-                        previous_handles = {
-                            character_id: str(input_.value or "")
-                            for character_id, input_ in handle_inputs.items()
-                        }
-                        handle_inputs.clear()
-                        selected_list.clear()
-                        with selected_list:
-                            if not selected["characters"]:
-                                ui.label("キャラクター未選択").classes("text-sm text-grey-6")
-                                return
-                            for sheet in selected["characters"]:
-                                _render_selected_character_row(
-                                    ctx,
-                                    sheet,
-                                    handle_inputs,
-                                    value=previous_handles.get(sheet.id),
-                                    remove=lambda character_id=sheet.id: _remove_character(character_id),
-                                )
-
-                    def _remove_character(character_id: str) -> None:
-                        selected["characters"] = [
-                            sheet for sheet in selected["characters"] if sheet.id != character_id
-                        ]
-                        handle_inputs.pop(character_id, None)
-                        _refresh_selected_list()
-
-                    _refresh_selected_list()
+                    _render_selected_list(selected_list)
 
                 with ui.element("div").classes("cs-group-modal-section"):
                     ui.label("ユーザーペルソナ").classes("text-sm font-semibold")
                     with ui.element("div").classes("cs-group-persona-row"):
-                        persona_select = ui.select(
+                        controls["persona_select"] = ui.select(
                             options=persona_options,
-                            value=_default_persona_id(persona_options),
+                            value=state["persona_id"] if state["persona_id"] in persona_options else _default_persona_id(persona_options),
                             label="ユーザーペルソナ",
                         ).props("outlined dense").classes("w-full")
-                        user_handle_input = ui.input(
+                        controls["user_handle_input"] = ui.input(
                             label="ユーザーのハンドル",
-                            value="User",
+                            value=state["user_handle"] or "User",
                         ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
 
                 async def _generate_handles_click() -> None:
-                    await _generate_handles(
-                        ctx,
-                        str(profile_select.value or ""),
-                        selected["characters"],
-                        _selected_persona(ctx, str(persona_select.value or "")),
-                        handle_inputs,
-                        user_handle_input,
-                    )
+                    _capture_step()
+                    _begin_busy("ハンドルを生成しています...")
+                    try:
+                        await _generate_handles(
+                            ctx,
+                            str(controls["profile_select"].value or ""),
+                            selected["characters"],
+                            _selected_persona(ctx, str(controls["persona_select"].value or "")),
+                            handle_inputs,
+                            controls["user_handle_input"],
+                            on_job_started=_set_busy_job,
+                        )
+                        _capture_step()
+                    finally:
+                        _end_busy()
 
                 ui.button(
                     "一括でハンドル生成",
@@ -1053,65 +1733,1505 @@ def open_new_group_dialog(
                     on_click=_generate_handles_click,
                 ).props("flat color=primary").classes("w-fit")
 
+        def _world_options() -> dict[str, str]:
+            return _world_source_options_for_characters(selected["characters"])
+
+        def _render_world_step() -> None:
+            controls.clear()
+            options = _world_options()
+            if state["world_source"] not in options:
+                state["world_source"] = "new"
+            with body:
                 with ui.element("div").classes("cs-group-world-field"):
-                    world_input = ui.textarea(
-                        label="世界観",
-                        placeholder="グループで共有する舞台、関係性、空気感など",
-                    ).props("outlined rows=5").classes("w-full")
+                    controls["name_input"] = ui.input(
+                        label="グループ名",
+                        value=state["name"],
+                    ).props("outlined clearable").classes("w-full")
+
+                    async def _generate_group_name_click() -> None:
+                        _capture_step()
+                        _begin_busy("グループ名を補完しています...")
+                        try:
+                            name = await _generate_group_name_from_world(
+                                ctx,
+                                str(state["profile_id"] or ""),
+                                _current_world_text(),
+                                selected["characters"],
+                                _selected_persona_obj(),
+                                page_client,
+                                on_job_started=_set_busy_job,
+                            )
+                            if name:
+                                controls["name_input"].set_value(name)
+                                state["name"] = name
+                        finally:
+                            _end_busy()
+
                     ui.button(
                         icon="auto_awesome",
-                        on_click=lambda: _enhance_world_click(
-                            ctx,
-                            str(profile_select.value or ""),
-                            selected["characters"],
-                            _selected_persona(ctx, str(persona_select.value or "")),
-                            world_input,
-                            name_input,
-                        ),
-                    ).props("flat round dense size=sm").classes("cs-group-world-enhance").tooltip(
-                        "世界観を補完"
+                        on_click=_generate_group_name_click,
+                    ).props("flat round dense size=sm").classes("cs-group-world-enhance").tooltip("グループ名を補完")
+
+                controls["world_source_select"] = ui.select(
+                    options=options,
+                    value=state["world_source"],
+                    label="ワールドの決め方",
+                ).props("outlined dense").classes("w-full")
+
+                def _refresh_world_preview() -> None:
+                    _capture_step()
+                    render_step()
+
+                controls["world_source_select"].on_value_change(lambda _: _refresh_world_preview())
+                if state["world_source"] == "new":
+                    with ui.element("div").classes("cs-group-world-field"):
+                        controls["world_input"] = ui.textarea(
+                            label="新しいワールド",
+                            value=state["world_text"],
+                            placeholder="グループで共有する舞台、関係性、空気感など",
+                        ).props("outlined rows=6").classes("w-full")
+                        ui.button(
+                            icon="auto_awesome",
+                            on_click=lambda: _enhance_world_click_busy(),
+                        ).props("flat round dense size=sm").classes("cs-group-world-enhance").tooltip("ワールドを補完")
+                else:
+                    source_id = _current_world_source_character_id()
+                    source_sheet = next((sheet for sheet in selected["characters"] if sheet.id == source_id), None)
+                    ui.label(source_sheet.name if source_sheet else "引き継ぎ元").classes("text-sm font-semibold")
+                    ui.label((source_sheet.world if source_sheet else "") or "未設定").classes(
+                        "cs-group-profile-summary"
                     )
 
-        async def _create_group() -> None:
-            name = (name_input.value or "").strip()
-            world = (world_input.value or "").strip()
-            profile_id = str(profile_select.value or "")
-            persona = _selected_persona(ctx, str(persona_select.value or ""))
-            if not name:
-                ui.notify("グループ名を入力してください", type="warning")
+        async def _enhance_world_click_busy() -> None:
+            _capture_step()
+            world_input = controls.get("world_input")
+            name_input = controls.get("name_input")
+            if world_input is None or name_input is None:
                 return
-            if not selected["characters"]:
-                ui.notify("キャラクターを選択してください", type="warning")
+            _begin_busy("ワールドを補完しています...")
+            try:
+                await _enhance_world_click(
+                    ctx,
+                    str(state["profile_id"] or ""),
+                    selected["characters"],
+                    _selected_persona_obj(),
+                    world_input,
+                    name_input,
+                    on_job_started=_set_busy_job,
+                )
+                _capture_step()
+            finally:
+                _end_busy()
+
+        def _render_entry_row(key: str, label: str, summary: str, *, is_character: bool, source_sheet: CharacterSheet | None = None) -> None:
+            source_id = _current_world_source_character_id()
+            if source_sheet is not None and source_sheet.id == source_id:
+                state["entry_modes"][key] = "world_source"
+                with ui.element("div").classes("cs-group-selected-row"):
+                    if source_sheet is not None:
+                        _render_character_face(ctx, source_sheet)
+                    with ui.column().classes("gap-0 min-w-0 flex-1"):
+                        ui.label(label).classes("text-sm font-semibold")
+                        ui.label("ワールド引き継ぎ元").classes("text-xs text-grey-6")
                 return
+
+            mode = state["entry_modes"].get(key, "native")
+            reason = state["arrival_reasons"].get(key, "")
+            with ui.element("div").classes("cs-group-selected-row"):
+                if source_sheet is not None:
+                    _render_character_face(ctx, source_sheet)
+                else:
+                    _render_group_user_menu_face(ctx, _group_user_persona_from_selected(_selected_persona_obj(), state["user_handle"]))
+                with ui.column().classes("gap-2 min-w-0 flex-1"):
+                    ui.label(label).classes("text-sm font-semibold")
+                    if summary:
+                        ui.label(summary).classes("text-xs text-grey-6")
+                    entry_select = ui.select(
+                        options={
+                            "native": "元々この世界の住人だった",
+                            "visitor": "何らかの理由でこの世界に来た",
+                        },
+                        value=mode if mode in {"native", "visitor"} else "native",
+                        label="ワールド参加設定",
+                    ).props("outlined dense").classes("w-full")
+                    controls.setdefault("entry_selects", {})[key] = entry_select
+
+                    def _refresh_entry_mode() -> None:
+                        _capture_step()
+                        render_step()
+
+                    entry_select.on_value_change(lambda _: _refresh_entry_mode())
+                    if mode == "visitor":
+                        controls.setdefault("arrival_inputs", {})[key] = ui.textarea(
+                            label="この世界に来た理由",
+                            value=reason,
+                        ).props("outlined rows=3").classes("w-full")
+                        ui.button(
+                            "理由を補完",
+                            icon="auto_awesome",
+                            on_click=lambda participant_key=key, display_name=label, text_summary=summary: _generate_arrival_reason_click(
+                                participant_key,
+                                display_name,
+                                text_summary,
+                            ),
+                        ).props("flat dense color=primary").classes("w-fit")
+                    if mode != "visitor" and is_character and source_sheet is not None:
+                        with ui.row().classes("gap-2 flex-wrap"):
+                            ui.button(
+                                "ワールドに馴染ませる",
+                                icon="auto_fix_high",
+                                on_click=lambda sheet=source_sheet, participant_key=key, display_name=label: _open_world_adaptation_dialog(
+                                    participant_key,
+                                    display_name,
+                                    lambda instruction, target_sheet=sheet, target_key=participant_key: _adapt_character_click(
+                                        target_sheet,
+                                        target_key,
+                                        instruction,
+                                    ),
+                                ),
+                            ).props("outline dense color=primary")
+                    elif mode != "visitor" and not is_character:
+                        ui.button(
+                            "ワールドに馴染ませる",
+                            icon="auto_fix_high",
+                            on_click=lambda participant_key=key, display_name=label, text_summary=summary: _adapt_user_persona_click(
+                                participant_key,
+                                display_name,
+                                text_summary,
+                            ),
+                        ).props("outline dense color=primary").classes("w-fit")
+                    note = state["adaptation_notes"].get(key, "")
+                    if note:
+                        ui.label(note).classes("text-xs text-grey-6")
+
+        async def _adapt_character_click(sheet: CharacterSheet, participant_key: str, instruction: str) -> None:
+            _capture_step()
+            if state["entry_modes"].get(participant_key, "native") != "native":
+                ui.notify("ワールドに馴染ませる改変は「元々この世界の住人だった」設定で使用してください", type="warning")
+                return
+            world = _current_world_text()
+            _begin_busy("キャラクターシートを調整しています...")
+            try:
+                await _adapt_character_to_world(
+                    ctx,
+                    str(state["profile_id"] or ""),
+                    state["draft_sheets"].get(sheet.id, sheet),
+                    world,
+                    instruction,
+                    lambda updated: _apply_adapted_sheet(sheet.id, participant_key, updated),
+                    page_client,
+                    on_job_started=_set_busy_job,
+                )
+            finally:
+                _end_busy()
+
+        def _apply_adapted_sheet(sheet_id: str, participant_key: str, updated: CharacterSheet) -> None:
+            state["draft_sheets"][sheet_id] = updated
+            state["adaptation_notes"][participant_key] = "LLM改変を承認済み"
+            render_step()
+
+        async def _adapt_user_persona_click(participant_key: str, display_name: str, summary: str) -> None:
+            _open_world_adaptation_dialog(
+                participant_key,
+                display_name,
+                lambda instruction: _adapt_user_persona_with_instruction(
+                    participant_key,
+                    display_name,
+                    summary,
+                    instruction,
+                ),
+            )
+
+        async def _adapt_user_persona_with_instruction(
+            participant_key: str,
+            display_name: str,
+            summary: str,
+            instruction: str,
+        ) -> None:
+            _capture_step()
+            if state["entry_modes"].get(participant_key, "native") != "native":
+                ui.notify("ワールドに馴染ませる改変は「元々この世界の住人だった」設定で使用してください", type="warning")
+                return
+            persona = _selected_persona_obj()
             if persona is None:
                 ui.notify("ユーザーペルソナを選択してください", type="warning")
                 return
-            if not world:
-                ui.notify("世界観を入力してください", type="warning")
+            _begin_busy("ユーザーペルソナを調整しています...")
+            try:
+                await _adapt_user_persona_to_world(
+                    ctx,
+                    str(state["profile_id"] or ""),
+                    display_name,
+                    str(state.get("user_description_draft") or summary or ""),
+                    _current_world_text(),
+                    instruction,
+                    lambda updated: _apply_adapted_user_persona(participant_key, updated),
+                    page_client,
+                    on_job_started=_set_busy_job,
+                )
+            finally:
+                _end_busy()
+
+        def _apply_adapted_user_persona(participant_key: str, updated_description: str) -> None:
+            state["user_description_draft"] = updated_description
+            state["adaptation_notes"][participant_key] = "LLM改変を承認済み"
+            render_step()
+
+        def _open_world_adaptation_dialog(
+            participant_key: str,
+            display_name: str,
+            run_adaptation: Callable[[str], Awaitable[None]],
+        ) -> None:
+            _capture_step()
+            with ui.dialog() as adaptation_dialog, ui.card().classes("w-full max-w-lg"):
+                ui.label("ワールドに馴染ませる").classes("text-base font-semibold")
+                ui.label(display_name).classes("text-sm text-grey-6")
+                instruction_input = ui.textarea(
+                    label="追加指示（任意）",
+                    value=state["adaptation_instructions"].get(participant_key, ""),
+                    placeholder="例: 学園もの寄りにする、職業は変えない、口調は元のままにする",
+                ).props("outlined rows=5").classes("w-full")
+
+                async def _run() -> None:
+                    instruction = str(instruction_input.value or "").strip()
+                    if instruction:
+                        state["adaptation_instructions"][participant_key] = instruction
+                    else:
+                        state["adaptation_instructions"].pop(participant_key, None)
+                    adaptation_dialog.close()
+                    await run_adaptation(instruction)
+
+                with ui.row().classes("justify-end gap-2 mt-4"):
+                    ui.button("キャンセル", on_click=adaptation_dialog.close).props("flat")
+                    ui.button("OK", icon="check", on_click=_run).props("color=primary unelevated")
+            adaptation_dialog.open()
+
+        async def _generate_arrival_reason_click(participant_key: str, display_name: str, summary: str) -> None:
+            _capture_step()
+            input_ = controls.get("arrival_inputs", {}).get(participant_key)
+            if input_ is None:
                 return
-            validation = _validate_handles(selected["characters"], handle_inputs, user_handle_input)
+            _begin_busy("来訪理由を補完しています...")
+            try:
+                reason = await _generate_arrival_reason(
+                    ctx,
+                    str(state["profile_id"] or ""),
+                    display_name,
+                    _current_world_text(),
+                    summary,
+                    page_client,
+                    on_job_started=_set_busy_job,
+                )
+                if reason:
+                    input_.set_value(reason)
+                    state["arrival_reasons"][participant_key] = reason
+            finally:
+                _end_busy()
+
+        def _render_entry_step() -> None:
+            controls.clear()
+            controls["entry_selects"] = {}
+            controls["arrival_inputs"] = {}
+            with body:
+                ui.label("参加者ごとのワールド参加設定").classes("text-sm font-semibold")
+                for sheet in selected["characters"]:
+                    display_sheet = state["draft_sheets"].get(sheet.id, sheet)
+                    _render_entry_row(
+                        _participant_key_for_sheet(sheet),
+                        display_sheet.name,
+                        _compact_character_summary(display_sheet),
+                        is_character=True,
+                        source_sheet=display_sheet,
+                    )
+                persona = _selected_persona_obj()
+                if persona is not None:
+                    _render_entry_row(
+                        "user",
+                        persona.display_name or persona.name or "ユーザー",
+                        str(state.get("user_description_draft") or persona.description),
+                        is_character=False,
+                    )
+
+        def _relationship_options() -> dict[str, str]:
+            options = {
+                _participant_key_for_sheet(sheet): (
+                    f"{state['draft_sheets'].get(sheet.id, sheet).name} "
+                    f"(@{state['handle_values'].get(sheet.id, _fallback_handle(sheet, 1))})"
+                )
+                for sheet in selected["characters"]
+            }
+            persona = _selected_persona_obj()
+            if persona is not None:
+                options["user"] = f"{persona.display_name or persona.name or 'ユーザー'} (@{state.get('user_handle') or 'User'})"
+            return options
+
+        def _relationship_participants() -> list[dict[str, str]]:
+            display_characters = [
+                state["draft_sheets"].get(sheet.id, sheet)
+                for sheet in selected["characters"]
+            ]
+            return _relationship_draft_participants(
+                display_characters,
+                _selected_persona_obj(),
+                state,
+            )
+
+        def _render_relationship_step() -> None:
+            controls.clear()
+            with body:
+                with ui.row().classes("items-center justify-between gap-2 w-full"):
+                    ui.label("関係性").classes("text-sm font-semibold")
+                    with ui.row().classes("gap-2"):
+                        ui.button(
+                            "追加",
+                            icon="add",
+                            on_click=lambda: _open_relationship_draft_dialog(
+                                state,
+                                _relationship_options(),
+                                None,
+                                render_step,
+                                ctx=ctx,
+                                profile_id=str(state["profile_id"] or ""),
+                                world=_current_world_text(),
+                                participants=_relationship_participants(),
+                                page_client=page_client,
+                                begin_busy=_begin_busy,
+                                set_busy_job=_set_busy_job,
+                                end_busy=_end_busy,
+                            ),
+                        ).props("outline dense")
+                        ui.button(
+                            "LLMで自動設定",
+                            icon="auto_awesome",
+                            on_click=_generate_relationships_click,
+                        ).props("flat dense color=primary")
+                if not state["relationships"]:
+                    ui.label("設定済みの関係性はありません").classes("text-sm text-grey-6")
+                labels = _relationship_options()
+                for relationship in state["relationships"]:
+                    with ui.element("div").classes("cs-group-relationship-row"):
+                        with ui.element("div").classes("cs-group-relationship-head"):
+                            left = labels.get(relationship["participant_a_key"], "不明な参加者")
+                            right = labels.get(relationship["participant_b_key"], "不明な参加者")
+                            ui.label(f"{left} ↔ {right}").classes("cs-group-relationship-pair")
+                            with ui.row().classes("gap-1"):
+                                ui.button(
+                                    icon="edit",
+                                    on_click=lambda item=relationship: _open_relationship_draft_dialog(
+                                        state,
+                                        labels,
+                                        item,
+                                        render_step,
+                                        ctx=ctx,
+                                        profile_id=str(state["profile_id"] or ""),
+                                        world=_current_world_text(),
+                                        participants=_relationship_participants(),
+                                        page_client=page_client,
+                                        begin_busy=_begin_busy,
+                                        set_busy_job=_set_busy_job,
+                                        end_busy=_end_busy,
+                                    ),
+                                ).props("flat round dense size=sm").tooltip("編集")
+                                ui.button(
+                                    icon="delete",
+                                    on_click=lambda relationship_id=relationship["id"]: _delete_relationship_draft(
+                                        state,
+                                        relationship_id,
+                                        render_step,
+                                    ),
+                                ).props("flat round dense size=sm color=negative").tooltip("削除")
+                        ui.label(relationship["description"]).classes("cs-group-relationship-text")
+
+        async def _generate_relationships_click() -> None:
+            _capture_step()
+            _begin_busy("関係性を自動設定しています...")
+            try:
+                generated = await _generate_relationship_drafts(
+                    ctx,
+                    str(state["profile_id"] or ""),
+                    selected["characters"],
+                    _selected_persona_obj(),
+                    _current_world_text(),
+                    state,
+                    page_client,
+                    on_job_started=_set_busy_job,
+                )
+                if generated:
+                    _merge_relationship_drafts(state, generated)
+                    render_step()
+            finally:
+                _end_busy()
+
+        async def _create_group() -> None:
+            _capture_step()
+            for step in range(3):
+                if not _validate_step(step):
+                    state["step"] = step
+                    render_step()
+                    return
+            validation = _validate_handles_from_values(selected["characters"], state["handle_values"], state["user_handle"])
             if validation is None:
+                state["step"] = 0
+                render_step()
                 return
             member_handles, user_handle = validation
-            await ctx.group_chats.create_group(
-                name=name,
+            persona = _selected_persona_obj()
+            if persona is None:
+                state["step"] = 0
+                render_step()
+                return
+            world = _current_world_text()
+            source_id = _current_world_source_character_id()
+            members_for_create: list[tuple[CharacterSheet, str]] = []
+            member_world_settings: dict[str, dict[str, str]] = {}
+            for sheet, handle in zip(selected["characters"], member_handles, strict=True):
+                prepared, settings = _prepare_group_character_for_world(
+                    state["draft_sheets"].get(sheet.id, sheet),
+                    world=world,
+                    source_character_id=source_id,
+                    entry_type=state["entry_modes"].get(_participant_key_for_sheet(sheet), "native"),
+                    arrival_reason=state["arrival_reasons"].get(_participant_key_for_sheet(sheet), ""),
+                    adaptation_note=state["adaptation_notes"].get(_participant_key_for_sheet(sheet), ""),
+                )
+                members_for_create.append((prepared, handle))
+                member_world_settings[prepared.id] = settings
+
+            user_world_settings = _prepare_group_user_world_settings(
+                persona,
                 world=world,
-                completion_profile_id=profile_id,
-                members=list(zip(selected["characters"], member_handles, strict=True)),
+                entry_type=state["entry_modes"].get("user", "native"),
+                arrival_reason=state["arrival_reasons"].get("user", ""),
+                adaptation_note=state["adaptation_notes"].get("user", ""),
+                description_override=str(state.get("user_description_draft") or ""),
+            )
+            relationships = [
+                GroupRelationship(
+                    id=str(relationship["id"]),
+                    participant_a_key=str(relationship["participant_a_key"]),
+                    participant_b_key=str(relationship["participant_b_key"]),
+                    description=str(relationship["description"]),
+                )
+                for relationship in state["relationships"]
+            ]
+            await ctx.group_chats.create_group(
+                name=state["name"],
+                world=world,
+                completion_profile_id=str(state["profile_id"] or ""),
+                members=members_for_create,
                 user_persona=persona,
                 user_handle=user_handle,
+                world_source_type="character" if source_id else "new",
+                world_source_character_id=source_id,
+                member_world_settings=member_world_settings,
+                user_world_settings=user_world_settings,
+                relationships=relationships,
             )
             dlg.close()
             ui.notify("グループを作成しました", type="positive")
             await refresh_groups()
 
-        with ui.row().classes("justify-end gap-2 mt-4"):
-            ui.button("キャンセル", on_click=dlg.close).props("flat")
-            ui.button("作成", icon="save", on_click=_create_group).props(
-                "color=primary unelevated"
-            )
+        def _next_step() -> None:
+            current = int(state["step"])
+            if _validate_step(current):
+                state["step"] = min(3, current + 1)
+                render_step()
+
+        def _prev_step() -> None:
+            _capture_step()
+            state["step"] = max(0, int(state["step"]) - 1)
+            render_step()
+
+        def _render_nav() -> None:
+            nav.clear()
+            with nav:
+                ui.button("キャンセル", on_click=dlg.close).props("flat")
+                if state["step"] > 0:
+                    ui.button("戻る", icon="arrow_back", on_click=_prev_step).props("flat")
+                if state["step"] < 3:
+                    ui.button("次へ", icon="arrow_forward", on_click=_next_step).props("color=primary unelevated")
+                else:
+                    ui.button("作成", icon="save", on_click=_create_group).props("color=primary unelevated")
+
+        def render_step() -> None:
+            _render_step_head()
+            body.clear()
+            with body:
+                if state["step"] == 0:
+                    _render_setup_step()
+                elif state["step"] == 1:
+                    _render_world_step()
+                elif state["step"] == 2:
+                    _render_entry_step()
+                else:
+                    _render_relationship_step()
+            _render_nav()
+
+        render_step()
 
     dlg.open()
+
+
+def _validate_handles_from_values(
+    characters: list[CharacterSheet],
+    handle_values: dict[str, str],
+    user_handle_value: str,
+) -> tuple[list[str], str] | None:
+    handles: list[str] = []
+    seen: set[str] = set()
+    for sheet in characters:
+        handle = str(handle_values.get(sheet.id) or "").strip()
+        if not _HANDLE_RE.fullmatch(handle):
+            ui.notify(f"{sheet.name} のハンドルは3〜12文字の英数字または_で入力してください", type="warning")
+            return None
+        if handle.lower() in seen:
+            ui.notify("ハンドルが重複しています", type="warning")
+            return None
+        seen.add(handle.lower())
+        handles.append(handle)
+
+    user_handle = str(user_handle_value or "").strip()
+    if not _HANDLE_RE.fullmatch(user_handle):
+        ui.notify("ユーザーのハンドルは3〜12文字の英数字または_で入力してください", type="warning")
+        return None
+    if user_handle.lower() in seen:
+        ui.notify("ハンドルが重複しています", type="warning")
+        return None
+    return handles, user_handle
+
+
+def _group_user_persona_from_selected(persona, handle: str) -> GroupUserPersona | None:
+    if persona is None:
+        return None
+    return GroupUserPersona(
+        id=str(getattr(persona, "id", "") or "user"),
+        source_persona_id=str(getattr(persona, "id", "") or ""),
+        handle=_sanitize_handle(handle or "User", "User"),
+        name=str(getattr(persona, "name", "") or ""),
+        display_name=str(getattr(persona, "display_name", "") or ""),
+        description=str(getattr(persona, "description", "") or ""),
+        media=getattr(persona, "media").model_copy(deep=True),
+    )
+
+
+def _world_source_options_for_characters(characters: list[CharacterSheet]) -> dict[str, str]:
+    options = {"new": "完全に新しいワールド"}
+    for sheet in characters:
+        if sheet.world.strip():
+            options[f"character:{sheet.id}"] = f"{sheet.name} のワールドを引き継ぐ"
+    return options
+
+
+def _prepare_group_character_for_world(
+    sheet: CharacterSheet,
+    *,
+    world: str,
+    source_character_id: str,
+    entry_type: str,
+    arrival_reason: str,
+    adaptation_note: str,
+) -> tuple[CharacterSheet, dict[str, str]]:
+    if sheet.id == source_character_id:
+        markdown = _remove_markdown_section(_base_character_markdown(sheet), "世界観・舞台")
+        markdown = _remove_markdown_section(markdown, "この世界に来た理由")
+        return _sheet_from_markdown_preserving(sheet, markdown), {
+            "world_entry_type": "world_source",
+            "arrival_reason": "",
+            "world_adaptation_note": adaptation_note.strip(),
+        }
+
+    resolved_type = entry_type if entry_type in {"native", "visitor"} else "native"
+    markdown = _base_character_markdown(sheet)
+    if resolved_type == "native":
+        markdown = _remove_markdown_section(markdown, "世界観・舞台")
+        markdown = _remove_markdown_section(markdown, "この世界に来た理由")
+        note = adaptation_note.strip() or "確定ワールドの住人として設定"
+        updated = _sheet_from_markdown_preserving(sheet, markdown)
+        return updated, {
+            "world_entry_type": "native",
+            "arrival_reason": "",
+            "world_adaptation_note": note,
+        }
+
+    reason = arrival_reason.strip()
+    markdown = _replace_markdown_section(markdown, "この世界に来た理由", reason)
+    updated = _sheet_from_markdown_preserving(sheet, markdown)
+    return updated, {
+        "world_entry_type": "visitor",
+        "arrival_reason": reason,
+        "world_adaptation_note": adaptation_note.strip(),
+    }
+
+
+def _prepare_group_user_world_settings(
+    persona,
+    *,
+    world: str,
+    entry_type: str,
+    arrival_reason: str,
+    adaptation_note: str,
+    description_override: str = "",
+) -> dict[str, str]:
+    resolved_type = entry_type if entry_type in {"native", "visitor"} else "native"
+    description = (description_override or str(getattr(persona, "description", "") or "")).strip()
+    return {
+        "description": description,
+        "world_entry_type": resolved_type,
+        "arrival_reason": arrival_reason.strip() if resolved_type == "visitor" else "",
+        "world_adaptation_note": adaptation_note.strip(),
+    }
+
+
+def _base_character_markdown(sheet: CharacterSheet) -> str:
+    markdown = (sheet.raw_markdown or "").strip()
+    if markdown:
+        return markdown
+    return f"# {sheet.name or '名称未設定'}"
+
+
+def _replace_markdown_section(markdown: str, header: str, body: str) -> str:
+    text = (markdown or "").strip()
+    section = f"## {header}\n{body.strip()}".rstrip()
+    pattern = re.compile(
+        rf"(^##\s*{re.escape(header)}\s*\n)(.*?)(?=\n##\s+|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    if pattern.search(text):
+        return pattern.sub(section, text, count=1).strip()
+    return f"{text}\n\n{section}".strip()
+
+
+def _remove_markdown_section(markdown: str, header: str) -> str:
+    pattern = re.compile(
+        rf"\n*##\s*{re.escape(header)}\s*\n.*?(?=\n##\s+|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    return pattern.sub("", markdown or "", count=1).strip()
+
+
+def _sheet_from_markdown_preserving(original: CharacterSheet, markdown: str) -> CharacterSheet:
+    updated = parse_markdown_to_sheet(markdown.strip(), original.id)
+    updated.media = original.media.model_copy(deep=True)
+    updated.tags = list(original.tags)
+    updated.is_favorite = original.is_favorite
+    updated.generation_meta = original.generation_meta.model_copy(deep=True)
+    updated.created_at = original.created_at
+    return updated
+
+
+def _notify_on_client(page_client, message: str, **kwargs) -> None:
+    try:
+        if page_client is not None and not getattr(page_client, "_deleted", False):
+            with page_client:
+                ui.notify(message, **kwargs)
+        else:
+            ui.notify(message, **kwargs)
+    except RuntimeError:
+        return
+
+
+def _format_optional_instruction(instruction: str) -> str:
+    text = (instruction or "").strip()
+    if not text:
+        return ""
+    return f"追加指示:\n{text}\n\n"
+
+
+async def _adapt_character_to_world(
+    ctx,
+    profile_id: str,
+    sheet: CharacterSheet,
+    world: str,
+    additional_instruction: str,
+    apply_callback: Callable[[CharacterSheet], None],
+    page_client=None,
+    on_job_started: Callable[[str], None] | None = None,
+) -> None:
+    if not world.strip():
+        ui.notify("先にワールドを確定してください", type="warning")
+        return
+    llm = _configured_llm(ctx, profile_id)
+    if llm is None:
+        return
+
+    original_markdown = _base_character_markdown(sheet)
+
+    async def _runner() -> str:
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "あなたはキャラクターシートを別ワールド向けに調整する編集者です。"
+                "出力は更新後のMarkdown全文だけにしてください。"
+            )),
+            HumanMessage(content=(
+                "次のキャラクターが、確定ワールドに元々存在していた人物として自然に成立するように、"
+                "キャラクターシートを最小限改変してください。\n"
+                "グループ全体のワールドは別途保存されるため、世界観・舞台セクションは削除してください。\n"
+                "元の世界観情報も、確定ワールドの本文も、キャラクターシート内には残さないでください。\n"
+                "人物の名前、魅力、口調、主要な性格はできるだけ維持してください。\n"
+                "Markdownの見出し構造は可能な限り維持し、解説や差分説明は出力しないでください。\n\n"
+                f"確定ワールド:\n{world.strip()}\n\n"
+                f"{_format_optional_instruction(additional_instruction)}"
+                f"現在のキャラクターシートMarkdown:\n{original_markdown}"
+            )),
+        ])
+        return _clean_character_markdown_response(
+            message_content_to_text(getattr(response, "content", response))
+        )
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="キャラクターシート調整",
+        scope="group_setup:world_adapt",
+        metadata={"character_id": sheet.id},
+        runner=lambda _: _runner(),
+    )
+    if on_job_started is not None:
+        on_job_started(job.id)
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        _notify_on_client(page_client, "キャラクターシート調整を停止しました", type="info")
+        return
+    if finished.status != AIJobStatus.SUCCEEDED:
+        _notify_on_client(
+            page_client,
+            f"キャラクターシート調整に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
+        )
+        return
+    updated_markdown = _remove_markdown_section(str(finished.result or "").strip(), "世界観・舞台")
+    if not updated_markdown:
+        _notify_on_client(page_client, "キャラクターシートを調整できませんでした", type="warning")
+        return
+    await _open_character_adaptation_preview_dialog(
+        sheet,
+        original_markdown,
+        updated_markdown,
+        apply_callback,
+        page_client,
+    )
+
+
+def _clean_character_markdown_response(raw: str) -> str:
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:markdown|md)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text).strip()
+    parsed = _try_parse_json_fragment(text)
+    if parsed is not None:
+        text = _longest_json_string(parsed) or text
+    return text.strip()
+
+
+async def _open_character_adaptation_preview_dialog(
+    sheet: CharacterSheet,
+    original_markdown: str,
+    updated_markdown: str,
+    apply_callback: Callable[[CharacterSheet], None],
+    page_client=None,
+) -> None:
+    diff_html = _build_group_diff_html(original_markdown, updated_markdown)
+    try:
+        if page_client is not None and not getattr(page_client, "_deleted", False):
+            with page_client:
+                with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl"):
+                    ui.label("キャラクターシート調整の確認").classes("text-base font-semibold")
+                    ui.label(f"「{sheet.name}」をワールドに馴染む内容へ変更します。").classes("text-sm text-grey-6")
+                    ui.html(diff_html).classes("w-full")
+
+                    def _approve() -> None:
+                        updated = _sheet_from_markdown_preserving(sheet, updated_markdown)
+                        dlg.close()
+                        apply_callback(updated)
+                        _notify_on_client(page_client, "キャラクターシート調整を反映しました", type="positive")
+
+                    with ui.row().classes("justify-end gap-2 mt-4"):
+                        ui.button("キャンセル", on_click=dlg.close).props("flat")
+                        ui.button("反映", icon="check", on_click=_approve).props("color=primary unelevated")
+                dlg.open()
+        else:
+            raise RuntimeError("client is not available")
+    except RuntimeError:
+        _notify_on_client(page_client, "調整結果の確認画面を開けませんでした", type="warning")
+
+
+async def _adapt_user_persona_to_world(
+    ctx,
+    profile_id: str,
+    display_name: str,
+    description: str,
+    world: str,
+    additional_instruction: str,
+    apply_callback: Callable[[str], None],
+    page_client=None,
+    on_job_started: Callable[[str], None] | None = None,
+) -> None:
+    if not world.strip():
+        ui.notify("先にワールドを確定してください", type="warning")
+        return
+    llm = _configured_llm(ctx, profile_id)
+    if llm is None:
+        return
+
+    current_description = (description or "").strip()
+
+    async def _runner() -> str:
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "あなたはユーザーペルソナ設定をグループチャット用に調整する編集者です。"
+                "出力は更新後の説明文だけにしてください。"
+            )),
+            HumanMessage(content=(
+                "次のユーザーペルソナが、確定ワールドに元々存在していた人物として自然に成立するように、"
+                "説明文を最小限改変してください。\n"
+                "ユーザーペルソナはキャラクターシート化しません。見出し、箇条書き、解説、差分説明は出力しないでください。\n"
+                "名前、口調、主要な人格や役割はできるだけ維持してください。\n"
+                "元の世界観情報がある場合は、確定ワールドの住人として矛盾しない内容に置き換えてください。\n\n"
+                f"表示名: {display_name}\n"
+                f"確定ワールド:\n{world.strip()}\n\n"
+                f"{_format_optional_instruction(additional_instruction)}"
+                f"現在のユーザーペルソナ説明:\n{current_description or '未設定'}"
+            )),
+        ])
+        return _clean_persona_description_response(
+            message_content_to_text(getattr(response, "content", response))
+        )
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="ユーザーペルソナ調整",
+        scope="group_setup:user_world_adapt",
+        metadata={"display_name": display_name},
+        runner=lambda _: _runner(),
+    )
+    if on_job_started is not None:
+        on_job_started(job.id)
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        _notify_on_client(page_client, "ユーザーペルソナ調整を停止しました", type="info")
+        return
+    if finished.status != AIJobStatus.SUCCEEDED:
+        _notify_on_client(
+            page_client,
+            f"ユーザーペルソナ調整に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
+        )
+        return
+    updated_description = str(finished.result or "").strip()
+    if not updated_description:
+        _notify_on_client(page_client, "ユーザーペルソナを調整できませんでした", type="warning")
+        return
+    await _open_user_persona_adaptation_preview_dialog(
+        display_name,
+        current_description,
+        updated_description,
+        apply_callback,
+        page_client,
+    )
+
+
+def _clean_persona_description_response(raw: str) -> str:
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:markdown|md)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text).strip()
+    parsed = _try_parse_json_fragment(text)
+    if parsed is not None:
+        text = _longest_json_string(parsed) or text
+    text = re.sub(r"^(?:説明|ユーザーペルソナ|更新後の説明)\s*[:：]\s*", "", text.strip())
+    return text.strip(" \t\r\n\"'「」『』")
+
+
+async def _open_user_persona_adaptation_preview_dialog(
+    display_name: str,
+    current_description: str,
+    updated_description: str,
+    apply_callback: Callable[[str], None],
+    page_client=None,
+) -> None:
+    diff_html = _build_group_diff_html(current_description, updated_description)
+    try:
+        if page_client is not None and not getattr(page_client, "_deleted", False):
+            with page_client:
+                with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl"):
+                    ui.label("ユーザーペルソナ調整の確認").classes("text-base font-semibold")
+                    ui.label(f"「{display_name}」をワールドに馴染む説明へ変更します。").classes("text-sm text-grey-6")
+                    ui.html(diff_html).classes("w-full")
+
+                    def _approve() -> None:
+                        dlg.close()
+                        apply_callback(updated_description)
+                        _notify_on_client(page_client, "ユーザーペルソナ調整を反映しました", type="positive")
+
+                    with ui.row().classes("justify-end gap-2 mt-4"):
+                        ui.button("キャンセル", on_click=dlg.close).props("flat")
+                        ui.button("反映", icon="check", on_click=_approve).props("color=primary unelevated")
+                dlg.open()
+        else:
+            raise RuntimeError("client is not available")
+    except RuntimeError:
+        _notify_on_client(page_client, "調整結果の確認画面を開けませんでした", type="warning")
+
+
+def _build_group_diff_html(old_text: str, new_text: str) -> str:
+    old_lines = old_text.splitlines()
+    new_lines = new_text.splitlines()
+    diff = list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=2))
+    if not diff:
+        return "<p style='color:#6b7280;font-style:italic;padding:8px;'>変更なし</p>"
+    parts = [
+        "<div style='font-family:monospace;font-size:12px;line-height:1.6;"
+        "white-space:pre-wrap;word-break:break-all;'>"
+    ]
+    for line in diff:
+        if line.startswith("---") or line.startswith("+++"):
+            continue
+        if line.startswith("@@"):
+            parts.append(
+                "<div style='color:#6b7280;background:#f3f4f6;"
+                f"padding:2px 6px;border-radius:3px;margin:4px 0;'>{_html.escape(line)}</div>"
+            )
+        elif line.startswith("+"):
+            parts.append(
+                "<div style='background:#dcfce7;color:#166534;padding:1px 6px;'>"
+                f"+ {_html.escape(line[1:])}</div>"
+            )
+        elif line.startswith("-"):
+            parts.append(
+                "<div style='background:#fee2e2;color:#991b1b;padding:1px 6px;'>"
+                f"- {_html.escape(line[1:])}</div>"
+            )
+        else:
+            text = line[1:] if line.startswith(" ") else line
+            parts.append(
+                f"<div style='color:#9ca3af;padding:1px 6px;'>&nbsp; {_html.escape(text)}</div>"
+            )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+async def _generate_arrival_reason(
+    ctx,
+    profile_id: str,
+    display_name: str,
+    world: str,
+    summary: str,
+    page_client=None,
+    on_job_started: Callable[[str], None] | None = None,
+) -> str:
+    if not world.strip():
+        ui.notify("先にワールドを確定してください", type="warning")
+        return ""
+    llm = _configured_llm(ctx, profile_id)
+    if llm is None:
+        return ""
+
+    async def _runner() -> str:
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "あなたはグループチャット用の来訪理由を作る編集者です。"
+                "出力は理由本文だけにしてください。"
+            )),
+            HumanMessage(content=(
+                "参加者が次のワールドに来た理由を、短く自然に補完してください。\n"
+                "1〜3文で、会話に使いやすい具体性にしてください。"
+                "見出し、箇条書き、引用符、解説は出力しないでください。\n\n"
+                f"参加者: {display_name}\n"
+                f"参加者概要:\n{summary or '未設定'}\n\n"
+                f"ワールド:\n{world.strip()}"
+            )),
+        ])
+        return _clean_arrival_reason_response(
+            message_content_to_text(getattr(response, "content", response))
+        )
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="来訪理由補完",
+        scope="group_setup:arrival_reason",
+        metadata={"display_name": display_name},
+        runner=lambda _: _runner(),
+    )
+    if on_job_started is not None:
+        on_job_started(job.id)
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        _notify_on_client(page_client, "来訪理由補完を停止しました", type="info")
+        return ""
+    if finished.status != AIJobStatus.SUCCEEDED:
+        _notify_on_client(
+            page_client,
+            f"来訪理由補完に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
+        )
+        return ""
+    reason = str(finished.result or "").strip()
+    if not reason:
+        _notify_on_client(page_client, "来訪理由を補完できませんでした", type="warning")
+        return ""
+    _notify_on_client(page_client, "来訪理由を補完しました", type="positive")
+    return reason
+
+
+def _clean_arrival_reason_response(raw: str) -> str:
+    text = clean_short_llm_text(raw)
+    text = re.sub(r"^(?:来訪理由|理由|補完結果)\s*[:：]\s*", "", text.strip())
+    return text.strip(" \t\r\n\"'「」『』")
+
+
+def _open_relationship_draft_dialog(
+    state: dict[str, Any],
+    options: dict[str, str],
+    relationship: dict[str, str] | None,
+    render_step: Callable[[], None],
+    *,
+    ctx=None,
+    profile_id: str = "",
+    world: str = "",
+    participants: list[dict[str, str]] | None = None,
+    page_client=None,
+    begin_busy: Callable[[str], None] | None = None,
+    set_busy_job: Callable[[str], None] | None = None,
+    end_busy: Callable[[], None] | None = None,
+) -> None:
+    if len(options) < 2:
+        ui.notify("関係性を設定できる参加者が足りません", type="warning")
+        return
+    keys = list(options)
+    first_value = relationship["participant_a_key"] if relationship else keys[0]
+    second_value = relationship["participant_b_key"] if relationship else keys[1]
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
+        ui.label("関係性を編集" if relationship else "関係性を追加").classes("text-base font-semibold")
+        first_select = ui.select(
+            options=options,
+            value=first_value if first_value in options else keys[0],
+            label="参加者1",
+        ).props("outlined dense").classes("w-full")
+        second_select = ui.select(
+            options=options,
+            value=second_value if second_value in options else keys[1],
+            label="参加者2",
+        ).props("outlined dense").classes("w-full")
+        with ui.element("div").classes("cs-group-world-field"):
+            description_input = ui.textarea(
+                label="関係性",
+                value=relationship["description"] if relationship else "",
+                placeholder="例: 幼なじみだが、現在は互いに距離を測っている。",
+            ).props("outlined rows=5").classes("w-full")
+
+            async def _enhance_relationship_click() -> None:
+                if ctx is None:
+                    return
+                if begin_busy is not None:
+                    begin_busy("関係性を補完しています...")
+                try:
+                    enhanced = await _enhance_relationship_description(
+                        ctx,
+                        profile_id,
+                        world,
+                        participants or [],
+                        str(first_select.value or ""),
+                        str(second_select.value or ""),
+                        str(description_input.value or ""),
+                        page_client,
+                        on_job_started=set_busy_job,
+                    )
+                    if enhanced:
+                        description_input.set_value(enhanced)
+                finally:
+                    if end_busy is not None:
+                        end_busy()
+
+            ui.button(
+                icon="auto_awesome",
+                on_click=_enhance_relationship_click,
+            ).props("flat round dense size=sm").classes("cs-group-world-enhance").tooltip(
+                "関係性を補完"
+            )
+
+        def _save() -> None:
+            first_key = str(first_select.value or "")
+            second_key = str(second_select.value or "")
+            description = str(description_input.value or "").strip()
+            if not first_key or not second_key:
+                ui.notify("参加者を選択してください", type="warning")
+                return
+            if first_key == second_key:
+                ui.notify("異なる2人を選択してください", type="warning")
+                return
+            if not description:
+                ui.notify("関係性を入力してください", type="warning")
+                return
+            item = {
+                "id": relationship["id"] if relationship else _next_relationship_draft_id(state),
+                "participant_a_key": first_key,
+                "participant_b_key": second_key,
+                "description": description,
+            }
+            _upsert_relationship_draft(state, item)
+            dlg.close()
+            render_step()
+
+        with ui.row().classes("justify-end gap-2 mt-4"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            ui.button("保存", icon="save", on_click=_save).props("color=primary unelevated")
+    dlg.open()
+
+
+async def _enhance_relationship_description(
+    ctx,
+    profile_id: str,
+    world: str,
+    participants: list[dict[str, str]],
+    first_key: str,
+    second_key: str,
+    current_description: str,
+    page_client=None,
+    on_job_started: Callable[[str], None] | None = None,
+) -> str:
+    current = current_description.strip()
+    if not current:
+        ui.notify("先に関係性を入力してください", type="warning")
+        return ""
+    if not first_key or not second_key:
+        ui.notify("参加者を選択してください", type="warning")
+        return ""
+    if first_key == second_key:
+        ui.notify("異なる2人を選択してください", type="warning")
+        return ""
+    llm = _configured_llm(ctx, profile_id)
+    if llm is None:
+        return ""
+
+    participant_map = {str(item.get("key") or ""): item for item in participants}
+    first = participant_map.get(first_key, {"key": first_key, "name": first_key})
+    second = participant_map.get(second_key, {"key": second_key, "name": second_key})
+
+    async def _runner() -> str:
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "あなたはグループチャット用の関係性設定を整える編集者です。"
+                "出力は補完後の関係性本文だけにしてください。"
+                "箇条書き、解説、前置き、タイトルは禁止です。"
+            )),
+            HumanMessage(content=(
+                "既存の入力内容を核にして、矛盾を増やさず具体性だけ補ってください。"
+                "会話中に使いやすい短めの関係性説明にしてください。\n\n"
+                f"ワールド:\n{world or '未設定'}\n\n"
+                f"参加者1:\n{json.dumps(first, ensure_ascii=False)}\n\n"
+                f"参加者2:\n{json.dumps(second, ensure_ascii=False)}\n\n"
+                f"現在の関係性:\n{current}"
+            )),
+        ])
+        return message_content_to_text(getattr(response, "content", response))
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="関係性補完",
+        scope="group_setup:relationship_enhance",
+        metadata={"participant_a_key": first_key, "participant_b_key": second_key},
+        runner=lambda _: _runner(),
+    )
+    if on_job_started is not None:
+        on_job_started(job.id)
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        _notify_on_client(page_client, "関係性補完を停止しました", type="info")
+        return ""
+    if finished.status != AIJobStatus.SUCCEEDED:
+        _notify_on_client(
+            page_client,
+            f"関係性補完に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
+        )
+        return ""
+    enhanced = _clean_relationship_enhancement(str(finished.result or ""))
+    if not enhanced:
+        _notify_on_client(page_client, "関係性を補完できませんでした", type="warning")
+        return ""
+    _notify_on_client(page_client, "関係性を補完しました", type="positive")
+    return enhanced
+
+
+def _clean_relationship_enhancement(raw: str) -> str:
+    text = _clean_group_situation_enhancement(raw)
+    text = re.sub(r"^(?:関係性|関係|補完結果)\s*[:：]\s*", "", text.strip())
+    return text.strip(" \t\r\n\"'「」『』")
+
+
+def _delete_relationship_draft(
+    state: dict[str, Any],
+    relationship_id: str,
+    render_step: Callable[[], None],
+) -> None:
+    state["relationships"] = [
+        item for item in state.get("relationships", [])
+        if str(item.get("id")) != relationship_id
+    ]
+    render_step()
+
+
+async def _generate_relationship_drafts(
+    ctx,
+    profile_id: str,
+    characters: list[CharacterSheet],
+    persona,
+    world: str,
+    state: dict[str, Any],
+    page_client=None,
+    on_job_started: Callable[[str], None] | None = None,
+) -> list[dict[str, str]]:
+    llm = _configured_llm(ctx, profile_id)
+    if llm is None:
+        return []
+
+    participants = _relationship_draft_participants(characters, persona, state)
+    if len(participants) < 2:
+        ui.notify("関係性を自動設定できる参加者が足りません", type="warning")
+        return []
+    valid_keys = {item["key"] for item in participants}
+
+    async def _runner() -> list[dict[str, str]]:
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "あなたはグループチャット用の参加者関係性を設計する編集者です。"
+                "出力はJSONのみです。"
+            )),
+            HumanMessage(content=(
+                "参加キャラクターとユーザーペルソナの関係性を設定してください。\n"
+                "各参加者につき最大2人までとの関係にしてください。\n"
+                "全員を無理に総当たりにせず、会話が動きやすい重要な関係だけを作ってください。\n"
+                "重複ペアと自分自身との関係は禁止です。\n"
+                "participant_a_key / participant_b_key には入力参加者の key をそのまま使ってください。\n"
+                "出力形式: {\"relationships\":[{\"participant_a_key\":\"character:...\","
+                "\"participant_b_key\":\"user\",\"description\":\"...\"}]}\n\n"
+                f"ワールド:\n{world or '未設定'}\n\n"
+                f"参加者:\n{json.dumps(participants, ensure_ascii=False)}"
+            )),
+        ])
+        raw = message_content_to_text(getattr(response, "content", response))
+        parsed = _parse_relationship_draft_response(raw, participants)
+        return _limit_relationship_drafts(
+            parsed,
+            valid_keys,
+            existing=state.get("relationships", []),
+            max_per_participant=2,
+        )
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="関係性自動設定",
+        scope="group_setup:relationships",
+        metadata={"participant_count": len(participants)},
+        runner=lambda _: _runner(),
+    )
+    if on_job_started is not None:
+        on_job_started(job.id)
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        _notify_on_client(page_client, "関係性自動設定を停止しました", type="info")
+        return []
+    if finished.status != AIJobStatus.SUCCEEDED:
+        _notify_on_client(
+            page_client,
+            f"関係性自動設定に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
+        )
+        return []
+    generated = list(finished.result or [])
+    if not generated:
+        _notify_on_client(page_client, "関係性を自動設定できませんでした", type="warning")
+        return []
+    for item in generated:
+        item["id"] = _next_relationship_draft_id(state)
+    _notify_on_client(page_client, "関係性を自動設定しました", type="positive")
+    return generated
+
+
+def _relationship_draft_participants(
+    characters: list[CharacterSheet],
+    persona,
+    state: dict[str, Any],
+) -> list[dict[str, str]]:
+    participants = [
+        {
+            "key": f"character:{sheet.id}",
+            "id": sheet.id,
+            "name": sheet.name,
+            "summary": _compact_character_summary(sheet),
+            "kind": "character",
+            "world_entry_type": state.get("entry_modes", {}).get(f"character:{sheet.id}", "native"),
+            "arrival_reason": state.get("arrival_reasons", {}).get(f"character:{sheet.id}", ""),
+            "adaptation_note": state.get("adaptation_notes", {}).get(f"character:{sheet.id}", ""),
+        }
+        for sheet in characters
+    ]
+    if persona is not None:
+        participants.append({
+            "key": "user",
+            "id": str(getattr(persona, "id", "") or "user"),
+            "name": str(getattr(persona, "display_name", "") or getattr(persona, "name", "") or "ユーザー"),
+            "summary": str(state.get("user_description_draft") or getattr(persona, "description", "") or ""),
+            "kind": "user_persona",
+            "world_entry_type": state.get("entry_modes", {}).get("user", "native"),
+            "arrival_reason": state.get("arrival_reasons", {}).get("user", ""),
+            "adaptation_note": state.get("adaptation_notes", {}).get("user", ""),
+        })
+    return participants
+
+
+def _parse_relationship_draft_response(
+    raw: str,
+    participants: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    parsed = _try_parse_json_fragment(raw)
+    if parsed is None:
+        return []
+    items = parsed.get("relationships") if isinstance(parsed, dict) else parsed
+    if not isinstance(items, list):
+        return []
+
+    key_by_identifier: dict[str, str] = {}
+    for item in participants:
+        key = item["key"]
+        key_by_identifier[key] = key
+        key_by_identifier[item["id"]] = key
+        key_by_identifier[item["name"]] = key
+
+    drafts: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        first = _relationship_key_from_item(
+            item,
+            key_by_identifier,
+            ("participant_a_key", "a_key", "character_a_key", "participant_a", "a", "character_a_id", "character_a", "from"),
+        )
+        second = _relationship_key_from_item(
+            item,
+            key_by_identifier,
+            ("participant_b_key", "b_key", "character_b_key", "participant_b", "b", "character_b_id", "character_b", "to"),
+        )
+        description = str(
+            item.get("description")
+            or item.get("relationship")
+            or item.get("relation")
+            or item.get("summary")
+            or ""
+        ).strip()
+        if first and second and description:
+            drafts.append({
+                "id": "",
+                "participant_a_key": first,
+                "participant_b_key": second,
+                "description": description,
+            })
+    return drafts
+
+
+def _relationship_key_from_item(
+    item: dict[str, Any],
+    key_by_identifier: dict[str, str],
+    candidate_keys: tuple[str, ...],
+) -> str:
+    for key in candidate_keys:
+        value = item.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text in key_by_identifier:
+            return key_by_identifier[text]
+        if text.startswith("character:") and text in key_by_identifier:
+            return text
+    return ""
+
+
+def _limit_relationship_drafts(
+    drafts: list[dict[str, str]],
+    valid_keys: set[str],
+    *,
+    existing: list[dict[str, str]] | None = None,
+    max_per_participant: int = 2,
+) -> list[dict[str, str]]:
+    counts: dict[str, int] = {key: 0 for key in valid_keys}
+    seen_pairs: set[frozenset[str]] = set()
+    for item in existing or []:
+        first = str(item.get("participant_a_key") or "")
+        second = str(item.get("participant_b_key") or "")
+        if first not in valid_keys or second not in valid_keys or first == second:
+            continue
+        seen_pairs.add(frozenset({first, second}))
+        counts[first] = counts.get(first, 0) + 1
+        counts[second] = counts.get(second, 0) + 1
+
+    result: list[dict[str, str]] = []
+    for item in drafts:
+        first = str(item.get("participant_a_key") or "")
+        second = str(item.get("participant_b_key") or "")
+        description = str(item.get("description") or "").strip()
+        if first not in valid_keys or second not in valid_keys or first == second or not description:
+            continue
+        pair_key = frozenset({first, second})
+        if pair_key in seen_pairs:
+            continue
+        if counts.get(first, 0) >= max_per_participant or counts.get(second, 0) >= max_per_participant:
+            continue
+        seen_pairs.add(pair_key)
+        counts[first] = counts.get(first, 0) + 1
+        counts[second] = counts.get(second, 0) + 1
+        result.append({
+            "id": str(item.get("id") or ""),
+            "participant_a_key": first,
+            "participant_b_key": second,
+            "description": description,
+        })
+    return result
+
+
+def _merge_relationship_drafts(
+    state: dict[str, Any],
+    relationships: list[dict[str, str]],
+) -> None:
+    for relationship in relationships:
+        _upsert_relationship_draft(state, relationship)
+
+
+def _upsert_relationship_draft(state: dict[str, Any], relationship: dict[str, str]) -> None:
+    pair_key = frozenset({
+        relationship["participant_a_key"],
+        relationship["participant_b_key"],
+    })
+    relationship_id = str(relationship["id"])
+    next_items: list[dict[str, str]] = []
+    inserted = False
+    for item in state.get("relationships", []):
+        item_id = str(item.get("id") or "")
+        item_pair = frozenset({
+            str(item.get("participant_a_key") or ""),
+            str(item.get("participant_b_key") or ""),
+        })
+        if item_id == relationship_id:
+            next_items.append(relationship)
+            inserted = True
+        elif item_pair == pair_key:
+            continue
+        else:
+            next_items.append(item)
+    if not inserted:
+        next_items.append(relationship)
+    state["relationships"] = next_items
+
+
+def _next_relationship_draft_id(state: dict[str, Any]) -> str:
+    state["relationship_sequence"] = int(state.get("relationship_sequence", 0)) + 1
+    return f"draft-{state['relationship_sequence']}"
 
 
 def _render_section_head(icon: str, title: str) -> None:
@@ -1211,6 +3331,7 @@ class GroupChatPageController:
         self.settings: dict[str, Any] | None = None
         self.messages: list[dict[str, Any]] = []
         self.input_mode = "user"
+        self.guest_input_name = ""
         self.sending = False
         self.tts_generating_index: int | None = None
         self.last_speaker_debug: ChatDebugInfo | None = None
@@ -1292,8 +3413,20 @@ class GroupChatPageController:
                     active_tab=self.selected["tab"],
                     select_profile=self.select_profile,
                     select_tab=self.select_tab,
+                    on_group_updated=self.apply_group_update,
                     compact=compact,
                 )
+
+    def apply_group_update(self, group: GroupChatRecord) -> None:
+        self.group = group
+        self.participants = _group_participants(group)
+        if self.participants and not any(
+            participant["key"] == self.selected["key"]
+            for participant in self.participants
+        ):
+            self.selected["key"] = self.participants[0]["key"]
+        self.refresh_profiles()
+        self.refresh_mention_palette()
 
     def mention_participants(self) -> list[dict[str, Any]]:
         active_ids: set[str] | None = None
@@ -1462,19 +3595,12 @@ class GroupChatPageController:
             with ui.column().classes("gap-0 cs-chat-main-title"):
                 self.title_label = ui.label(self.chat_title()).classes("text-base font-bold")
                 self.subtitle_label = ui.label(self.chat_subtitle()).classes("text-xs text-grey-6")
-            with ui.row().classes("items-center gap-1"):
-                ui.button(icon="article", on_click=self.open_system_prompt_dialog).props(
-                    "flat round dense"
-                ).tooltip("システムプロンプト")
-                ui.button(icon="edit", on_click=self.open_rename_current_chat_dialog).props(
-                    "flat round dense"
-                ).tooltip("タイトル変更")
-                ui.button(icon="delete", on_click=self.confirm_delete_current_chat).props(
-                    "flat round dense color=negative"
-                ).tooltip("チャット削除")
-                ui.button(icon="add", on_click=self.open_new_chat_dialog).props(
-                    "flat round dense"
-                ).tooltip("新しいチャット")
+            chat_components.render_chat_header_menu(
+                open_new_chat_dialog=self.open_new_chat_dialog,
+                open_system_prompt=self.open_system_prompt_dialog,
+                open_rename_current_chat=self.open_rename_current_chat_dialog,
+                confirm_delete_current_chat=self.confirm_delete_current_chat,
+            )
 
         with ui.element("div").classes("cs-chat-messages") as messages_container:
             self.messages_container = messages_container
@@ -1752,6 +3878,15 @@ event => {
                                     f"{member.character.name} / @{member.handle}"
                                 ).classes("cs-group-menu-option-label")
                                 ui.element("span")
+                        with ui.element("button").props("type=button").classes(
+                            "cs-group-menu-option"
+                        ).on(
+                            "click",
+                            lambda _: self.open_guest_input_mode_dialog(),
+                        ):
+                            _render_group_role_icon("guest")
+                            ui.label("ゲスト").classes("cs-group-menu-option-label")
+                            ui.element("span")
                 with ui.element("button").props("type=button").classes("cs-group-menu-option").on(
                     "click",
                     lambda _: self.set_input_mode("narration"),
@@ -1768,13 +3903,53 @@ event => {
                     ui.element("span")
 
     def set_input_mode(self, mode: str) -> None:
-        self.input_mode = mode if mode in {"user", "character", "narration", "memo"} else "user"
+        self.input_mode = mode if mode in {"user", "character", "guest", "narration", "memo"} else "user"
+        if self.input_mode != "guest":
+            self.guest_input_name = ""
         self.refresh_input_mode_indicator()
 
     def set_character_input_member(self, member: GroupMember) -> None:
         self.selected["key"] = f"member:{member.id}"
         self.set_input_mode("character")
         self.refresh_profiles()
+
+    def set_guest_input_mode(self, guest_name: str) -> None:
+        name = _clean_guest_name(guest_name)
+        if not name:
+            ui.notify("ゲスト名を入力してください", type="warning")
+            return
+        self.guest_input_name = name
+        self.input_mode = "guest"
+        self.refresh_input_mode_indicator()
+
+    def open_guest_input_mode_dialog(self, left_text: str = "") -> None:
+        with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
+            ui.label("ゲスト入力").classes("text-base font-semibold")
+            name_input = ui.input(
+                label="ゲスト名",
+                value=self.guest_input_name,
+                placeholder="例: 酒場のマスター",
+            ).props("outlined dense clearable").classes("w-full")
+
+            def _apply() -> None:
+                name = _clean_guest_name(str(name_input.value or ""))
+                if not name:
+                    ui.notify("ゲスト名を入力してください", type="warning")
+                    return
+                self.set_guest_input_mode(name)
+                if left_text:
+                    self.set_input_value(left_text.rstrip())
+                self.focus_chat_input_at_end()
+                dlg.close()
+                ui.notify(f"{_guest_display_name(name)}入力モードにしました", type="info")
+
+            with ui.row().classes("justify-end gap-2 mt-4"):
+                ui.button("キャンセル", on_click=dlg.close).props("flat")
+                ui.button("選択", icon="person_add", on_click=_apply).props(
+                    "color=primary unelevated"
+                )
+        dlg.open()
+        ui.timer(0.1, lambda: name_input.run_method("focus"), once=True)
 
     def refresh_input_mode_indicator(self) -> None:
         if self.input_mode_icon is None:
@@ -1901,6 +4076,7 @@ event => {
         self.settings = dict(session.settings or {})
         self.messages = [dict(message) for message in session.messages if isinstance(message, dict)]
         self.input_mode = "user"
+        self.guest_input_name = ""
         self.sending = False
         self.tts_generating_index = None
         self.threads = [self.thread_preview(current) for current in self.sessions_by_id.values()]
@@ -1914,6 +4090,7 @@ event => {
         self.settings = None
         self.messages = []
         self.input_mode = "user"
+        self.guest_input_name = ""
         self.sending = False
         self.tts_generating_index = None
         self.threads = [self.thread_preview(current) for current in self.sessions_by_id.values()]
@@ -2016,12 +4193,14 @@ event => {
             return
         message = self.messages[index]
         role = str(message.get("role", ""))
-        if role not in {"character", "user", "narration", "memo"}:
+        if role not in {"character", "guest", "user", "narration", "memo"}:
             return
         self.messages = self.messages[:index]
         if self.input_box is not None:
             self.input_box.set_value(str(message.get("text", "")))
             self.input_box.enable()
+        if role == "guest":
+            self.guest_input_name = _clean_guest_name(str(message.get("guest_name") or message.get("speaker_name") or ""))
         self.set_input_mode(_group_input_mode_for_role(role))
         self.set_sending(False)
         self.tts_generating_index = None
@@ -2036,7 +4215,7 @@ event => {
             return
         message = self.messages[index]
         role = str(message.get("role", ""))
-        if role not in {"character", "user", "narration", "memo"}:
+        if role not in {"character", "guest", "user", "narration", "memo"}:
             return
 
         target_label = _group_message_target_label(role)
@@ -2068,7 +4247,7 @@ event => {
             return
         message = self.messages[index]
         role = str(message.get("role", ""))
-        if role not in {"character", "user", "narration", "memo"}:
+        if role not in {"character", "guest", "user", "narration", "memo"}:
             return
         speaker_label = _group_message_target_label(role)
 
@@ -2484,6 +4663,16 @@ event => {
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session()
 
+    async def post_guest_input(self, text: str, guest_name: str | None = None) -> None:
+        name = _clean_guest_name(guest_name or self.guest_input_name)
+        if not name:
+            ui.notify("ゲスト名を入力してください", type="warning")
+            self.open_guest_input_mode_dialog(text)
+            return
+        self.messages.append(_group_message("guest", text, guest_name=name))
+        self.refresh_messages(scroll_to_bottom=True)
+        await self.save_current_session()
+
     async def post_hold_user_text(self, text: str) -> None:
         self.messages.append(_group_message("user", text, user=self.group.user_persona))
         self.refresh_messages(scroll_to_bottom=True)
@@ -2504,6 +4693,10 @@ event => {
             return
         if self.input_mode == "character":
             await self.post_character_input(text)
+            self.set_input_mode("user")
+            return
+        if self.input_mode == "guest":
+            await self.post_guest_input(text)
             self.set_input_mode("user")
             return
         await self.post_hold_user_text(text)
@@ -2618,6 +4811,7 @@ event => {
                     left_text,
                     input_mode=self.input_mode,
                     speaker=self._manual_character_speaker(),
+                    guest_name=self.guest_input_name,
                 )
             )
             return message_content_to_text(getattr(response, "content", response))
@@ -2652,6 +4846,7 @@ event => {
                     left_text,
                     input_mode=self.input_mode,
                     speaker=self._manual_character_speaker(),
+                    guest_name=self.guest_input_name,
                 )
             )
             return message_content_to_text(getattr(response, "content", response))
@@ -2679,6 +4874,7 @@ event => {
             return
         input_mode = self.input_mode
         speaker = self._manual_character_speaker()
+        guest_name = self.guest_input_name
 
         async def _runner() -> list[str]:
             response = await llm.ainvoke(
@@ -2689,6 +4885,7 @@ event => {
                     left_text,
                     input_mode=input_mode,
                     speaker=speaker,
+                    guest_name=guest_name,
                 )
             )
             raw = message_content_to_text(getattr(response, "content", response))
@@ -2792,122 +4989,371 @@ setTimeout(() => {
             self.clear_input()
 
         active = self.active_members()
-        selected_target = {"value": "character"}
-        presets = [
-            ("抽象的・曖昧な表現を避け、具体的な表現を用いる", "抽象的・曖昧な表現を避け、具体的な表現を用いる", "auto_awesome", "character"),
-            ("シーンを明確に進める描写(or セリフ)", "シーンを明確に進める描写(or セリフ)", "trending_flat", "character"),
-            ("場面を転換する(地の文のみ)", "場面を転換する", "alt_route", "narration"),
-        ]
+        active_ids = {member.id for member in active}
+        inactive = [member for member in self.group.members if member.id not in active_ids]
+        departure_state = {"value": False}
+        departure_checkbox: dict[str, Any] = {"ref": None}
+        actor_value_syncing = {"active": False}
+        guide_targets = {
+            "character": ("キャラクター（自動）", "character", "theater_comedy"),
+            "narrative": ("地の文", "narration", "auto_stories"),
+            "user": ("ユーザー", "user", "person"),
+        }
 
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-xl"):
+        def _resolve_actor_input(value: str) -> dict[str, Any] | None:
+            raw = (value or "").strip()
+            lowered = raw.lower()
+            guest_name = _guest_name_from_actor_text(raw)
+            if guest_name:
+                return {
+                    "kind": "guest",
+                    "active": False,
+                    "member": None,
+                    "guest_name": guest_name,
+                    "label": _guest_display_name(guest_name),
+                }
+            if lowered in {"character", "char", "キャラ", "キャラクター", "キャラクター（自動）"}:
+                return {"kind": "auto", "active": False, "member": None, "label": "キャラクター（自動）"}
+            if lowered in {"narrative", "narration", "地の文", "ナラティブ"}:
+                return {"kind": "narration", "active": False, "member": None, "label": "地の文"}
+            if lowered in {"user", "ユーザー"}:
+                return {"kind": "user", "active": False, "member": None, "label": "ユーザー"}
+            identifier = lowered.removeprefix("@")
+            for member in self.group.members:
+                if member.handle.lower() == identifier:
+                    return {
+                        "kind": "member",
+                        "active": member.id in active_ids,
+                        "member": member,
+                        "label": f"{member.character.name} / @{member.handle}",
+                    }
+                if raw and member.character.name == raw:
+                    return {
+                        "kind": "member",
+                        "active": member.id in active_ids,
+                        "member": member,
+                        "label": f"{member.character.name} / @{member.handle}",
+                    }
+            return None
+
+        def _actor_display_value(resolved: dict[str, Any]) -> str:
+            member = resolved.get("member")
+            if isinstance(member, GroupMember):
+                return member.character.name
+            if resolved.get("kind") == "guest":
+                return _guest_display_name(str(resolved.get("guest_name") or ""))
+            return str(resolved.get("label") or "")
+
+        def _actor_suggestions(value: str) -> list[dict[str, Any]]:
+            raw = (value or "").strip()
+            if not raw:
+                return []
+            resolved = _resolve_actor_input(raw)
+            if resolved is not None:
+                return []
+            query = raw.lower().removeprefix("@")
+            suggestions: list[dict[str, Any]] = []
+            if not raw.startswith("@"):
+                guest_suggestion = _guest_prefix_completion(raw)
+                if guest_suggestion is not None:
+                    suggestions.append(guest_suggestion)
+                for token, (label, kind, icon) in guide_targets.items():
+                    if token.startswith(query):
+                        suggestions.append({
+                            "value": token,
+                            "label": label,
+                            "state": "ロール",
+                            "kind": kind,
+                            "icon": icon,
+                            "member": None,
+                        })
+            if raw.startswith("@"):
+                for member in self.group.members:
+                    if (
+                        not query
+                        or member.handle.lower().startswith(query)
+                        or member.character.name.lower().startswith(query)
+                    ):
+                        suggestions.append({
+                            "value": f"@{member.handle}",
+                            "label": f"{member.character.name} / @{member.handle}",
+                            "state": "参加済み" if member.id in active_ids else "未参加",
+                            "kind": "member",
+                            "icon": "",
+                            "member": member,
+                        })
+            return suggestions[:8]
+
+        with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
             ui.label("次の行動").classes("text-base font-semibold")
-            ui.label("次の行動").classes("text-xs font-semibold text-grey-6")
-            with ui.element("button").props("type=button").classes("cs-group-select-trigger") as target_trigger:
-                target_visual = ui.element("div")
-                with ui.element("div").classes("min-w-0"):
-                    target_label = ui.label("").classes("cs-group-select-label")
-                    target_hint = ui.label("").classes("cs-group-select-hint")
-                ui.icon("expand_more").classes("text-grey-6")
-                with ui.menu().classes("cs-group-select-menu") as target_menu:
-                    with ui.element("button").props("type=button").classes(
-                        "cs-group-menu-option"
-                    ).on("click", lambda _: _choose_target("character")):
-                        _render_group_role_icon("character")
-                        ui.label("キャラ（自動）").classes("cs-group-menu-option-label")
-                        ui.element("span")
-                    for member in active:
+            ui.label("行動者").classes("text-xs font-semibold text-grey-6")
+            with ui.element("div").classes("cs-group-guide-actor-row"):
+                with ui.button().props(
+                    "flat dense unelevated aria-label=行動者を選択"
+                ).classes("cs-group-guide-actor-icon"):
+                    actor_icon = ui.element("div").classes("cs-group-guide-actor-icon-content")
+                    with ui.menu().classes("cs-chat-mode-menu") as target_menu:
+                        with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
+                            _render_group_role_icon("character")
+                            ui.label("キャラ").classes("cs-group-menu-option-label")
+                            ui.icon("chevron_right").classes("text-grey-6")
+                            with ui.menu().props('anchor="top end" self="top start"').classes(
+                                "cs-chat-mode-menu cs-group-character-submenu"
+                            ) as active_menu:
+                                with ui.element("button").props("type=button").classes(
+                                    "cs-group-menu-option"
+                                ).on("click", lambda _: _choose_actor("character", active_menu)):
+                                    _render_group_role_icon("character")
+                                    ui.label("自動").classes("cs-group-menu-option-label")
+                                    ui.element("span")
+                                if not active:
+                                    ui.label("参加済みキャラクターはいません").classes(
+                                        "text-xs text-grey-6 px-3 py-2"
+                                    )
+                                for member in active:
+                                    with ui.element("button").props("type=button").classes(
+                                        "cs-group-menu-option"
+                                    ).on(
+                                        "click",
+                                        lambda _, member=member: _choose_actor(
+                                            f"@{member.handle}",
+                                            active_menu,
+                                        ),
+                                    ):
+                                        _render_group_member_menu_face(self.ctx, member)
+                                        ui.label(
+                                            f"{member.character.name} / @{member.handle}"
+                                        ).classes("cs-group-menu-option-label")
+                                        ui.element("span")
+                                with ui.element("button").props("type=button").classes(
+                                    "cs-group-menu-option"
+                                ).on("click", lambda _: _open_guest_actor_dialog(active_menu)):
+                                    _render_group_role_icon("guest")
+                                    ui.label("ゲスト").classes("cs-group-menu-option-label")
+                                    ui.element("span")
+                        with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
+                            _render_group_role_icon("character")
+                            ui.label("未参加キャラ").classes("cs-group-menu-option-label")
+                            ui.icon("chevron_right").classes("text-grey-6")
+                            with ui.menu().props('anchor="top end" self="top start"').classes(
+                                "cs-chat-mode-menu cs-group-character-submenu"
+                            ) as inactive_menu:
+                                if not inactive:
+                                    ui.label("未参加キャラクターはいません").classes(
+                                        "text-xs text-grey-6 px-3 py-2"
+                                    )
+                                for member in inactive:
+                                    with ui.element("button").props("type=button").classes(
+                                        "cs-group-menu-option"
+                                    ).on(
+                                        "click",
+                                        lambda _, member=member: _choose_actor(
+                                            f"@{member.handle}",
+                                            inactive_menu,
+                                        ),
+                                    ):
+                                        _render_group_member_menu_face(self.ctx, member)
+                                        ui.label(
+                                            f"{member.character.name} / @{member.handle}"
+                                        ).classes("cs-group-menu-option-label")
+                                        ui.element("span")
                         with ui.element("button").props("type=button").classes(
                             "cs-group-menu-option"
-                        ).on("click", lambda _, member=member: _choose_target(f"character:{member.id}")):
-                            _render_group_member_menu_face(self.ctx, member)
-                            ui.label(
-                                f"{member.character.name} / @{member.handle}"
-                            ).classes("cs-group-menu-option-label")
+                        ).on("click", lambda _: _choose_actor("narrative")):
+                            _render_group_role_icon("narration")
+                            ui.label("地の文").classes("cs-group-menu-option-label")
                             ui.element("span")
-                    with ui.element("button").props("type=button").classes(
-                        "cs-group-menu-option"
-                    ).on("click", lambda _: _choose_target("narration")):
-                        _render_group_role_icon("narration")
-                        ui.label("地の文").classes("cs-group-menu-option-label")
-                        ui.element("span")
-                    with ui.element("button").props("type=button").classes(
-                        "cs-group-menu-option"
-                    ).on("click", lambda _: _choose_target("user")):
-                        _render_group_user_menu_face(self.ctx, self.group.user_persona)
-                        ui.label("ユーザー").classes("cs-group-menu-option-label")
-                        ui.element("span")
+                        with ui.element("button").props("type=button").classes(
+                            "cs-group-menu-option"
+                        ).on("click", lambda _: _choose_actor("user")):
+                            _render_group_user_menu_face(self.ctx, self.group.user_persona)
+                            ui.label("ユーザー").classes("cs-group-menu-option-label")
+                            ui.element("span")
+                with ui.element("div").classes("cs-group-guide-actor-wrap"):
+                    actor_input = ui.input(
+                        value="",
+                        placeholder="@handle / character / narrative / user / guest:",
+                    ).props("outlined dense clearable").classes("w-full")
+                    suggestion_box = ui.element("div").classes("cs-group-guide-suggestions hidden")
             direction_input = ui.textarea(
                 label="指示",
                 placeholder="キャラまたは地の文にだけ反映する任意の指示",
             ).props("outlined rows=4 autogrow").classes("w-full")
+            departure_container = ui.element("div").classes("w-full")
 
-            def _target_mode(value: str) -> str:
-                if value.startswith("character"):
-                    return "character"
-                return value
+            def _choose_actor(value: str, menu_to_close=None) -> None:
+                resolved = _resolve_actor_input(value)
+                actor_input.set_value(_actor_display_value(resolved) if resolved is not None else value)
+                suggestion_box.classes("hidden")
+                if menu_to_close is not None:
+                    menu_to_close.close()
+                target_menu.close()
+                _sync_actor_controls()
 
-            def _target_title(value: str) -> str:
-                if value == "character":
-                    return "キャラ（自動）"
-                if value == "narration":
-                    return "地の文"
-                if value == "user":
-                    return "ユーザー"
-                if value.startswith("character:"):
-                    member = self._member_by_id(value.split(":", 1)[1])
-                    if member is not None:
-                        return f"{member.character.name} / @{member.handle}"
-                return "キャラ"
+            def _open_guest_actor_dialog(menu_to_close=None) -> None:
+                with ui.dialog() as guest_dialog, ui.card().classes("w-full max-w-sm"):
+                    ui.label("ゲストを指定").classes("text-base font-semibold")
+                    guest_name_input = ui.input(
+                        label="ゲスト名",
+                        placeholder="例: 酒場のマスター",
+                    ).props("outlined dense clearable").classes("w-full")
 
-            def _render_target_visual(value: str) -> None:
-                if value.startswith("character:"):
-                    member = self._member_by_id(value.split(":", 1)[1])
-                    if member is not None:
+                    def _apply_guest() -> None:
+                        name = _clean_guest_name(str(guest_name_input.value or ""))
+                        if not name:
+                            ui.notify("ゲスト名を入力してください", type="warning")
+                            return
+                        guest_dialog.close()
+                        _choose_actor(_guest_display_name(name), menu_to_close)
+
+                    with ui.row().classes("justify-end gap-2 mt-4"):
+                        ui.button("キャンセル", on_click=guest_dialog.close).props("flat")
+                        ui.button("選択", icon="person_add", on_click=_apply_guest).props(
+                            "color=primary unelevated"
+                        )
+                guest_dialog.open()
+                ui.timer(0.1, lambda: guest_name_input.run_method("focus"), once=True)
+
+            def _render_suggestions() -> None:
+                suggestions = _actor_suggestions(str(actor_input.value or ""))
+                suggestion_box.clear()
+                if not suggestions:
+                    suggestion_box.classes("hidden")
+                    return
+                suggestion_box.classes(remove="hidden")
+                with suggestion_box:
+                    for index, suggestion in enumerate(suggestions):
+                        classes = "cs-group-guide-suggestion"
+                        if index == 0:
+                            classes += " cs-group-guide-suggestion-active"
+                        with ui.element("button").props("type=button").classes(
+                            classes
+                        ).on(
+                            "click",
+                            lambda _, value=suggestion["value"]: _choose_actor(value),
+                        ):
+                            member = suggestion.get("member")
+                            if isinstance(member, GroupMember):
+                                _render_group_member_menu_face(self.ctx, member)
+                            else:
+                                _render_group_role_icon(str(suggestion.get("kind") or "user"))
+                            ui.label(str(suggestion["label"])).classes(
+                                "cs-group-guide-suggestion-label"
+                            )
+                            ui.label(str(suggestion["state"])).classes(
+                                "cs-group-guide-suggestion-state"
+                            )
+                _position_group_actor_suggestions()
+
+            def _render_actor_icon(resolved: dict[str, Any] | None) -> None:
+                actor_icon.clear()
+                with actor_icon:
+                    if resolved is None:
+                        ui.icon("help_outline").classes("text-sm")
+                        return
+                    member = resolved.get("member")
+                    if isinstance(member, GroupMember):
                         _render_group_member_menu_face(self.ctx, member)
                         return
-                if value == "user":
-                    _render_group_user_menu_face(self.ctx, self.group.user_persona)
-                    return
-                _render_group_role_icon(_target_mode(value))
+                    kind = str(resolved.get("kind") or "")
+                    if kind == "auto":
+                        _render_group_role_icon("character")
+                    elif kind == "guest":
+                        _render_group_role_icon("guest")
+                    elif kind == "narration":
+                        _render_group_role_icon("narration")
+                    elif kind == "user":
+                        _render_group_user_menu_face(self.ctx, self.group.user_persona)
+                    else:
+                        ui.icon("help_outline").classes("text-sm")
 
-            def _sync_target() -> None:
-                value = selected_target["value"]
-                mode = _target_mode(value)
-                target_visual.clear()
-                with target_visual:
-                    _render_target_visual(value)
-                target_label.set_text(_target_title(value))
-                target_hint.set_text("次の発言者" if mode == "character" else "次のロール")
-                if mode == "user":
+            def _sync_actor_controls() -> None:
+                if actor_value_syncing["active"]:
+                    return
+                raw_actor_value = str(actor_input.value or "")
+                resolved = _resolve_actor_input(raw_actor_value)
+                if resolved is not None:
+                    display_value = _actor_display_value(resolved)
+                    is_typing_guest_prefix = (
+                        resolved.get("kind") == "guest"
+                        and re.match(r"^\s*guest\s*[:：]", raw_actor_value, flags=re.IGNORECASE) is not None
+                    )
+                    if not is_typing_guest_prefix and raw_actor_value.strip() != display_value:
+                        actor_value_syncing["active"] = True
+                        actor_input.set_value(display_value)
+                        actor_value_syncing["active"] = False
+                _render_actor_icon(resolved)
+                departure_container.clear()
+                if resolved is None:
+                    departure_state["value"] = False
+                    direction_input.enable()
+                    _render_suggestions()
+                    return
+                if resolved["kind"] == "user":
+                    departure_state["value"] = False
                     direction_input.set_value("")
                     direction_input.disable()
-                    return
-                direction_input.enable()
+                else:
+                    direction_input.enable()
+                if resolved["kind"] == "member" and resolved["active"]:
+                    with departure_container:
+                        checkbox = ui.checkbox(
+                            "退場させる",
+                            value=departure_state["value"],
+                        )
+                        departure_checkbox["ref"] = checkbox
+                        checkbox.on_value_change(
+                            lambda e: departure_state.update({"value": bool(e.value)})
+                        )
+                else:
+                    departure_state["value"] = False
+                    departure_checkbox["ref"] = None
+                _render_suggestions()
 
-            def _choose_target(value: str) -> None:
-                selected_target["value"] = value
-                _sync_target()
-                target_menu.close()
-
-            with ui.row().classes("gap-2 flex-wrap"):
-                for preset_label, preset_text, icon, target in presets:
-                    def _apply_preset(text=preset_text, target_mode=target) -> None:
-                        direction_input.set_value(text)
-                        selected_target["value"] = target_mode
-                        _sync_target()
-
-                    ui.button(
-                        preset_label,
-                        icon=icon,
-                        on_click=_apply_preset,
-                    ).props("outline size=sm color=primary").classes("cs-chat-guide-preset")
+            actor_input.on_value_change(lambda _: _sync_actor_controls())
+            actor_input.on(
+                "keydown",
+                js_handler="""
+event => {
+  const root = event.target.closest('.cs-group-guide-actor-wrap');
+  const box = root ? root.querySelector('.cs-group-guide-suggestions:not(.hidden)') : null;
+  const options = box ? Array.from(box.querySelectorAll('.cs-group-guide-suggestion')) : [];
+  if (!options.length) return;
+  const activeIndex = () => Math.max(0, options.findIndex(option => option.classList.contains('cs-group-guide-suggestion-active')));
+  const setActive = index => {
+    options.forEach((option, current) => {
+      const active = current === index;
+      option.classList.toggle('cs-group-guide-suggestion-active', active);
+      option.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (active) option.scrollIntoView({ block: 'nearest' });
+    });
+  };
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    const delta = event.key === 'ArrowDown' ? 1 : -1;
+    setActive((activeIndex() + delta + options.length) % options.length);
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    (options[activeIndex()] || options[0]).click();
+    return;
+  }
+  if (event.key === 'Escape') {
+    box.classList.add('hidden');
+  }
+}
+""",
+            )
 
             async def _run_directed_turn() -> None:
                 direction = (direction_input.value or "").strip()
-                target = selected_target["value"]
-                mode = _target_mode(target)
+                resolved = _resolve_actor_input(str(actor_input.value or ""))
+                if resolved is None:
+                    ui.notify("行動者を指定してください", type="warning")
+                    return
                 dlg.close()
-                if mode == "user":
+                if resolved["kind"] == "user":
                     if left_text.strip():
                         self.clear_input()
                         await self.post_hold_user_text(left_text.strip())
@@ -2915,85 +5361,343 @@ setTimeout(() => {
                         self.clear_input()
                         self.set_input_mode("user")
                     return
-                if mode == "narration":
+                if resolved["kind"] == "narration":
                     await self.run_describe_action(left_text, instruction=direction)
                     return
-                forced_speaker = None
-                if target.startswith("character:"):
-                    forced_speaker = self._member_by_id(target.split(":", 1)[1])
                 if left_text.strip():
                     await self.post_command_left_text(left_text)
                 else:
                     self.clear_input()
+                if resolved["kind"] == "auto":
+                    await self.append_character_turn(turn_instruction=direction)
+                    return
+                if resolved["kind"] == "guest":
+                    await self.append_guest_turn(
+                        str(resolved.get("guest_name") or ""),
+                        turn_instruction=direction,
+                    )
+                    return
+                member = resolved.get("member")
+                if not isinstance(member, GroupMember):
+                    ui.notify("行動者を指定してください", type="warning")
+                    return
+                if not resolved["active"]:
+                    await self.append_guided_member_turn(
+                        member,
+                        turn_instruction=direction,
+                        membership_action="join",
+                    )
+                    return
+                if departure_state["value"]:
+                    await self.append_guided_member_turn(
+                        member,
+                        turn_instruction=direction,
+                        membership_action="leave",
+                    )
+                    return
                 await self.append_character_turn(
-                    speaker=forced_speaker,
+                    speaker=member,
                     turn_instruction=direction,
                 )
 
-            _sync_target()
+            _sync_actor_controls()
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
                 ui.button("実行", icon="play_arrow", on_click=_run_directed_turn).props(
                     "color=primary unelevated"
                 )
         dlg.open()
+        ui.timer(0.1, lambda: actor_input.run_method("focus"), once=True)
 
     def open_imitate_character_dialog(self, left_text: str = "") -> None:
         active = self.active_members()
-        if not active:
-            ui.notify("参加キャラがいません", type="warning")
-            return
-        current = self._manual_character_speaker() or active[0]
-        selected_member = {"value": current.id}
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-md"):
+        active_ids = {member.id for member in active}
+        inactive = [member for member in self.group.members if member.id not in active_ids]
+        actor_value_syncing = {"active": False}
+
+        def _resolve_actor_input(value: str) -> dict[str, Any] | None:
+            raw = (value or "").strip()
+            guest_name = _guest_name_from_actor_text(raw)
+            if guest_name:
+                return {
+                    "kind": "guest",
+                    "member": None,
+                    "active": False,
+                    "guest_name": guest_name,
+                    "label": _guest_display_name(guest_name),
+                }
+            identifier = raw.lower().removeprefix("@")
+            for member in self.group.members:
+                if member.handle.lower() == identifier or member.character.name == raw:
+                    return {
+                        "kind": "member",
+                        "member": member,
+                        "active": member.id in active_ids,
+                        "label": f"{member.character.name} / @{member.handle}",
+                    }
+            return None
+
+        def _actor_display_value(resolved: dict[str, Any]) -> str:
+            member = resolved.get("member")
+            if isinstance(member, GroupMember):
+                return member.character.name
+            if resolved.get("kind") == "guest":
+                return _guest_display_name(str(resolved.get("guest_name") or ""))
+            return str(resolved.get("label") or "")
+
+        def _actor_suggestions(value: str) -> list[dict[str, Any]]:
+            raw = (value or "").strip()
+            if not raw or _resolve_actor_input(raw) is not None:
+                return []
+            query = raw.lower().removeprefix("@")
+            suggestions: list[dict[str, Any]] = []
+            if not raw.startswith("@"):
+                guest_suggestion = _guest_prefix_completion(raw)
+                if guest_suggestion is not None:
+                    suggestions.append(guest_suggestion)
+            if raw.startswith("@"):
+                for member in self.group.members:
+                    if (
+                        not query
+                        or member.handle.lower().startswith(query)
+                        or member.character.name.lower().startswith(query)
+                    ):
+                        suggestions.append({
+                            "value": f"@{member.handle}",
+                            "label": f"{member.character.name} / @{member.handle}",
+                            "state": "参加済み" if member.id in active_ids else "未参加",
+                            "kind": "member",
+                            "member": member,
+                        })
+            return suggestions[:8]
+
+        with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
             ui.label("キャラクター入力").classes("text-base font-semibold")
-            ui.label("発言するキャラ").classes("text-xs font-semibold text-grey-6")
-            with ui.element("button").props("type=button").classes("cs-group-select-trigger"):
-                member_visual = ui.element("div")
-                with ui.element("div").classes("min-w-0"):
-                    member_label = ui.label("").classes("cs-group-select-label")
-                    member_hint = ui.label("").classes("cs-group-select-hint")
-                ui.icon("expand_more").classes("text-grey-6")
-                with ui.menu().classes("cs-group-select-menu") as member_menu:
-                    for member in active:
-                        with ui.element("button").props("type=button").classes(
-                            "cs-group-menu-option"
-                        ).on("click", lambda _, member=member: _choose_member(member.id)):
-                            _render_group_member_menu_face(self.ctx, member)
-                            ui.label(
-                                f"{member.character.name} / @{member.handle}"
-                            ).classes("cs-group-menu-option-label")
-                            ui.element("span")
+            ui.label("発言者").classes("text-xs font-semibold text-grey-6")
+            with ui.element("div").classes("cs-group-guide-actor-row"):
+                with ui.button().props(
+                    "flat dense unelevated aria-label=発言者を選択"
+                ).classes("cs-group-guide-actor-icon"):
+                    actor_icon = ui.element("div").classes("cs-group-guide-actor-icon-content")
+                    with ui.menu().classes("cs-chat-mode-menu") as actor_menu:
+                        with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
+                            _render_group_role_icon("character")
+                            ui.label("キャラ").classes("cs-group-menu-option-label")
+                            ui.icon("chevron_right").classes("text-grey-6")
+                            with ui.menu().props('anchor="top end" self="top start"').classes(
+                                "cs-chat-mode-menu cs-group-character-submenu"
+                            ) as character_menu:
+                                if not active:
+                                    ui.label("参加済みキャラクターはいません").classes(
+                                        "text-xs text-grey-6 px-3 py-2"
+                                    )
+                                for member in active:
+                                    with ui.element("button").props("type=button").classes(
+                                        "cs-group-menu-option"
+                                    ).on(
+                                        "click",
+                                        lambda _, member=member: _choose_actor(
+                                            f"@{member.handle}",
+                                            character_menu,
+                                        ),
+                                    ):
+                                        _render_group_member_menu_face(self.ctx, member)
+                                        ui.label(
+                                            f"{member.character.name} / @{member.handle}"
+                                        ).classes("cs-group-menu-option-label")
+                                        ui.element("span")
+                                if inactive:
+                                    for member in inactive:
+                                        with ui.element("button").props("type=button").classes(
+                                            "cs-group-menu-option"
+                                        ).on(
+                                            "click",
+                                            lambda _, member=member: _choose_actor(
+                                                f"@{member.handle}",
+                                                character_menu,
+                                            ),
+                                        ):
+                                            _render_group_member_menu_face(self.ctx, member)
+                                            ui.label(
+                                                f"{member.character.name} / @{member.handle}"
+                                            ).classes("cs-group-menu-option-label")
+                                            ui.label("未参加").classes("text-xs text-grey-6")
+                                with ui.element("button").props("type=button").classes(
+                                    "cs-group-menu-option"
+                                ).on("click", lambda _: _open_guest_actor_dialog(character_menu)):
+                                    _render_group_role_icon("guest")
+                                    ui.label("ゲスト").classes("cs-group-menu-option-label")
+                                    ui.element("span")
+                with ui.element("div").classes("cs-group-guide-actor-wrap"):
+                    actor_input = ui.input(
+                        value="",
+                        placeholder="@handle / guest:酒場のマスター",
+                    ).props("outlined dense clearable").classes("w-full")
+                    suggestion_box = ui.element("div").classes("cs-group-guide-suggestions hidden")
 
-            def _render_member_selected() -> None:
-                member = self._member_by_id(selected_member["value"]) or active[0]
-                member_visual.clear()
-                with member_visual:
-                    _render_group_member_menu_face(self.ctx, member)
-                member_label.set_text(f"{member.character.name} / @{member.handle}")
-                member_hint.set_text("キャラクター発言")
+            def _choose_actor(value: str, menu_to_close=None) -> None:
+                resolved = _resolve_actor_input(value)
+                actor_input.set_value(_actor_display_value(resolved) if resolved is not None else value)
+                suggestion_box.classes("hidden")
+                if menu_to_close is not None:
+                    menu_to_close.close()
+                actor_menu.close()
+                _sync_actor_controls()
 
-            def _choose_member(member_id: str) -> None:
-                selected_member["value"] = member_id
-                _render_member_selected()
-                member_menu.close()
+            def _open_guest_actor_dialog(menu_to_close=None) -> None:
+                with ui.dialog() as guest_dialog, ui.card().classes("w-full max-w-sm"):
+                    ui.label("ゲストを指定").classes("text-base font-semibold")
+                    guest_name_input = ui.input(
+                        label="ゲスト名",
+                        placeholder="例: 酒場のマスター",
+                    ).props("outlined dense clearable").classes("w-full")
 
-            def _apply() -> None:
-                member = self._member_by_id(selected_member["value"])
-                if member is not None:
+                    def _apply_guest() -> None:
+                        name = _clean_guest_name(str(guest_name_input.value or ""))
+                        if not name:
+                            ui.notify("ゲスト名を入力してください", type="warning")
+                            return
+                        guest_dialog.close()
+                        _choose_actor(_guest_display_name(name), menu_to_close)
+
+                    with ui.row().classes("justify-end gap-2 mt-4"):
+                        ui.button("キャンセル", on_click=guest_dialog.close).props("flat")
+                        ui.button("選択", icon="person_add", on_click=_apply_guest).props(
+                            "color=primary unelevated"
+                        )
+                guest_dialog.open()
+                ui.timer(0.1, lambda: guest_name_input.run_method("focus"), once=True)
+
+            def _render_suggestions() -> None:
+                suggestions = _actor_suggestions(str(actor_input.value or ""))
+                suggestion_box.clear()
+                if not suggestions:
+                    suggestion_box.classes("hidden")
+                    return
+                suggestion_box.classes(remove="hidden")
+                with suggestion_box:
+                    for index, suggestion in enumerate(suggestions):
+                        classes = "cs-group-guide-suggestion"
+                        if index == 0:
+                            classes += " cs-group-guide-suggestion-active"
+                        with ui.element("button").props("type=button").classes(classes).on(
+                            "click",
+                            lambda _, value=suggestion["value"]: _choose_actor(value),
+                        ):
+                            member = suggestion.get("member")
+                            if isinstance(member, GroupMember):
+                                _render_group_member_menu_face(self.ctx, member)
+                            else:
+                                _render_group_role_icon("guest")
+                            ui.label(str(suggestion["label"])).classes(
+                                "cs-group-guide-suggestion-label"
+                            )
+                            ui.label(str(suggestion["state"])).classes(
+                                "cs-group-guide-suggestion-state"
+                            )
+                _position_group_actor_suggestions()
+
+            def _render_actor_icon(resolved: dict[str, Any] | None) -> None:
+                actor_icon.clear()
+                with actor_icon:
+                    if resolved is None:
+                        ui.icon("help_outline").classes("text-sm")
+                        return
+                    member = resolved.get("member")
+                    if isinstance(member, GroupMember):
+                        _render_group_member_menu_face(self.ctx, member)
+                    elif resolved.get("kind") == "guest":
+                        _render_group_role_icon("guest")
+                    else:
+                        ui.icon("help_outline").classes("text-sm")
+
+            def _sync_actor_controls() -> None:
+                if actor_value_syncing["active"]:
+                    return
+                raw_actor_value = str(actor_input.value or "")
+                resolved = _resolve_actor_input(raw_actor_value)
+                if resolved is not None:
+                    display_value = _actor_display_value(resolved)
+                    is_typing_guest_prefix = (
+                        resolved.get("kind") == "guest"
+                        and re.match(r"^\s*guest\s*[:：]", raw_actor_value, flags=re.IGNORECASE) is not None
+                    )
+                    if not is_typing_guest_prefix and raw_actor_value.strip() != display_value:
+                        actor_value_syncing["active"] = True
+                        actor_input.set_value(display_value)
+                        actor_value_syncing["active"] = False
+                _render_actor_icon(resolved)
+                _render_suggestions()
+
+            actor_input.on_value_change(lambda _: _sync_actor_controls())
+            actor_input.on(
+                "keydown",
+                js_handler="""
+event => {
+  const root = event.target.closest('.cs-group-guide-actor-wrap');
+  const box = root ? root.querySelector('.cs-group-guide-suggestions:not(.hidden)') : null;
+  const options = box ? Array.from(box.querySelectorAll('.cs-group-guide-suggestion')) : [];
+  if (!options.length) return;
+  const activeIndex = () => Math.max(0, options.findIndex(option => option.classList.contains('cs-group-guide-suggestion-active')));
+  const setActive = index => {
+    options.forEach((option, current) => {
+      const active = current === index;
+      option.classList.toggle('cs-group-guide-suggestion-active', active);
+      option.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (active) option.scrollIntoView({ block: 'nearest' });
+    });
+  };
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    const delta = event.key === 'ArrowDown' ? 1 : -1;
+    setActive((activeIndex() + delta + options.length) % options.length);
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    (options[activeIndex()] || options[0]).click();
+    return;
+  }
+  if (event.key === 'Escape') {
+    box.classList.add('hidden');
+  }
+}
+""",
+            )
+
+            async def _apply() -> None:
+                resolved = _resolve_actor_input(str(actor_input.value or ""))
+                if resolved is None:
+                    ui.notify("発言者を指定してください", type="warning")
+                    return
+                if resolved["kind"] == "guest":
+                    self.set_guest_input_mode(str(resolved.get("guest_name") or ""))
+                else:
+                    member = resolved.get("member")
+                    if not isinstance(member, GroupMember):
+                        ui.notify("発言者を指定してください", type="warning")
+                        return
+                    if self.settings is not None and member.id not in _group_participant_ids(self.settings):
+                        self.settings = _settings_with_participant(self.settings, member.id)
+                        self.messages.append(_group_system_event_message(f"{member.character.name}が入場しました"))
+                        self.refresh_messages(scroll_to_bottom=True)
+                        await self.save_current_session(refresh_history=False)
+                        self.refresh_mention_palette()
+                        self.refresh_chat_header()
                     self.set_character_input_member(member)
                 self.set_input_value(left_text.rstrip())
                 self.focus_chat_input_at_end()
                 dlg.close()
-                ui.notify("キャラクター入力モードにしました", type="info")
+                ui.notify("入力モードにしました", type="info")
 
-            _render_member_selected()
+            _sync_actor_controls()
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
                 ui.button("選択", icon="theater_comedy", on_click=_apply).props(
                     "color=primary unelevated"
                 )
         dlg.open()
+        ui.timer(0.1, lambda: actor_input.run_method("focus"), once=True)
 
     async def execute_chat_command(self, left_text: str, query: str) -> None:
         command = resolve_chat_command(query)
@@ -3106,6 +5810,17 @@ setTimeout(() => {
             self.refresh_messages(scroll_to_bottom=True)
             await self.save_current_session()
             return
+        if self.input_mode == "guest":
+            name = _clean_guest_name(self.guest_input_name)
+            if not name:
+                ui.notify("ゲスト名を入力してください", type="warning")
+                self.open_guest_input_mode_dialog(text)
+                return
+            self.messages.append(_group_message("guest", text, guest_name=name))
+            self.set_input_mode("user")
+            self.refresh_messages(scroll_to_bottom=True)
+            await self.save_current_session()
+            return
 
         self.messages.append(_group_message("user", text, user=self.group.user_persona))
         self.set_input_mode("user")
@@ -3203,6 +5918,202 @@ setTimeout(() => {
         if generated_successfully:
             await self.maybe_generate_auto_title(llm)
 
+    async def append_guided_member_turn(
+        self,
+        speaker: GroupMember,
+        *,
+        turn_instruction: str = "",
+        membership_action: str = "",
+    ) -> None:
+        if self.settings is None:
+            ui.notify("先に「新しいチャット」を作成してください", type="warning")
+            self.open_new_chat_dialog()
+            return
+        if self.active_session_id is None:
+            return
+
+        current_settings = dict(self.settings)
+        current_ids = _group_participant_ids(current_settings)
+        if membership_action == "join":
+            if speaker.id in current_ids:
+                await self.append_character_turn(
+                    speaker=speaker,
+                    turn_instruction=turn_instruction,
+                )
+                return
+            generation_settings = _settings_with_participant(current_settings, speaker.id)
+            final_settings = dict(generation_settings)
+            pre_events = [_group_system_event_message(f"{speaker.character.name}が入場しました")]
+            post_events: list[dict[str, Any]] = []
+        elif membership_action == "leave":
+            if speaker.id not in current_ids:
+                ui.notify("退場させるキャラクターが現在のチャットに参加していません", type="warning")
+                return
+            if len(current_ids) <= 1:
+                ui.notify("参加キャラクターがいなくなるため退場できません", type="warning")
+                return
+            generation_settings = dict(current_settings)
+            final_settings = _settings_without_participant(current_settings, speaker.id)
+            pre_events = []
+            post_events = [_group_system_event_message(f"{speaker.character.name}が退場しました")]
+        else:
+            await self.append_character_turn(
+                speaker=speaker,
+                turn_instruction=turn_instruction,
+            )
+            return
+
+        llm = _configured_group_chat_llm(self.ctx, str(current_settings.get("profile_id", "")))
+        if llm is None:
+            return
+
+        original_messages = [dict(message) for message in self.messages]
+        original_settings = dict(current_settings)
+        prior_messages = [dict(message) for message in self.messages] + [
+            dict(message) for message in pre_events
+        ]
+        self.messages = prior_messages + [_group_message("character", "…", member=speaker)]
+        self.settings = dict(generation_settings)
+        self.refresh_messages(scroll_to_bottom=True)
+        self.refresh_mention_palette()
+
+        session_id = self.active_session_id
+        title = self.title
+        title_is_auto = self.active_title_is_auto
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[dict[str, Any]]:
+            base_messages = [dict(message) for message in prior_messages]
+            try:
+                self.messages = base_messages
+                generated = await self.build_character_message(
+                    llm,
+                    speaker,
+                    prior_messages=base_messages,
+                    turn_instruction=turn_instruction,
+                    settings=generation_settings,
+                )
+                messages = base_messages + [generated] + [
+                    dict(message) for message in post_events
+                ]
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=final_settings,
+                    messages=messages,
+                )
+                return messages
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=original_settings,
+                    messages=original_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_GROUP_CHAT,
+            label=f"{self.group.name or 'グループ'}の発言生成",
+            scope=self._active_group_chat_scope(),
+            metadata={"session_id": session_id, "group_id": self.group.id},
+            runner=_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        generated_successfully = await self._wait_for_active_group_job(
+            job.id,
+            failure_message="グループチャット生成に失敗しました",
+        )
+        self.set_input_mode("user")
+        if generated_successfully:
+            await self.maybe_generate_auto_title(llm)
+
+    async def append_guest_turn(
+        self,
+        guest_name: str,
+        *,
+        turn_instruction: str = "",
+    ) -> None:
+        name = _clean_guest_name(guest_name)
+        if not name:
+            ui.notify("ゲスト名を入力してください", type="warning")
+            return
+        if self.settings is None:
+            ui.notify("先に「新しいチャット」を作成してください", type="warning")
+            self.open_new_chat_dialog()
+            return
+        llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
+        if llm is None:
+            return
+        if self.active_session_id is None:
+            return
+
+        prior_messages = [dict(message) for message in self.messages]
+        self.messages.append(_group_message("guest", "…", guest_name=name))
+        self.refresh_messages(scroll_to_bottom=True)
+        session_id = self.active_session_id
+        title = self.title
+        title_is_auto = self.active_title_is_auto
+        settings_snapshot = dict(self.settings)
+        await self.save_current_session(refresh_history=False)
+
+        async def _runner(job) -> list[dict[str, Any]]:
+            try:
+                llm_messages = _build_group_guest_messages(
+                    self.group,
+                    settings_snapshot,
+                    prior_messages,
+                    name,
+                    turn_instruction=turn_instruction,
+                )
+                debug_input = format_llm_input(llm_messages)
+                response = await llm.ainvoke(llm_messages)
+                raw = message_content_to_text(getattr(response, "content", response))
+                reply = _sanitize_group_guest_reply(raw, name)
+                if not reply:
+                    reply = "……。"
+                messages = prior_messages + [_group_message(
+                    "guest",
+                    reply,
+                    guest_name=name,
+                    debug=build_debug_info(debug_input, raw, response),
+                )]
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings_snapshot,
+                    messages=messages,
+                )
+                return messages
+            except Exception:
+                await self._save_session_messages_snapshot(
+                    session_id=session_id,
+                    title=title,
+                    title_is_auto=title_is_auto,
+                    settings=settings_snapshot,
+                    messages=prior_messages,
+                )
+                raise
+
+        job = self.ctx.ai_jobs.start_job(
+            kind=AIJobKind.LLM_GROUP_CHAT,
+            label=f"{self.group.name or 'グループ'}のゲスト発言生成",
+            scope=self._active_group_chat_scope(),
+            metadata={"session_id": session_id, "group_id": self.group.id},
+            runner=_runner,
+        )
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        generated_successfully = await self._wait_for_active_group_job(
+            job.id,
+            failure_message="ゲスト発言生成に失敗しました",
+        )
+        self.set_input_mode("user")
+        if generated_successfully:
+            await self.maybe_generate_auto_title(llm)
+
     async def choose_next_speaker(self, llm, active: list[GroupMember]) -> GroupMember:
         last = _last_dialog_message(self.messages)
         if last is not None and last.get("role") == "user":
@@ -3231,6 +6142,7 @@ setTimeout(() => {
             f"- @{member.handle}: {member.character.name} / {member.character.occupation or '役割未設定'}"
             for member in candidates
         )
+        relationship_section = _format_group_relationship_section(self.group, self.settings or {})
         llm_messages = [
             SystemMessage(
                 content=(
@@ -3244,6 +6156,7 @@ setTimeout(() => {
                 content=(
                     f"世界観:\n{self.group.world or '未設定'}\n\n"
                     f"参加候補:\n{candidate_lines}\n\n"
+                    f"{relationship_section}"
                     f"会話履歴:\n{_format_group_history(self.messages)}\n\n"
                     "候補ごとの発言可能性を比率で出力してください。"
                     "明確に特定キャラへ向けた発言なら、そのキャラを高めにしてください。"
@@ -3270,10 +6183,11 @@ setTimeout(() => {
         speaker_debug: ChatDebugInfo | None = None,
         prior_messages: list[dict[str, Any]] | None = None,
         turn_instruction: str = "",
+        settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         llm_messages = _build_group_character_messages(
             self.group,
-            self.settings or {},
+            settings or self.settings or {},
             self.messages if prior_messages is None else prior_messages,
             speaker,
             turn_instruction=turn_instruction,
@@ -3431,6 +6345,10 @@ setTimeout(() => {
             f"- @{member.handle} / {member.character.name}: {_compact_character_summary(member.character)}"
             for member in active
         )
+        relationship_section = _format_group_relationship_section(
+            self.group,
+            {"participant_ids": participant_ids},
+        )
 
         async def _runner() -> str:
             response = await llm.ainvoke([
@@ -3448,6 +6366,7 @@ setTimeout(() => {
                         f"グループ名: {self.group.name}\n"
                         f"世界観:\n{self.group.world or '未設定'}\n\n"
                         f"参加キャラクター:\n{member_lines or 'なし'}\n\n"
+                        f"{relationship_section}"
                         f"現在のシチュエーション:\n{current}"
                     )
                 ),
@@ -3605,6 +6524,7 @@ setTimeout(() => {
 def _group_input_mode_icon(mode: str) -> str:
     return {
         "character": "theater_comedy",
+        "guest": "person_add",
         "narration": "auto_stories",
         "memo": "sticky_note_2",
         "user": "person",
@@ -3614,6 +6534,8 @@ def _group_input_mode_icon(mode: str) -> str:
 def _group_input_mode_for_role(role: str) -> str:
     if role == "character":
         return "character"
+    if role == "guest":
+        return "guest"
     if role == "narration":
         return "narration"
     if role == "memo":
@@ -3624,11 +6546,100 @@ def _group_input_mode_for_role(role: str) -> str:
 def _group_message_target_label(role: str) -> str:
     if role == "character":
         return "キャラクターの台詞"
+    if role == "guest":
+        return "ゲストの台詞"
     if role == "narration":
         return "地の文"
     if role == "memo":
         return "コメント"
     return "発言"
+
+
+def _group_participant_ids(settings: dict[str, Any]) -> list[str]:
+    return [str(member_id) for member_id in settings.get("participant_ids", [])]
+
+
+def _settings_with_participant(settings: dict[str, Any], member_id: str) -> dict[str, Any]:
+    next_settings = dict(settings)
+    ids = _group_participant_ids(next_settings)
+    if member_id not in ids:
+        ids.append(member_id)
+    next_settings["participant_ids"] = ids
+    return next_settings
+
+
+def _settings_without_participant(settings: dict[str, Any], member_id: str) -> dict[str, Any]:
+    next_settings = dict(settings)
+    next_settings["participant_ids"] = [
+        current_id for current_id in _group_participant_ids(next_settings)
+        if current_id != member_id
+    ]
+    return next_settings
+
+
+def _group_system_event_message(text: str) -> dict[str, Any]:
+    return _group_message("system", text)
+
+
+def _clean_guest_name(value: str) -> str:
+    text = (value or "").strip()
+    text = re.sub(r"^guest\s*[:：]\s*", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"\s*【ゲスト】\s*$", "", text).strip()
+    return text
+
+
+def _guest_name_from_actor_text(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    if re.match(r"^guest\s*[:：]", text, flags=re.IGNORECASE):
+        return _clean_guest_name(text)
+    if text.endswith("【ゲスト】"):
+        return _clean_guest_name(text)
+    return ""
+
+
+def _guest_display_name(name: str) -> str:
+    clean = _clean_guest_name(name)
+    return f"{clean}【ゲスト】" if clean else "ゲスト【ゲスト】"
+
+
+def _guest_prefix_completion(value: str) -> dict[str, Any] | None:
+    query = (value or "").strip().lower()
+    if not query or query.startswith("@"):
+        return None
+    if query == "guest:" or not "guest:".startswith(query):
+        return None
+    return {
+        "value": "guest:",
+        "label": "guest:",
+        "state": "ゲスト",
+        "kind": "guest",
+        "icon": "person_add",
+        "member": None,
+    }
+
+
+def _position_group_actor_suggestions() -> None:
+    ui.run_javascript(
+        """
+requestAnimationFrame(() => {
+  document.querySelectorAll('.cs-group-guide-actor-wrap').forEach(root => {
+    const box = root.querySelector('.cs-group-guide-suggestions:not(.hidden)');
+    const field = root.querySelector('.q-field');
+    if (!box || !field) return;
+    const rect = field.getBoundingClientRect();
+    const margin = 8;
+    const width = Math.max(220, Math.min(rect.width, window.innerWidth - margin * 2));
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+    const top = Math.min(rect.bottom + 4, window.innerHeight - margin);
+    box.style.setProperty('--cs-guide-suggestion-left', `${left}px`);
+    box.style.setProperty('--cs-guide-suggestion-top', `${top}px`);
+    box.style.setProperty('--cs-guide-suggestion-width', `${width}px`);
+  });
+});
+"""
+    )
 
 
 def _group_user_persona_tts_id(persona_id: str) -> str:
@@ -3641,6 +6652,7 @@ def _group_message(
     *,
     member: GroupMember | None = None,
     user: GroupUserPersona | None = None,
+    guest_name: str = "",
     debug: ChatDebugInfo | None = None,
     speaker_debug: ChatDebugInfo | None = None,
 ) -> dict[str, Any]:
@@ -3660,6 +6672,14 @@ def _group_message(
             "speaker_id": user.id,
             "speaker_name": user.display_name or user.name or "ユーザー",
             "handle": user.handle,
+        })
+    elif role == "guest":
+        clean_guest_name = _clean_guest_name(guest_name)
+        message.update({
+            "speaker_id": f"guest:{clean_guest_name}",
+            "speaker_name": _guest_display_name(clean_guest_name),
+            "guest_name": clean_guest_name,
+            "handle": "",
         })
     if debug is not None:
         message["debug"] = {
@@ -3746,12 +6766,28 @@ def _render_group_chat_message(
                     rewrite_message=rewrite_message,
                 )
         return
+    if role == "system":
+        with ui.element("div").classes(
+            "cs-chat-message-row cs-chat-message-row-narration cs-group-system-message"
+        ):
+            with ui.element("div").classes("cs-chat-bubble"):
+                ui.label("システム").classes("cs-chat-message-kind")
+                ui.label(text).classes("cs-chat-message-text")
+                _render_group_message_meta(
+                    message,
+                    index=index,
+                    rewind_message=rewind_message,
+                    rewrite_message=rewrite_message,
+                )
+        return
 
     row_class = "cs-chat-message-row-user" if role == "user" else "cs-chat-message-row-character"
     with ui.element("div").classes(f"cs-chat-message-row {row_class}"):
         participant = _participant_by_speaker_id(participants, str(message.get("speaker_id", "")))
         if role == "character" and participant is not None:
             _render_participant_face(ctx, participant)
+        elif role == "guest":
+            _render_group_guest_face()
         with ui.element("div").classes("cs-chat-bubble"):
             if speaker_name or handle:
                 speaker_label = speaker_name
@@ -3827,16 +6863,17 @@ def _render_group_message_meta(
                 ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
                     "発言者決定ログ"
                 )
-            if role in {"character", "user", "narration", "memo"} and rewrite_message is not None:
+            if role in {"character", "guest", "user", "narration", "memo"} and rewrite_message is not None:
                 ui.button(
                     icon="edit",
                     on_click=lambda i=index: rewrite_message(i),
                 ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
                     "この内容を書き換え"
                 )
-            if role in {"character", "user", "narration", "memo"} and rewind_message is not None:
+            if role in {"character", "guest", "user", "narration", "memo"} and rewind_message is not None:
                 rewind_tip = {
                     "character": "この台詞まで戻る",
+                    "guest": "この台詞まで戻る",
                     "narration": "この地の文まで戻る",
                     "memo": "このコメントまで戻る",
                 }.get(role, "この発言まで戻る")
@@ -3881,7 +6918,7 @@ def _latest_group_message_preview(messages: list[dict[str, Any]], *, limit: int 
 
 def _last_dialog_message(messages: list[dict[str, Any]]) -> dict[str, Any] | None:
     for message in reversed(messages):
-        if message.get("role") in {"user", "character"}:
+        if message.get("role") in {"user", "character", "guest"}:
             return message
     return None
 
@@ -4110,7 +7147,7 @@ def _configured_group_chat_llm(ctx, profile_id: str):
 def _format_group_history(messages: list[dict[str, Any]], *, limit: int | None = None) -> str:
     visible = [
         message for message in messages
-        if message.get("role") in {"user", "character", "narration"}
+        if message.get("role") in {"user", "character", "guest", "narration", "system"}
     ]
     if not visible:
         return "（まだ会話はありません）"
@@ -4120,13 +7157,20 @@ def _format_group_history(messages: list[dict[str, Any]], *, limit: int | None =
         role = message.get("role")
         if role == "narration":
             label = "地の文"
+        elif role == "system":
+            label = "システム"
         else:
             label = str(message.get("speaker_name") or "")
             handle = str(message.get("handle") or "")
             if handle:
                 label = f"{label}(@{handle})" if label else f"@{handle}"
             if not label:
-                label = "ユーザー" if role == "user" else "キャラクター"
+                if role == "user":
+                    label = "ユーザー"
+                elif role == "guest":
+                    label = "ゲスト"
+                else:
+                    label = "キャラクター"
         lines.append(f"{label}: {message.get('text', '')}")
     return "\n".join(lines)
 
@@ -4151,8 +7195,9 @@ def _build_group_system_prompt(
         f"世界観:\n{group.world or '未設定'}\n\n"
         f"ユーザー:\n@{user.handle if user else 'User'} / "
         f"{(user.display_name or user.name) if user else 'ユーザー'}\n"
-        f"{user.description if user else ''}\n\n"
+        f"{_group_user_persona_context(user)}\n\n"
         f"参加キャラクター:\n{active_overview or 'なし'}\n\n"
+        f"{_format_group_relationship_section(group, settings)}"
         f"今回の発言者:\n@{speaker.handle} / {speaker.character.name}\n"
         f"{character_summary(speaker.character)}\n\n"
         f"シチュエーション:\n{settings.get('situation', '') or '未設定'}"
@@ -4191,6 +7236,48 @@ def _build_group_character_messages(
     ]
 
 
+def _build_group_guest_messages(
+    group: GroupChatRecord,
+    settings: dict[str, Any],
+    messages: list[dict[str, Any]],
+    guest_name: str,
+    *,
+    turn_instruction: str = "",
+) -> list:
+    name = _clean_guest_name(guest_name)
+    instruction = turn_instruction.strip()
+    instruction_text = (
+        "\n\n次の返答だけに適用するメタ指示です。"
+        "この指示を作中で説明せず、返答本文にだけ反映してください。\n"
+        f"{instruction}"
+        if instruction
+        else ""
+    )
+    return [
+        SystemMessage(
+            content=(
+                "あなたはグループチャットの一時的なゲスト発言者を演じます。"
+                "指定されたゲスト本人の自然な発言本文だけを出力してください。"
+                "話者名、ハンドル、引用符、前置き、解説は出力しないでください。"
+                "発言は短く、1〜3文程度で場面に自然につながる内容にしてください。"
+            )
+        ),
+        HumanMessage(
+            content=(
+                f"グループ名: {group.name}\n"
+                f"世界観:\n{group.world or '未設定'}\n\n"
+                f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
+                f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
+                f"{_format_group_relationship_section(group, settings)}"
+                f"会話履歴:\n{_format_group_history(messages)}\n\n"
+                f"今回のゲスト発言者: {_guest_display_name(name)}\n"
+                "このゲストの自然な次の発言を、本文だけで返してください。"
+                f"{instruction_text}"
+            )
+        ),
+    ]
+
+
 def _build_group_narration_messages(
     group: GroupChatRecord,
     settings: dict[str, Any],
@@ -4213,6 +7300,7 @@ def _build_group_narration_messages(
                 f"世界観:\n{group.world or '未設定'}\n\n"
                 f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
+                f"{_format_group_relationship_section(group, settings)}"
                 f"会話履歴:\n{_format_group_history(messages)}\n\n"
                 f"指示: {instruction_line}\n"
                 "出力は地の文だけ。"
@@ -4229,11 +7317,13 @@ def _build_group_input_completion_messages(
     *,
     input_mode: str,
     speaker: GroupMember | None = None,
+    guest_name: str = "",
 ) -> list:
     target_label, system_instruction, character_context = _group_input_target_context(
         group,
         input_mode,
         speaker,
+        guest_name=guest_name,
     )
     return [
         SystemMessage(content=system_instruction),
@@ -4244,6 +7334,7 @@ def _build_group_input_completion_messages(
                 f"世界観:\n{group.world or '未設定'}\n"
                 f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
+                f"{_format_group_relationship_section(group, settings)}"
                 f"{character_context}"
                 f"会話履歴:\n{_format_group_history(messages)}\n\n"
                 f"未完の文:\n{left_text.rstrip()}\n\n"
@@ -4261,11 +7352,13 @@ def _build_group_tailored_input_messages(
     *,
     input_mode: str,
     speaker: GroupMember | None = None,
+    guest_name: str = "",
 ) -> list:
     target_label, system_instruction, character_context = _group_input_target_context(
         group,
         input_mode,
         speaker,
+        guest_name=guest_name,
         tailor=True,
     )
     return [
@@ -4277,6 +7370,7 @@ def _build_group_tailored_input_messages(
                 f"世界観:\n{group.world or '未設定'}\n"
                 f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
+                f"{_format_group_relationship_section(group, settings)}"
                 f"{character_context}"
                 f"会話履歴:\n{_format_group_history(messages)}\n\n"
                 f"書き換える文:\n{text.strip()}\n\n"
@@ -4295,11 +7389,13 @@ def _build_group_response_choice_messages(
     *,
     input_mode: str,
     speaker: GroupMember | None = None,
+    guest_name: str = "",
 ) -> list:
     target_label, system_instruction, character_context = _group_input_target_context(
         group,
         input_mode,
         speaker,
+        guest_name=guest_name,
         choices=True,
     )
     prefix = left_text.strip()
@@ -4313,6 +7409,7 @@ def _build_group_response_choice_messages(
                 f"世界観:\n{group.world or '未設定'}\n"
                 f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
+                f"{_format_group_relationship_section(group, settings)}"
                 f"{character_context}"
                 f"会話履歴:\n{_format_group_history(messages)}\n\n"
                 f"{prefix_line}\n"
@@ -4327,6 +7424,7 @@ def _group_input_target_context(
     input_mode: str,
     speaker: GroupMember | None,
     *,
+    guest_name: str = "",
     tailor: bool = False,
     choices: bool = False,
 ) -> tuple[str, str, str]:
@@ -4342,6 +7440,14 @@ def _group_input_target_context(
             "コメント",
             f"あなたはグループチャットログ上に残すコメントを{action}編集者です。会話本文ではなく、作者向けの短いメモとして自然な本文だけを出力してください。",
             "",
+        )
+    if input_mode == "guest":
+        clean_guest_name = _clean_guest_name(guest_name)
+        guest_label = _guest_display_name(clean_guest_name) if clean_guest_name else "ゲスト"
+        return (
+            f"ゲスト（{guest_label}）",
+            f"あなたはゲスト発言を{action}編集者です。指定されたゲスト本人の自然なセリフだけを短く出力してください。",
+            f"ゲスト発言者:\n{guest_label}\n\n",
         )
     if input_mode == "character":
         member = speaker or (group.members[0] if group.members else None)
@@ -4360,7 +7466,7 @@ def _group_input_target_context(
     return (
         f"ユーザー（{(user.display_name or user.name) if user else 'ユーザー'}）",
         f"あなたはユーザー発言を{action}編集者です。ユーザー本人の口調として自然につながる本文だけを短く出力してください。",
-        f"ユーザー設定:\n@{user.handle if user else 'User'} / {(user.display_name or user.name) if user else 'ユーザー'}\n{user.description if user else ''}\n\n",
+        f"ユーザー設定:\n@{user.handle if user else 'User'} / {(user.display_name or user.name) if user else 'ユーザー'}\n{_group_user_persona_context(user)}\n\n",
     )
 
 
@@ -4373,8 +7479,53 @@ def _format_group_participant_overview(group: GroupChatRecord, settings: dict[st
     ]
     if group.user_persona is not None:
         user = group.user_persona
-        lines.append(f"- @{user.handle} / {user.display_name or user.name or 'ユーザー'}: {user.description or 'ユーザー'}")
+        lines.append(f"- @{user.handle} / {user.display_name or user.name or 'ユーザー'}: {_group_user_persona_context(user)}")
     return "\n".join(lines) if lines else "なし"
+
+
+def _group_user_persona_context(user: GroupUserPersona | None) -> str:
+    if user is None:
+        return ""
+    lines = [(user.description or "ユーザー").strip()]
+    if user.world_entry_type == "visitor" and user.arrival_reason.strip():
+        lines.append(f"この世界に来た理由: {user.arrival_reason.strip()}")
+    return "\n".join(line for line in lines if line)
+
+
+def _format_group_relationship_section(group: GroupChatRecord, settings: dict[str, Any]) -> str:
+    relationships = _active_group_relationship_lines(group, settings)
+    if not relationships:
+        return ""
+    return "関係性:\n" + "\n".join(relationships) + "\n\n"
+
+
+def _active_group_relationship_lines(group: GroupChatRecord, settings: dict[str, Any]) -> list[str]:
+    active_keys = _active_group_participant_keys(group, settings)
+    labels = _group_participant_labels(group)
+    lines: list[str] = []
+    for relationship in group.relationships:
+        if relationship.participant_a_key not in active_keys:
+            continue
+        if relationship.participant_b_key not in active_keys:
+            continue
+        description = relationship.description.strip()
+        if not description:
+            continue
+        left = labels.get(relationship.participant_a_key)
+        right = labels.get(relationship.participant_b_key)
+        if not left or not right:
+            continue
+        lines.append(f"- {left} ↔ {right}: {description}")
+    return lines
+
+
+def _active_group_participant_keys(group: GroupChatRecord, settings: dict[str, Any]) -> set[str]:
+    participant_ids = {str(member_id) for member_id in settings.get("participant_ids", [])}
+    active_members = [member for member in group.members if member.id in participant_ids] or group.members
+    keys = {f"member:{member.id}" for member in active_members}
+    if group.user_persona is not None:
+        keys.add(f"user:{group.user_persona.id}")
+    return keys
 
 
 def _build_group_title_messages(group: GroupChatRecord, messages: list[dict[str, Any]]) -> list:
@@ -4390,6 +7541,7 @@ def _build_group_title_messages(group: GroupChatRecord, messages: list[dict[str,
             content=(
                 f"グループ名: {group.name}\n"
                 f"世界観:\n{group.world or '未設定'}\n\n"
+                f"{_format_group_relationship_section(group, {})}"
                 f"会話履歴:\n{_format_group_history(messages)}"
             )
         ),
@@ -4400,6 +7552,15 @@ def _sanitize_group_character_reply(raw: str, speaker: GroupMember) -> str:
     text = sanitize_character_reply(raw, speaker.character.name)
     text = re.sub(rf"^\s*@?{re.escape(speaker.handle)}\s*[：:\-]\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(rf"^\s*{re.escape(speaker.character.name)}\s*[：:\-]\s*", "", text)
+    text = text.strip(" \t\r\n\"'「」『』")
+    return text
+
+
+def _sanitize_group_guest_reply(raw: str, guest_name: str) -> str:
+    name = _clean_guest_name(guest_name)
+    text = sanitize_character_reply(raw, name)
+    text = re.sub(rf"^\s*{re.escape(_guest_display_name(name))}\s*[：:\-]\s*", "", text)
+    text = re.sub(rf"^\s*{re.escape(name)}\s*[：:\-]\s*", "", text)
     text = text.strip(" \t\r\n\"'「」『』")
     return text
 
@@ -4420,6 +7581,7 @@ def _render_group_profile_panel(
     active_tab: str,
     select_profile: Callable[[str], None],
     select_tab: Callable[[str], None],
+    on_group_updated: Callable[[GroupChatRecord], None] | None = None,
     compact: bool = False,
 ) -> None:
     if current is None:
@@ -4448,10 +7610,10 @@ def _render_group_profile_panel(
             world_tab.on("click", lambda _: select_tab("world"))
             with world_tab:
                 ui.icon("menu_book").classes("text-sm")
-                ui.label("世界観")
+                ui.label("ワールド")
 
         if active_tab == "world":
-            _render_group_world_panel(group)
+            _render_group_world_panel(ctx, group, on_group_updated)
             return
 
         style = _participant_media_style(ctx, current, rect_kind="bust")
@@ -4474,26 +7636,212 @@ def _render_group_profile_panel(
         with ui.element("div").classes("cs-group-handle"):
             ui.icon("alternate_email").classes("text-sm")
             ui.label(current["handle"])
-        ui.button(
-            "キャラクターを追加",
-            icon="person_add",
-            on_click=lambda: open_add_group_character_dialog(ctx, group),
-        ).props("outline dense").classes("cs-group-profile-add")
+        with ui.element("div").classes("cs-group-profile-actions"):
+            current_member = current.get("member")
+            if isinstance(current_member, GroupMember):
+                ui.button(
+                    "キャラクターシートを開く",
+                    icon="description",
+                    on_click=lambda member_id=current_member.id: ui.navigate.to(
+                        f"/groups/{group.id}/members/{member_id}"
+                    ),
+                ).props("outline dense").classes("cs-group-profile-action")
+            elif current.get("kind") == "user" and group.user_persona is not None:
+                ui.button(
+                    "ユーザーペルソナを開く",
+                    icon="badge",
+                    on_click=lambda: ui.navigate.to(f"/groups/{group.id}/persona"),
+                ).props("outline dense").classes("cs-group-profile-action")
+            ui.button(
+                "キャラクターを追加",
+                icon="person_add",
+                on_click=lambda: open_add_group_character_dialog(ctx, group),
+            ).props("outline dense").classes("cs-group-profile-action")
 
         with ui.element("div").classes("cs-group-profile-card"):
-            ui.label("キャラクター概要").classes("cs-group-profile-card-title")
+            is_user_profile = current.get("kind") == "user"
+            ui.label("ユーザーペルソナ概要" if is_user_profile else "キャラクター概要").classes(
+                "cs-group-profile-card-title"
+            )
             with ui.element("div").classes("cs-group-profile-grid"):
                 for label, value in _participant_profile_rows(current):
                     ui.label(label).classes("cs-group-profile-label")
                     ui.label(value or "未設定").classes("cs-group-profile-value")
-            ui.label("人物像").classes("cs-group-profile-card-title")
+            ui.label("説明" if is_user_profile else "人物像").classes("cs-group-profile-card-title")
             ui.label(_participant_profile_text(current)).classes("cs-group-profile-summary")
 
 
-def _render_group_world_panel(group: GroupChatRecord) -> None:
+def _render_group_world_panel(
+    ctx,
+    group: GroupChatRecord,
+    on_group_updated: Callable[[GroupChatRecord], None] | None = None,
+) -> None:
     with ui.element("div").classes("cs-group-profile-card"):
-        ui.label("世界観").classes("cs-group-profile-card-title")
+        ui.label("ワールド").classes("cs-group-profile-card-title")
         ui.label(group.world or "未設定").classes("cs-group-profile-summary")
+
+    with ui.element("div").classes("cs-group-profile-card"):
+        with ui.row().classes("items-center justify-between gap-2"):
+            ui.label("関係性").classes("cs-group-profile-card-title")
+            ui.button(
+                "追加",
+                icon="add",
+                on_click=lambda: _open_group_relationship_dialog(
+                    ctx,
+                    group,
+                    None,
+                    on_group_updated,
+                ),
+            ).props("outline dense").classes("cs-group-profile-action")
+
+        participants = _group_participants(group)
+        if len(participants) < 2:
+            ui.label("関係性を設定できる参加者が足りません").classes("cs-group-profile-summary")
+            return
+
+        labels = _group_participant_labels(group)
+        with ui.element("div").classes("cs-group-relationship-list"):
+            if not group.relationships:
+                ui.label("設定済みの関係性はありません").classes("cs-group-profile-summary")
+            for relationship in group.relationships:
+                _render_group_relationship_row(
+                    ctx,
+                    group,
+                    relationship,
+                    labels,
+                    on_group_updated,
+                )
+
+
+def _render_group_relationship_row(
+    ctx,
+    group: GroupChatRecord,
+    relationship: GroupRelationship,
+    labels: dict[str, str],
+    on_group_updated: Callable[[GroupChatRecord], None] | None,
+) -> None:
+    left = labels.get(relationship.participant_a_key, "不明な参加者")
+    right = labels.get(relationship.participant_b_key, "不明な参加者")
+    with ui.element("div").classes("cs-group-relationship-row"):
+        with ui.element("div").classes("cs-group-relationship-head"):
+            ui.label(f"{left} ↔ {right}").classes("cs-group-relationship-pair")
+            with ui.row().classes("items-center gap-1 shrink-0"):
+                ui.button(
+                    icon="edit",
+                    on_click=lambda: _open_group_relationship_dialog(
+                        ctx,
+                        group,
+                        relationship,
+                        on_group_updated,
+                    ),
+                ).props("flat round dense size=sm").tooltip("編集")
+                ui.button(
+                    icon="delete",
+                    on_click=lambda: _delete_group_relationship(
+                        ctx,
+                        group,
+                        relationship.id,
+                        on_group_updated,
+                    ),
+                ).props("flat round dense size=sm color=negative").tooltip("削除")
+        ui.label(relationship.description or "未設定").classes("cs-group-relationship-text")
+
+
+def _group_participant_labels(group: GroupChatRecord) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for participant in _group_participants(group):
+        name = str(participant.get("name") or "参加者")
+        handle = str(participant.get("handle") or "")
+        label = f"{name} (@{handle})" if handle else name
+        labels[str(participant["key"])] = label
+    return labels
+
+
+def _group_relationship_options(group: GroupChatRecord) -> dict[str, str]:
+    return _group_participant_labels(group)
+
+
+def _open_group_relationship_dialog(
+    ctx,
+    group: GroupChatRecord,
+    relationship: GroupRelationship | None,
+    on_group_updated: Callable[[GroupChatRecord], None] | None,
+) -> None:
+    options = _group_relationship_options(group)
+    if len(options) < 2:
+        ui.notify("関係性を設定できる参加者が足りません", type="warning")
+        return
+    default_keys = list(options)
+    first_value = relationship.participant_a_key if relationship else default_keys[0]
+    second_value = relationship.participant_b_key if relationship else default_keys[1]
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
+        ui.label("関係性を編集" if relationship else "関係性を追加").classes("text-base font-semibold")
+        first_select = ui.select(
+            options=options,
+            value=first_value if first_value in options else default_keys[0],
+            label="参加者1",
+        ).props("outlined dense").classes("w-full")
+        second_select = ui.select(
+            options=options,
+            value=second_value if second_value in options else default_keys[1],
+            label="参加者2",
+        ).props("outlined dense").classes("w-full")
+        description_input = ui.textarea(
+            label="関係性",
+            value=relationship.description if relationship else "",
+            placeholder="例: 幼なじみだが、現在は互いに距離を測っている。",
+        ).props("outlined rows=5").classes("w-full")
+
+        async def _save() -> None:
+            first_key = str(first_select.value or "")
+            second_key = str(second_select.value or "")
+            description = str(description_input.value or "").strip()
+            if not first_key or not second_key:
+                ui.notify("参加者を選択してください", type="warning")
+                return
+            if first_key == second_key:
+                ui.notify("異なる2人を選択してください", type="warning")
+                return
+            if not description:
+                ui.notify("関係性を入力してください", type="warning")
+                return
+            saved = await ctx.group_chats.save_relationship(
+                group.id,
+                GroupRelationship(
+                    id=relationship.id if relationship else "",
+                    participant_a_key=first_key,
+                    participant_b_key=second_key,
+                    description=description,
+                ),
+            )
+            if saved is None:
+                ui.notify("グループが見つかりませんでした", type="warning")
+                return
+            dlg.close()
+            ui.notify("関係性を保存しました", type="positive")
+            if on_group_updated is not None:
+                on_group_updated(saved)
+
+        with ui.row().classes("justify-end gap-2 mt-4"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            ui.button("保存", icon="save", on_click=_save).props("color=primary unelevated")
+    dlg.open()
+
+
+async def _delete_group_relationship(
+    ctx,
+    group: GroupChatRecord,
+    relationship_id: str,
+    on_group_updated: Callable[[GroupChatRecord], None] | None,
+) -> None:
+    saved = await ctx.group_chats.delete_relationship(group.id, relationship_id)
+    if saved is None:
+        ui.notify("グループが見つかりませんでした", type="warning")
+        return
+    ui.notify("関係性を削除しました", type="positive")
+    if on_group_updated is not None:
+        on_group_updated(saved)
 
 
 def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
@@ -4657,6 +8005,11 @@ def _render_group_user_menu_face(ctx, persona: GroupUserPersona | None) -> None:
     _render_participant_face(ctx, participant)
 
 
+def _render_group_guest_face() -> None:
+    with ui.element("div").classes("cs-group-face cs-group-face-guest"):
+        ui.icon(_group_input_mode_icon("guest")).classes("text-sm")
+
+
 def _render_group_role_icon(mode: str) -> None:
     with ui.element("div").classes("cs-group-select-role-icon"):
         ui.icon(_group_input_mode_icon(mode)).classes("text-sm")
@@ -4773,6 +8126,7 @@ async def _generate_handles(
     persona,
     handle_inputs: dict[str, Any],
     user_handle_input,
+    on_job_started: Callable[[str], None] | None = None,
 ) -> None:
     if not characters:
         ui.notify("キャラクターを選択してください", type="warning")
@@ -4823,6 +8177,8 @@ async def _generate_handles(
         metadata={"character_count": len(characters)},
         runner=lambda _: _runner(),
     )
+    if on_job_started is not None:
+        on_job_started(job.id)
     ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
     finished = await ctx.ai_jobs.wait(job.id)
     if finished.status == AIJobStatus.CANCELLED:
@@ -4857,6 +8213,7 @@ async def _enhance_world_click(
     persona,
     world_input,
     name_input,
+    on_job_started: Callable[[str], None] | None = None,
 ) -> None:
     current_world = (world_input.value or "").strip()
     if not current_world:
@@ -4891,6 +8248,8 @@ async def _enhance_world_click(
         metadata={"character_count": len(characters)},
         runner=lambda _: _runner(),
     )
+    if on_job_started is not None:
+        on_job_started(job.id)
     ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
     finished = await ctx.ai_jobs.wait(job.id)
     if finished.status == AIJobStatus.CANCELLED:
@@ -4915,6 +8274,90 @@ async def _enhance_world_click(
         return
     world_input.set_value(enhanced)
     ui.notify("世界観を補完しました", type="positive")
+
+
+async def _generate_group_name_from_world(
+    ctx,
+    profile_id: str,
+    world: str,
+    characters: list[CharacterSheet],
+    persona,
+    page_client=None,
+    on_job_started: Callable[[str], None] | None = None,
+) -> str:
+    current_world = (world or "").strip()
+    if not current_world:
+        ui.notify("先にワールドを入力してください", type="warning")
+        return ""
+    llm = _configured_llm(ctx, profile_id)
+    if llm is None:
+        return ""
+
+    participant_lines = "\n".join(
+        f"- {sheet.name}: {_compact_character_summary(sheet)}"
+        for sheet in characters
+    )
+    if persona is not None:
+        participant_lines += (
+            f"\n- {persona.display_name or persona.name or 'ユーザー'}: "
+            f"{getattr(persona, 'description', '') or 'ユーザー'}"
+        )
+
+    async def _runner() -> str:
+        response = await llm.ainvoke([
+            SystemMessage(content=(
+                "あなたはグループチャットの短いグループ名を作る編集者です。"
+                "出力はグループ名本文だけにしてください。"
+            )),
+            HumanMessage(content=(
+                "次のワールド説明から、グループチャットの名前を1つだけ作ってください。\n"
+                "制約: 8〜20文字程度、会話一覧で見分けやすい自然な日本語、引用符・句点・解説・前置きは禁止。\n"
+                "参加者名をそのまま並べるだけの名前は避け、ワールドの雰囲気や場を反映してください。\n\n"
+                f"ワールド:\n{current_world}\n\n"
+                f"参加者:\n{participant_lines or '未設定'}"
+            )),
+        ])
+        return message_content_to_text(getattr(response, "content", response))
+
+    job = ctx.ai_jobs.start_job(
+        kind=AIJobKind.LLM_ASSIST,
+        label="グループ名補完",
+        scope="group_setup:name",
+        metadata={"character_count": len(characters)},
+        runner=lambda _: _runner(),
+    )
+    if on_job_started is not None:
+        on_job_started(job.id)
+    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
+    finished = await ctx.ai_jobs.wait(job.id)
+    if finished.status == AIJobStatus.CANCELLED:
+        _notify_on_client(page_client, "グループ名補完を停止しました", type="info")
+        return ""
+    if finished.status != AIJobStatus.SUCCEEDED:
+        _notify_on_client(
+            page_client,
+            f"グループ名補完に失敗しました: {finished.error_message}",
+            type="negative",
+            timeout=10000,
+        )
+        return ""
+    name = _clean_generated_group_name(str(finished.result or ""))
+    if not name:
+        _notify_on_client(page_client, "グループ名を補完できませんでした", type="warning")
+        return ""
+    _notify_on_client(page_client, "グループ名を補完しました", type="positive")
+    return name
+
+
+def _clean_generated_group_name(raw: str) -> str:
+    text = (raw or "").strip()
+    text = re.sub(r"^```(?:\w+)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+    parsed = _try_parse_json(text)
+    if parsed is not None:
+        text = _longest_json_string(parsed) or text
+    text = _strip_possible_label_prefix(text.strip())
+    return sanitize_chat_title(text, max_chars=24)
 
 
 def _clean_world_enhancement(
