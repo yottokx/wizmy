@@ -133,20 +133,27 @@ class GroupChatService:
         self,
         group_id: str,
         members: list[tuple[CharacterSheet, str]],
+        member_world_settings: dict[str, dict[str, str]] | None = None,
     ) -> GroupChatRecord | None:
         group = await self._repo.get(group_id)
         if group is None:
             return None
 
-        added = [
-            GroupMember(
-                id=uuid.uuid4().hex,
-                source_character_id=sheet.id,
-                handle=handle,
-                character=sheet.model_copy(deep=True),
+        member_world_settings = member_world_settings or {}
+        added: list[GroupMember] = []
+        for sheet, handle in members:
+            settings = member_world_settings.get(sheet.id) or member_world_settings.get(f"character:{sheet.id}") or {}
+            added.append(
+                GroupMember(
+                    id=uuid.uuid4().hex,
+                    source_character_id=sheet.id,
+                    handle=handle,
+                    character=sheet.model_copy(deep=True),
+                    world_entry_type=settings.get("world_entry_type", ""),
+                    arrival_reason=settings.get("arrival_reason", ""),
+                    world_adaptation_note=settings.get("world_adaptation_note", ""),
+                )
             )
-            for sheet, handle in members
-        ]
         return await self._repo.save(
             group.model_copy(update={"members": [*group.members, *added]}, deep=True)
         )

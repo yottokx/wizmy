@@ -7761,6 +7761,35 @@ def _group_relationship_options(group: GroupChatRecord) -> dict[str, str]:
     return _group_participant_labels(group)
 
 
+def _group_relationship_enhancement_participants(group: GroupChatRecord) -> list[dict[str, str]]:
+    participants = [
+        {
+            "key": f"member:{member.id}",
+            "id": member.id,
+            "name": member.character.name,
+            "summary": _compact_character_summary(member.character),
+            "kind": "character",
+            "world_entry_type": member.world_entry_type,
+            "arrival_reason": member.arrival_reason,
+            "adaptation_note": member.world_adaptation_note,
+        }
+        for member in group.members
+    ]
+    if group.user_persona is not None:
+        user = group.user_persona
+        participants.append({
+            "key": f"user:{user.id}",
+            "id": user.id,
+            "name": user.display_name or user.name or "ユーザー",
+            "summary": _group_user_persona_context(user),
+            "kind": "user_persona",
+            "world_entry_type": user.world_entry_type,
+            "arrival_reason": user.arrival_reason,
+            "adaptation_note": user.world_adaptation_note,
+        })
+    return participants
+
+
 def _open_group_relationship_dialog(
     ctx,
     group: GroupChatRecord,
@@ -7787,11 +7816,32 @@ def _open_group_relationship_dialog(
             value=second_value if second_value in options else default_keys[1],
             label="参加者2",
         ).props("outlined dense").classes("w-full")
-        description_input = ui.textarea(
-            label="関係性",
-            value=relationship.description if relationship else "",
-            placeholder="例: 幼なじみだが、現在は互いに距離を測っている。",
-        ).props("outlined rows=5").classes("w-full")
+        with ui.element("div").classes("cs-group-world-field"):
+            description_input = ui.textarea(
+                label="関係性",
+                value=relationship.description if relationship else "",
+                placeholder="例: 幼なじみだが、現在は互いに距離を測っている。",
+            ).props("outlined rows=5").classes("w-full")
+
+            async def _enhance_relationship_click() -> None:
+                enhanced = await _enhance_relationship_description(
+                    ctx,
+                    group.completion_profile_id,
+                    group.world,
+                    _group_relationship_enhancement_participants(group),
+                    str(first_select.value or ""),
+                    str(second_select.value or ""),
+                    str(description_input.value or ""),
+                )
+                if enhanced:
+                    description_input.set_value(enhanced)
+
+            ui.button(
+                icon="auto_awesome",
+                on_click=_enhance_relationship_click,
+            ).props("flat round dense size=sm").classes("cs-group-world-enhance").tooltip(
+                "関係性を補完"
+            )
 
         async def _save() -> None:
             first_key = str(first_select.value or "")
@@ -7845,8 +7895,26 @@ async def _delete_group_relationship(
 
 
 def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
+    profiles = ctx.api_config.get_llm_profiles()
+    profile_options = _profile_options(ctx, profiles)
+    default_profile_id = (
+        group.completion_profile_id
+        if group.completion_profile_id in profile_options
+        else _default_profile_id(ctx, profile_options)
+    )
+    page_client = ui.context.client
     selected = {"characters": []}
     handle_inputs: dict[str, Any] = {}
+    controls: dict[str, Any] = {}
+    state: dict[str, Any] = {
+        "profile_id": default_profile_id,
+        "handle_values": {},
+        "entry_modes": {},
+        "arrival_reasons": {},
+        "adaptation_notes": {},
+        "adaptation_instructions": {},
+        "draft_sheets": {},
+    }
     existing_source_ids = {
         member.source_character_id or member.character.id
         for member in group.members
@@ -7857,7 +7925,8 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
         existing_handles.add(group.user_persona.handle.lower())
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl").style(
-        "max-width: min(700px, 94vw);"
+        "max-width: min(760px, 94vw); height: min(820px, 94vh); "
+        "display: flex; flex-direction: column;"
     ):
         with ui.row().classes("items-center justify-between w-full"):
             ui.label("キャラクター追加").classes("text-lg font-semibold")
@@ -7867,33 +7936,166 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
             "cs-group-note"
         )
 
-        selected_list = ui.element("div").classes("cs-group-selected-list")
+        with ui.scroll_area().style("flex: 1; min-height: 0; width: 100%;"):
+            body = ui.column().classes("w-full gap-3 pr-2")
+        nav = ui.row().classes("justify-end gap-2 mt-4")
+        busy_state: dict[str, Any] = {"active": False, "job_id": ""}
+        with ui.dialog().props("persistent") as busy_dialog, ui.card().classes(
+            "items-center gap-3 px-6 py-5"
+        ).style("min-width: min(320px, 86vw);"):
+            ui.spinner(size="lg")
+            busy_label = ui.label("処理中です").classes("text-sm font-semibold text-center")
+            busy_cancel_btn = ui.button(
+                "キャンセル",
+                icon="close",
+                on_click=lambda: _cancel_busy_job(),
+            ).props("outline color=negative")
+            busy_cancel_btn.disable()
 
-        def _refresh_selected_list() -> None:
+        def _participant_key(sheet: CharacterSheet) -> str:
+            return f"character:{sheet.id}"
+
+        def _world_text() -> str:
+            return (group.world or "").strip()
+
+        def _capture_inputs() -> None:
+            if "profile_select" in controls:
+                state["profile_id"] = str(controls["profile_select"].value or "")
             previous_handles = {
                 character_id: str(input_.value or "")
                 for character_id, input_ in handle_inputs.items()
             }
+            if previous_handles:
+                handle_values = dict(state.get("handle_values", {}))
+                handle_values.update(previous_handles)
+                state["handle_values"] = handle_values
+            for key, select in controls.get("entry_selects", {}).items():
+                next_mode = str(select.value or "native")
+                state["entry_modes"][key] = next_mode
+                if next_mode == "visitor":
+                    state["adaptation_notes"].pop(key, None)
+            for key, input_ in controls.get("arrival_inputs", {}).items():
+                state["arrival_reasons"][key] = str(input_.value or "").strip()
+
+        def _begin_busy(label: str) -> None:
+            busy_state["active"] = True
+            busy_state["job_id"] = ""
+            busy_label.set_text(label)
+            busy_cancel_btn.disable()
+            busy_dialog.open()
+
+        def _set_busy_job(job_id: str) -> None:
+            if not busy_state.get("active"):
+                return
+            busy_state["job_id"] = job_id
+            busy_cancel_btn.enable()
+
+        def _end_busy() -> None:
+            busy_state["active"] = False
+            busy_state["job_id"] = ""
+            busy_cancel_btn.disable()
+            busy_dialog.close()
+
+        async def _cancel_busy_job() -> None:
+            job_id = str(busy_state.get("job_id") or "")
+            if not job_id:
+                return
+            busy_label.set_text("停止要求中...")
+            busy_cancel_btn.disable()
+            await ctx.ai_jobs.cancel_job(job_id)
+
+        def _refresh_selected_list() -> None:
+            _capture_inputs()
             handle_inputs.clear()
+            controls["entry_selects"] = {}
+            controls["arrival_inputs"] = {}
             selected_list.clear()
             with selected_list:
                 if not selected["characters"]:
                     ui.label("追加するキャラクターを選択してください").classes("text-sm text-grey-6")
                     return
                 for sheet in selected["characters"]:
-                    _render_selected_character_row(
-                        ctx,
-                        sheet,
-                        handle_inputs,
-                        value=previous_handles.get(sheet.id),
-                        remove=lambda character_id=sheet.id: _remove_character(character_id),
-                    )
+                    _render_character_entry_row(sheet)
+
+        def _render_character_entry_row(sheet: CharacterSheet) -> None:
+            key = _participant_key(sheet)
+            mode = state["entry_modes"].get(key, "native")
+            display_sheet = state["draft_sheets"].get(sheet.id, sheet) if mode != "visitor" else sheet
+            with ui.element("div").classes("cs-group-selected-row").style(
+                "grid-template-columns: 48px minmax(0, 1fr) 32px; align-items: start;"
+            ):
+                _render_character_face(ctx, display_sheet)
+                with ui.column().classes("gap-2 min-w-0 w-full"):
+                    with ui.column().classes("gap-0 min-w-0"):
+                        ui.label(display_sheet.name).classes("cs-group-selected-name")
+                        meta = " / ".join(filter(None, [sheet.world, display_sheet.occupation]))
+                        ui.label(meta or "キャラクター").classes("cs-group-selected-meta")
+                    handle_inputs[sheet.id] = ui.input(
+                        label="ハンドル",
+                        value=state["handle_values"].get(
+                            sheet.id,
+                            _fallback_handle(sheet, len(handle_inputs) + 1),
+                        ),
+                    ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
+                    entry_select = ui.select(
+                        options={
+                            "native": "元々この世界の住人だった",
+                            "visitor": "何らかの理由でこの世界に来た",
+                        },
+                        value=mode if mode in {"native", "visitor"} else "native",
+                        label="ワールド参加設定",
+                    ).props("outlined dense").classes("w-full")
+                    controls["entry_selects"][key] = entry_select
+
+                    def _refresh_entry_mode() -> None:
+                        _capture_inputs()
+                        _refresh_selected_list()
+
+                    entry_select.on_value_change(lambda _: _refresh_entry_mode())
+                    if mode == "visitor":
+                        reason_input = ui.textarea(
+                            label="この世界に来た理由",
+                            value=state["arrival_reasons"].get(key, ""),
+                        ).props("outlined rows=3").classes("w-full")
+                        controls["arrival_inputs"][key] = reason_input
+                        ui.button(
+                            "理由を補完",
+                            icon="auto_awesome",
+                            on_click=lambda target_sheet=sheet: _generate_arrival_reason_click(target_sheet),
+                        ).props("flat dense color=primary").classes("w-fit")
+                    else:
+                        ui.button(
+                            "ワールドに馴染ませる",
+                            icon="auto_fix_high",
+                            on_click=lambda target_sheet=display_sheet, original_id=sheet.id: _open_world_adaptation_dialog(
+                                _participant_key(sheet),
+                                target_sheet.name,
+                                lambda instruction, target_sheet=target_sheet, original_id=original_id: _adapt_character_click(
+                                    target_sheet,
+                                    original_id,
+                                    instruction,
+                                ),
+                            ),
+                        ).props("outline dense color=primary").classes("w-fit")
+                        if state["adaptation_notes"].get(key):
+                            ui.label("調整済み").classes("text-xs text-grey-6")
+                ui.button(
+                    icon="close",
+                    on_click=lambda character_id=sheet.id: _remove_character(character_id),
+                ).props("flat round dense").tooltip("リストから外す")
 
         def _remove_character(character_id: str) -> None:
+            _capture_inputs()
             selected["characters"] = [
                 sheet for sheet in selected["characters"] if sheet.id != character_id
             ]
             handle_inputs.pop(character_id, None)
+            state["handle_values"].pop(character_id, None)
+            state["entry_modes"].pop(f"character:{character_id}", None)
+            state["arrival_reasons"].pop(f"character:{character_id}", None)
+            state["adaptation_notes"].pop(f"character:{character_id}", None)
+            state["adaptation_instructions"].pop(f"character:{character_id}", None)
+            state["draft_sheets"].pop(character_id, None)
             _refresh_selected_list()
 
         async def _open_picker() -> None:
@@ -7905,6 +8107,7 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
                     ui.notify("このキャラクターは選択済みです", type="warning")
                     return
                 selected["characters"].append(sheet)
+                state["entry_modes"].setdefault(_participant_key(sheet), "native")
                 _refresh_selected_list()
 
             await open_character_picker(
@@ -7914,7 +8117,115 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
                 empty_message="追加できるキャラクターがありません",
             )
 
+        async def _generate_handles_click() -> None:
+            _capture_inputs()
+            _begin_busy("ハンドルを生成しています...")
+            try:
+                await _generate_handles(
+                    ctx,
+                    str(state.get("profile_id") or ""),
+                    [
+                        state["draft_sheets"].get(sheet.id, sheet)
+                        for sheet in selected["characters"]
+                    ],
+                    group.user_persona,
+                    handle_inputs,
+                    None,
+                    on_job_started=_set_busy_job,
+                    reserved_handles=existing_handles,
+                )
+                _capture_inputs()
+            finally:
+                _end_busy()
+
+        def _open_world_adaptation_dialog(
+            participant_key: str,
+            display_name: str,
+            run_adaptation: Callable[[str], Awaitable[None]],
+        ) -> None:
+            _capture_inputs()
+            with ui.dialog() as adaptation_dialog, ui.card().classes("w-full max-w-lg"):
+                ui.label("ワールドに馴染ませる").classes("text-base font-semibold")
+                ui.label(display_name).classes("text-sm text-grey-6")
+                instruction_input = ui.textarea(
+                    label="追加指示（任意）",
+                    value=state["adaptation_instructions"].get(participant_key, ""),
+                    placeholder="例: 職業は変えない、口調は元のままにする",
+                ).props("outlined rows=5").classes("w-full")
+
+                async def _run() -> None:
+                    instruction = str(instruction_input.value or "").strip()
+                    if instruction:
+                        state["adaptation_instructions"][participant_key] = instruction
+                    else:
+                        state["adaptation_instructions"].pop(participant_key, None)
+                    adaptation_dialog.close()
+                    await run_adaptation(instruction)
+
+                with ui.row().classes("justify-end gap-2 mt-4"):
+                    ui.button("キャンセル", on_click=adaptation_dialog.close).props("flat")
+                    ui.button("OK", icon="check", on_click=_run).props("color=primary unelevated")
+            adaptation_dialog.open()
+
+        async def _adapt_character_click(
+            sheet: CharacterSheet,
+            source_character_id: str,
+            instruction: str,
+        ) -> None:
+            _capture_inputs()
+            key = f"character:{source_character_id}"
+            if state["entry_modes"].get(key, "native") != "native":
+                ui.notify("ワールドに馴染ませる改変は「元々この世界の住人だった」設定で使用してください", type="warning")
+                return
+            _begin_busy("キャラクターシートを調整しています...")
+            try:
+                await _adapt_character_to_world(
+                    ctx,
+                    str(state.get("profile_id") or ""),
+                    sheet,
+                    _world_text(),
+                    instruction,
+                    lambda updated: _apply_adapted_sheet(source_character_id, key, updated),
+                    page_client,
+                    on_job_started=_set_busy_job,
+                )
+            finally:
+                _end_busy()
+
+        def _apply_adapted_sheet(
+            source_character_id: str,
+            participant_key: str,
+            updated: CharacterSheet,
+        ) -> None:
+            state["draft_sheets"][source_character_id] = updated
+            state["adaptation_notes"][participant_key] = "LLM改変を承認済み"
+            _refresh_selected_list()
+
+        async def _generate_arrival_reason_click(sheet: CharacterSheet) -> None:
+            _capture_inputs()
+            key = _participant_key(sheet)
+            input_ = controls.get("arrival_inputs", {}).get(key)
+            if input_ is None:
+                return
+            _begin_busy("来訪理由を補完しています...")
+            try:
+                reason = await _generate_arrival_reason(
+                    ctx,
+                    str(state.get("profile_id") or ""),
+                    sheet.name,
+                    _world_text(),
+                    _compact_character_summary(sheet),
+                    page_client,
+                    on_job_started=_set_busy_job,
+                )
+                if reason:
+                    input_.set_value(reason)
+                    state["arrival_reasons"][key] = reason
+            finally:
+                _end_busy()
+
         async def _add_members() -> None:
+            _capture_inputs()
             if not selected["characters"]:
                 ui.notify("キャラクターを選択してください", type="warning")
                 return
@@ -7925,9 +8236,29 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
             )
             if handles is None:
                 return
+            prepared_members: list[tuple[CharacterSheet, str]] = []
+            member_world_settings: dict[str, dict[str, str]] = {}
+            for sheet, handle in zip(selected["characters"], handles, strict=True):
+                key = _participant_key(sheet)
+                entry_type = state["entry_modes"].get(key, "native")
+                if entry_type == "visitor" and not state["arrival_reasons"].get(key, "").strip():
+                    ui.notify(f"{sheet.name} の来訪理由を入力してください", type="warning")
+                    return
+                source_sheet = state["draft_sheets"].get(sheet.id, sheet) if entry_type == "native" else sheet
+                prepared_sheet, settings = _prepare_group_character_for_world(
+                    source_sheet,
+                    world=_world_text(),
+                    source_character_id="",
+                    entry_type=entry_type,
+                    arrival_reason=state["arrival_reasons"].get(key, ""),
+                    adaptation_note=state["adaptation_notes"].get(key, "") if entry_type == "native" else "",
+                )
+                prepared_members.append((prepared_sheet, handle))
+                member_world_settings[prepared_sheet.id] = settings
             saved = await ctx.group_chats.add_members(
                 group.id,
-                list(zip(selected["characters"], handles, strict=True)),
+                prepared_members,
+                member_world_settings=member_world_settings,
             )
             if saved is None:
                 ui.notify("グループが見つかりませんでした", type="warning")
@@ -7936,14 +8267,33 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
             ui.notify("キャラクターを追加しました", type="positive")
             ui.navigate.to(f"/groups/{saved.id}")
 
-        ui.button(
-            "キャラクターを選択",
-            icon="person_search",
-            on_click=_open_picker,
-        ).props("color=primary unelevated").style("border-radius: 8px; font-weight: 700;")
-        _refresh_selected_list()
+        with body:
+            controls["profile_select"] = ui.select(
+                options=profile_options,
+                value=state["profile_id"] if state["profile_id"] in profile_options else _default_profile_id(ctx, profile_options),
+                label="補完用LLMプロファイル",
+            ).props("outlined dense").classes("w-full")
+            with ui.element("div").classes("cs-group-modal-section"):
+                with ui.element("div").classes("cs-group-modal-actions"):
+                    with ui.column().classes("gap-0"):
+                        ui.label("追加するキャラクター").classes("text-sm font-semibold")
+                        ui.label(f"ワールド: {group.world or '未設定'}").classes("cs-group-note")
+                    ui.button(
+                        "キャラクターを選択",
+                        icon="person_search",
+                        on_click=_open_picker,
+                    ).props("color=primary unelevated").style("border-radius: 8px; font-weight: 700;")
+                selected_list = ui.element("div").classes("cs-group-selected-list").style(
+                    "max-height: none;"
+                )
+                _refresh_selected_list()
+            ui.button(
+                "一括でハンドル生成",
+                icon="auto_fix_high",
+                on_click=_generate_handles_click,
+            ).props("flat color=primary").classes("w-fit")
 
-        with ui.row().classes("justify-end gap-2 mt-4"):
+        with nav:
             ui.button("キャンセル", on_click=dlg.close).props("flat")
             ui.button("追加", icon="person_add", on_click=_add_members).props(
                 "color=primary unelevated"
@@ -8125,8 +8475,9 @@ async def _generate_handles(
     characters: list[CharacterSheet],
     persona,
     handle_inputs: dict[str, Any],
-    user_handle_input,
+    user_handle_input=None,
     on_job_started: Callable[[str], None] | None = None,
+    reserved_handles: set[str] | None = None,
 ) -> None:
     if not characters:
         ui.notify("キャラクターを選択してください", type="warning")
@@ -8193,7 +8544,7 @@ async def _generate_handles(
         return
     suggested = finished.result or {}
 
-    used: set[str] = set()
+    used: set[str] = {handle.lower() for handle in reserved_handles or set()}
     for index, sheet in enumerate(characters, start=1):
         candidate = suggested.get(sheet.id) or suggested.get(sheet.name) or _fallback_handle(sheet, index)
         handle = _unique_handle(_sanitize_handle(candidate, _fallback_handle(sheet, index)), used)
@@ -8202,7 +8553,8 @@ async def _generate_handles(
     user_fallback = _fallback_persona_handle(persona)
     user_candidate = suggested.get("user") or suggested.get(persona.display_name) or user_fallback
     user_handle = _unique_handle(_sanitize_handle(user_candidate, user_fallback), used)
-    user_handle_input.set_value(user_handle)
+    if user_handle_input is not None:
+        user_handle_input.set_value(user_handle)
     ui.notify("ハンドルを生成しました", type="positive")
 
 

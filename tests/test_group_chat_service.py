@@ -20,6 +20,7 @@ from src.ui.pages.group_chat import (
     _format_group_participant_overview,
     _group_message,
     _format_optional_instruction,
+    _group_relationship_enhancement_participants,
     _guest_display_name,
     _guest_name_from_actor_text,
     _guest_prefix_completion,
@@ -439,6 +440,45 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
 
             self.assertIsNone(result)
 
+    async def test_add_members_stores_world_entry_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = GroupChatService(GroupChatRepository(Path(tmp_dir) / "wizmy.db"))
+            await service.initialize()
+
+            group = await service.create_group(
+                name="テストグループ",
+                world="テスト用の世界",
+                completion_profile_id="",
+                members=[(CharacterSheet(id="character-1", name="既存キャラクター"), "Alice")],
+                user_persona=UserPersona(id="persona-1", name="テストユーザー"),
+                user_handle="User",
+            )
+
+            saved = await service.add_members(
+                group.id,
+                [(CharacterSheet(id="character-2", name="追加キャラクター"), "Visitor")],
+                member_world_settings={
+                    "character-2": {
+                        "world_entry_type": "visitor",
+                        "arrival_reason": "依頼を受けて来た。",
+                        "world_adaptation_note": "来訪理由を設定",
+                    }
+                },
+            )
+
+            self.assertIsNotNone(saved)
+            assert saved is not None
+            added = saved.members[-1]
+            self.assertEqual("character-2", added.source_character_id)
+            self.assertEqual("visitor", added.world_entry_type)
+            self.assertEqual("依頼を受けて来た。", added.arrival_reason)
+            self.assertEqual("来訪理由を設定", added.world_adaptation_note)
+
+            reloaded = await service.get(group.id)
+            self.assertIsNotNone(reloaded)
+            assert reloaded is not None
+            self.assertEqual("visitor", reloaded.members[-1].world_entry_type)
+
     async def test_update_user_persona_updates_group_copy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             service = GroupChatService(GroupChatRepository(Path(tmp_dir) / "wizmy.db"))
@@ -608,6 +648,42 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("互いに信頼している", section)
         self.assertIn("昔からの知り合い", section)
         self.assertNotIn("まだ距離がある", section)
+
+    def test_group_relationship_enhancement_participants_use_saved_group_keys(self) -> None:
+        group = GroupChatRecord(
+            id="group-1",
+            name="テストグループ",
+            members=[
+                GroupMember(
+                    id="member-a",
+                    handle="Alice",
+                    character=CharacterSheet(
+                        id="character-a",
+                        name="アリス",
+                        personality="落ち着いている。",
+                    ),
+                    world_entry_type="visitor",
+                    arrival_reason="依頼で来た。",
+                ),
+            ],
+            user_persona=GroupUserPersona(
+                id="persona-1",
+                handle="User",
+                name="ユーザー",
+                description="観察者。",
+                world_entry_type="native",
+            ),
+        )
+
+        participants = _group_relationship_enhancement_participants(group)
+
+        self.assertEqual("member:member-a", participants[0]["key"])
+        self.assertEqual("character", participants[0]["kind"])
+        self.assertEqual("visitor", participants[0]["world_entry_type"])
+        self.assertEqual("依頼で来た。", participants[0]["arrival_reason"])
+        self.assertEqual("user:persona-1", participants[1]["key"])
+        self.assertEqual("user_persona", participants[1]["kind"])
+        self.assertIn("観察者。", participants[1]["summary"])
 
     def test_system_event_is_included_in_group_history(self) -> None:
         history = _format_group_history([
