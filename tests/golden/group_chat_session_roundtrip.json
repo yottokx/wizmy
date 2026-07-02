@@ -1,0 +1,68 @@
+{
+  "settings": {
+    "participant_ids": [
+      "member-akari",
+      "member-minato"
+    ],
+    "situation": "星見図書館の夜更け。閲覧室に古い星図が広げられている。",
+    "profile_id": "profile-golden"
+  },
+  "messages": [
+    {
+      "role": "system",
+      "text": "灯里が入場しました",
+      "time_label": "21:00"
+    },
+    {
+      "role": "user",
+      "text": "この星図、昨日と線が違う気がします。",
+      "time_label": "21:01",
+      "speaker_id": "persona-sora",
+      "speaker_name": "ソラ",
+      "handle": "Sora"
+    },
+    {
+      "role": "character",
+      "text": "星図は夜ごとに少しだけ息をするんです。",
+      "time_label": "21:02",
+      "speaker_id": "member-akari",
+      "speaker_name": "灯里",
+      "handle": "Akari",
+      "debug": {
+        "llm_input": "ソラ: この星図、昨日と線が違う気がします。",
+        "raw_output": "星図は夜ごとに少しだけ息をするんです。",
+        "reasoning_output": "灯里として星図の変化を説明する。",
+        "input_tokens": 192,
+        "output_tokens": 48,
+        "total_tokens": 240
+      },
+      "speaker_debug": {
+        "llm_input": "次の話者を選ぶ。",
+        "raw_output": "{\"speaker\": \"member-akari\", \"weight\": 0.8}",
+        "reasoning_output": "灯里が星図に詳しい。",
+        "input_tokens": 64,
+        "output_tokens": 12,
+        "total_tokens": 76
+      }
+    },
+    {
+      "role": "guest",
+      "text": "返却台へお願いします。",
+      "time_label": "21:03",
+      "speaker_id": "guest:巡回司書",
+      "speaker_name": "巡回司書【ゲスト】",
+      "guest_name": "巡回司書",
+      "handle": ""
+    },
+    {
+      "role": "narration",
+      "text": "天球儀の青い光が床に広がった。",
+      "time_label": "21:04"
+    },
+    {
+      "role": "memo",
+      "text": "次は湊に星図の修理を促す。",
+      "time_label": "21:05"
+    }
+  ]
+}

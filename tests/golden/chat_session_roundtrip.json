@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "profile_id": "profile-golden",
+    "chat_mode_id": "mode-golden",
+    "chat_mode_name": "星図相談",
+    "chat_premise": "灯里は星見図書館で案内役をしている。",
+    "situation": "夜の閲覧室で古い星図を確認している。",
+    "user_persona_id": "persona-sora",
+    "user_persona_name": "ソラ",
+    "user_persona_description": "架空の記録係。落ち着いて観察する。",
+    "user_persona_source": "persona"
+  },
+  "messages": [
+    {
+      "speaker": "user",
+      "text": "この星図、昨日と線が違う気がします。",
+      "time_label": "21:00"
+    },
+    {
+      "speaker": "character",
+      "text": "星図は夜ごとに少しだけ息をするんです。",
+      "time_label": "21:01",
+      "debug": {
+        "llm_input": "ユーザー: この星図、昨日と線が違う気がします。",
+        "raw_output": "星図は夜ごとに少しだけ息をするんです。",
+        "reasoning_output": "星図の変化に自然に反応する。",
+        "input_tokens": 128,
+        "output_tokens": 32,
+        "total_tokens": 160
+      }
+    },
+    {
+      "speaker": "narration",
+      "text": "窓辺の天球儀が、かすかに青く光った。",
+      "time_label": "21:02"
+    },
+    {
+      "speaker": "memo",
+      "text": "次は天球儀について聞く。",
+      "time_label": "21:03"
+    }
+  ]
+}
