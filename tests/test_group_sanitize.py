@@ -1,15 +1,17 @@
 import pytest
 
-from src.ui.chat.models import ChatDebugInfo
-from src.ui.pages import group_chat as group_chat_module
+from src.core.conversation import history as history_module
+from src.core.conversation.history import (
+    debug_from_dict,
+    group_message,
+    last_dialog_message,
+    latest_group_message_preview,
+    optional_int,
+)
+from src.core.conversation.schemas import ChatDebugInfo
 from src.ui.pages.group_chat import (
     _clean_guest_name,
-    _debug_from_dict,
-    _group_message,
     _guest_name_from_actor_text,
-    _last_dialog_message,
-    _latest_group_message_preview,
-    _optional_int,
     _sanitize_group_character_reply,
     _sanitize_group_guest_reply,
     _sanitize_group_narration,
@@ -52,7 +54,7 @@ def test_group_message_serializes_member_user_guest_and_debug(
     member = group.members[0]
     user = group.user_persona
     assert user is not None
-    monkeypatch.setattr(group_chat_module, "time_label", lambda: "12:34")
+    monkeypatch.setattr(history_module, "time_label", lambda: "12:34")
     debug = ChatDebugInfo(
         llm_input="入力",
         raw_output="出力",
@@ -63,7 +65,7 @@ def test_group_message_serializes_member_user_guest_and_debug(
     )
     speaker_debug = ChatDebugInfo(llm_input="話者入力", raw_output="話者出力")
 
-    assert _group_message(
+    assert group_message(
         "character", "星図が揺れています。", member=member, debug=debug, speaker_debug=speaker_debug
     ) == {
         "role": "character",
@@ -89,7 +91,7 @@ def test_group_message_serializes_member_user_guest_and_debug(
             "total_tokens": None,
         },
     }
-    assert _group_message("user", "記録します。", user=user) == {
+    assert group_message("user", "記録します。", user=user) == {
         "role": "user",
         "text": "記録します。",
         "time_label": "12:34",
@@ -97,7 +99,7 @@ def test_group_message_serializes_member_user_guest_and_debug(
         "speaker_name": "ソラ",
         "handle": "Sora",
     }
-    assert _group_message("guest", "閉館です。", guest_name="guest:巡回司書") == {
+    assert group_message("guest", "閉館です。", guest_name="guest:巡回司書") == {
         "role": "guest",
         "text": "閉館です。",
         "time_label": "12:34",
@@ -109,7 +111,7 @@ def test_group_message_serializes_member_user_guest_and_debug(
 
 
 def test_debug_from_dict_and_optional_int_keep_current_fallbacks() -> None:
-    debug = _debug_from_dict(
+    debug = debug_from_dict(
         {
             "llm_input": "入力",
             "raw_output": "出力",
@@ -128,9 +130,9 @@ def test_debug_from_dict_and_optional_int_keep_current_fallbacks() -> None:
         output_tokens=None,
         total_tokens=None,
     )
-    assert _debug_from_dict("not dict") is None
-    assert _optional_int("42") == 42
-    assert _optional_int("bad") is None
+    assert debug_from_dict("not dict") is None
+    assert optional_int("42") == 42
+    assert optional_int("bad") is None
 
 
 def test_group_message_preview_and_last_dialog_message_keep_current_filters() -> None:
@@ -141,7 +143,7 @@ def test_group_message_preview_and_last_dialog_message_keep_current_filters() ->
         {"role": "guest", "speaker_name": "巡回司書【ゲスト】", "text": "閉館の鐘が鳴ります。"},
     ]
 
-    assert _latest_group_message_preview([]) == "まだ発言がありません"
-    assert _latest_group_message_preview(messages, limit=16) == "巡回司書【ゲスト】: 閉館の鐘…"
-    assert _last_dialog_message(messages) == messages[-1]
-    assert _last_dialog_message([{"role": "narration", "text": "静かだった。"}]) is None
+    assert latest_group_message_preview([]) == "まだ発言がありません"
+    assert latest_group_message_preview(messages, limit=16) == "巡回司書【ゲスト】: 閉館の鐘…"
+    assert last_dialog_message(messages) == messages[-1]
+    assert last_dialog_message([{"role": "narration", "text": "静かだった。"}]) is None

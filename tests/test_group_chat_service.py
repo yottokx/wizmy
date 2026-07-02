@@ -12,6 +12,13 @@ from src.core.character.schemas import (
     GenerationMeta,
 )
 from src.core.chat.schemas import UserPersona
+from src.core.conversation.history import (
+    format_group_history,
+    group_message,
+    group_system_event_message,
+    settings_with_participant,
+    settings_without_participant,
+)
 from src.core.group_chat.schemas import (
     GroupChatRecord,
     GroupMember,
@@ -23,23 +30,18 @@ from src.storage.group_chat_repository import GroupChatRepository
 from src.ui.pages.group_chat import (
     _clean_relationship_enhancement,
     _clean_generated_group_name,
-    _format_group_history,
     _format_group_relationship_section,
     _format_group_participant_overview,
-    _group_message,
     _format_optional_instruction,
     _group_relationship_enhancement_participants,
     _guest_display_name,
     _guest_name_from_actor_text,
     _guest_prefix_completion,
-    _group_system_event_message,
     _limit_relationship_drafts,
     _parse_relationship_draft_response,
     _prepare_group_character_for_world,
     _prepare_group_user_world_settings,
     _relationship_draft_participants,
-    _settings_with_participant,
-    _settings_without_participant,
     _world_source_options_for_characters,
 )
 
@@ -934,8 +936,8 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("観察者。", participants[1]["summary"])
 
     def test_system_event_is_included_in_group_history(self) -> None:
-        history = _format_group_history([
-            _group_system_event_message("アリスが入場しました"),
+        history = format_group_history([
+            group_system_event_message("アリスが入場しました"),
         ])
 
         self.assertIn("システム: アリスが入場しました", history)
@@ -947,8 +949,8 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("酒場のマスター【ゲスト】", _guest_display_name("guest:酒場のマスター"))
 
     def test_guest_message_is_included_in_group_history(self) -> None:
-        history = _format_group_history([
-            _group_message("guest", "実験の話なら、酒場の外で頼むよ。", guest_name="酒場のマスター"),
+        history = format_group_history([
+            group_message("guest", "実験の話なら、酒場の外で頼むよ。", guest_name="酒場のマスター"),
         ])
 
         self.assertIn("酒場のマスター【ゲスト】: 実験の話なら、酒場の外で頼むよ。", history)
@@ -967,12 +969,12 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
     def test_participant_settings_helpers_add_and_remove_members(self) -> None:
         settings = {"participant_ids": ["member-a"]}
 
-        added = _settings_with_participant(settings, "member-b")
+        added = settings_with_participant(settings, "member-b")
         self.assertEqual(["member-a", "member-b"], added["participant_ids"])
         self.assertEqual(["member-a"], settings["participant_ids"])
 
-        duplicated = _settings_with_participant(added, "member-b")
+        duplicated = settings_with_participant(added, "member-b")
         self.assertEqual(["member-a", "member-b"], duplicated["participant_ids"])
 
-        removed = _settings_without_participant(added, "member-a")
+        removed = settings_without_participant(added, "member-a")
         self.assertEqual(["member-b"], removed["participant_ids"])

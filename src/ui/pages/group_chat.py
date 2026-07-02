@@ -39,6 +39,17 @@ from ...core.group_chat.schemas import (
     GroupUserPersona,
 )
 from ...core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE, GroupChatSessionRecord
+from ...core.conversation.history import (
+    debug_from_dict,
+    format_group_history,
+    group_message,
+    group_participant_ids,
+    group_system_event_message,
+    last_dialog_message,
+    latest_group_message_preview,
+    settings_with_participant,
+    settings_without_participant,
+)
 from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
@@ -58,7 +69,7 @@ from ..chat.commands import (
     resolve_chat_command,
 )
 from ..chat.media import cropped_background_style
-from ..chat.models import ChatDebugInfo, ChatThreadPreview, time_label
+from ..chat.models import ChatDebugInfo, ChatThreadPreview
 from ..chat.prompts import (
     build_debug_info,
     character_summary,
@@ -4991,7 +5002,7 @@ event => {
         return ChatThreadPreview(
             id=session.id,
             title=session.title or DEFAULT_GROUP_CHAT_TITLE,
-            preview=_latest_group_message_preview(session.messages),
+            preview=latest_group_message_preview(session.messages),
             time_label=_time_label(session.updated_at),
             active=session.id == self.active_session_id,
         )
@@ -5236,7 +5247,7 @@ event => {
         self.last_speaker_debug = None
 
         display_speaker = self._member_by_id(str(message.get("speaker_id", ""))) or active[0]
-        self.messages = prior_messages + [_group_message("character", "…", member=display_speaker)]
+        self.messages = prior_messages + [group_message("character", "…", member=display_speaker)]
         self.refresh_messages()
         session_id = self.active_session_id
         title = self.title
@@ -5573,12 +5584,12 @@ event => {
         return [member for member in self.group.members if member.id in ids]
 
     async def post_narration(self, text: str) -> None:
-        self.messages.append(_group_message("narration", text))
+        self.messages.append(group_message("narration", text))
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session()
 
     async def post_memo(self, text: str) -> None:
-        self.messages.append(_group_message("memo", text))
+        self.messages.append(group_message("memo", text))
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session()
 
@@ -5588,7 +5599,7 @@ event => {
             ui.notify("参加キャラがいません", type="warning")
             self.set_input_mode("user")
             return
-        self.messages.append(_group_message("character", text, member=member))
+        self.messages.append(group_message("character", text, member=member))
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session()
 
@@ -5598,12 +5609,12 @@ event => {
             ui.notify("ゲスト名を入力してください", type="warning")
             self.open_guest_input_mode_dialog(text)
             return
-        self.messages.append(_group_message("guest", text, guest_name=name))
+        self.messages.append(group_message("guest", text, guest_name=name))
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session()
 
     async def post_hold_user_text(self, text: str) -> None:
-        self.messages.append(_group_message("user", text, user=self.group.user_persona))
+        self.messages.append(group_message("user", text, user=self.group.user_persona))
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session()
 
@@ -5632,7 +5643,7 @@ event => {
 
     async def send_user_turn(self, text: str) -> None:
         self.clear_input()
-        self.messages.append(_group_message("user", text.strip(), user=self.group.user_persona))
+        self.messages.append(group_message("user", text.strip(), user=self.group.user_persona))
         self.set_input_mode("user")
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session(refresh_history=False)
@@ -5648,7 +5659,7 @@ event => {
             return
 
         prior_messages = [dict(message) for message in self.messages]
-        self.messages.append(_group_message("narration", "…"))
+        self.messages.append(group_message("narration", "…"))
         self.refresh_messages(scroll_to_bottom=True)
         session_id = self.active_session_id
         title = self.title
@@ -5669,7 +5680,7 @@ event => {
             narration = _sanitize_group_narration(raw)
             if not narration:
                 narration = "場面は静かに次の言葉を待っている。"
-            messages = prior_messages + [_group_message(
+            messages = prior_messages + [group_message(
                 "narration",
                 narration,
                 debug=build_debug_info(debug_input, raw, response),
@@ -6606,9 +6617,9 @@ event => {
                     if not isinstance(member, GroupMember):
                         ui.notify("発言者を指定してください", type="warning")
                         return
-                    if self.settings is not None and member.id not in _group_participant_ids(self.settings):
-                        self.settings = _settings_with_participant(self.settings, member.id)
-                        self.messages.append(_group_system_event_message(f"{member.character.name}が入場しました"))
+                    if self.settings is not None and member.id not in group_participant_ids(self.settings):
+                        self.settings = settings_with_participant(self.settings, member.id)
+                        self.messages.append(group_system_event_message(f"{member.character.name}が入場しました"))
                         self.refresh_messages(scroll_to_bottom=True)
                         await self.save_current_session(refresh_history=False)
                         self.refresh_mention_palette()
@@ -6717,13 +6728,13 @@ event => {
 
         self.clear_input()
         if self.input_mode == "narration":
-            self.messages.append(_group_message("narration", text))
+            self.messages.append(group_message("narration", text))
             self.set_input_mode("user")
             self.refresh_messages(scroll_to_bottom=True)
             await self.save_current_session()
             return
         if self.input_mode == "memo":
-            self.messages.append(_group_message("memo", text))
+            self.messages.append(group_message("memo", text))
             self.set_input_mode("user")
             self.refresh_messages(scroll_to_bottom=True)
             await self.save_current_session()
@@ -6734,7 +6745,7 @@ event => {
                 ui.notify("参加キャラがいません", type="warning")
                 self.set_input_mode("user")
                 return
-            self.messages.append(_group_message("character", text, member=member))
+            self.messages.append(group_message("character", text, member=member))
             self.set_input_mode("user")
             self.refresh_messages(scroll_to_bottom=True)
             await self.save_current_session()
@@ -6745,13 +6756,13 @@ event => {
                 ui.notify("ゲスト名を入力してください", type="warning")
                 self.open_guest_input_mode_dialog(text)
                 return
-            self.messages.append(_group_message("guest", text, guest_name=name))
+            self.messages.append(group_message("guest", text, guest_name=name))
             self.set_input_mode("user")
             self.refresh_messages(scroll_to_bottom=True)
             await self.save_current_session()
             return
 
-        self.messages.append(_group_message("user", text, user=self.group.user_persona))
+        self.messages.append(group_message("user", text, user=self.group.user_persona))
         self.set_input_mode("user")
         self.refresh_messages(scroll_to_bottom=True)
         await self.save_current_session(refresh_history=False)
@@ -6791,7 +6802,7 @@ event => {
         placeholder_index = len(self.messages)
         self.last_speaker_debug = None
         display_speaker = speaker or active[0]
-        self.messages.append(_group_message("character", "…", member=display_speaker))
+        self.messages.append(group_message("character", "…", member=display_speaker))
         self.refresh_messages(scroll_to_bottom=True)
         session_id = self.active_session_id
         title = self.title
@@ -6862,7 +6873,7 @@ event => {
             return
 
         current_settings = dict(self.settings)
-        current_ids = _group_participant_ids(current_settings)
+        current_ids = group_participant_ids(current_settings)
         if membership_action == "join":
             if speaker.id in current_ids:
                 await self.append_character_turn(
@@ -6870,9 +6881,9 @@ event => {
                     turn_instruction=turn_instruction,
                 )
                 return
-            generation_settings = _settings_with_participant(current_settings, speaker.id)
+            generation_settings = settings_with_participant(current_settings, speaker.id)
             final_settings = dict(generation_settings)
-            pre_events = [_group_system_event_message(f"{speaker.character.name}が入場しました")]
+            pre_events = [group_system_event_message(f"{speaker.character.name}が入場しました")]
             post_events: list[dict[str, Any]] = []
         elif membership_action == "leave":
             if speaker.id not in current_ids:
@@ -6882,9 +6893,9 @@ event => {
                 ui.notify("参加キャラクターがいなくなるため退場できません", type="warning")
                 return
             generation_settings = dict(current_settings)
-            final_settings = _settings_without_participant(current_settings, speaker.id)
+            final_settings = settings_without_participant(current_settings, speaker.id)
             pre_events = []
-            post_events = [_group_system_event_message(f"{speaker.character.name}が退場しました")]
+            post_events = [group_system_event_message(f"{speaker.character.name}が退場しました")]
         else:
             await self.append_character_turn(
                 speaker=speaker,
@@ -6901,7 +6912,7 @@ event => {
         prior_messages = [dict(message) for message in self.messages] + [
             dict(message) for message in pre_events
         ]
-        self.messages = prior_messages + [_group_message("character", "…", member=speaker)]
+        self.messages = prior_messages + [group_message("character", "…", member=speaker)]
         self.settings = dict(generation_settings)
         self.refresh_messages(scroll_to_bottom=True)
         self.refresh_mention_palette()
@@ -6980,7 +6991,7 @@ event => {
             return
 
         prior_messages = [dict(message) for message in self.messages]
-        self.messages.append(_group_message("guest", "…", guest_name=name))
+        self.messages.append(group_message("guest", "…", guest_name=name))
         self.refresh_messages(scroll_to_bottom=True)
         session_id = self.active_session_id
         title = self.title
@@ -7003,7 +7014,7 @@ event => {
                 reply = _sanitize_group_guest_reply(raw, name)
                 if not reply:
                     reply = "……。"
-                messages = prior_messages + [_group_message(
+                messages = prior_messages + [group_message(
                     "guest",
                     reply,
                     guest_name=name,
@@ -7044,7 +7055,7 @@ event => {
             await self.maybe_generate_auto_title(llm)
 
     async def choose_next_speaker(self, llm, active: list[GroupMember]) -> GroupMember:
-        last = _last_dialog_message(self.messages)
+        last = last_dialog_message(self.messages)
         if last is not None and last.get("role") == "user":
             mentioned = _mentioned_member(last.get("text", ""), active)
             if mentioned is not None:
@@ -7086,7 +7097,7 @@ event => {
                     f"世界観:\n{self.group.world or '未設定'}\n\n"
                     f"参加候補:\n{candidate_lines}\n\n"
                     f"{relationship_section}"
-                    f"会話履歴:\n{_format_group_history(self.messages)}\n\n"
+                    f"会話履歴:\n{format_group_history(self.messages)}\n\n"
                     "候補ごとの発言可能性を比率で出力してください。"
                     "明確に特定キャラへ向けた発言なら、そのキャラを高めにしてください。"
                 )
@@ -7127,7 +7138,7 @@ event => {
         reply = _sanitize_group_character_reply(raw, speaker)
         if not reply:
             reply = "……ごめん、今はうまく言葉にできなかった。"
-        return _group_message(
+        return group_message(
             "character",
             reply,
             member=speaker,
@@ -7330,7 +7341,7 @@ event => {
             self.input_box.set_value("")
         situation = str(settings.get("situation", "") or "").strip()
         if situation:
-            self.messages.append(_group_message("narration", situation))
+            self.messages.append(group_message("narration", situation))
         saved = await self.ctx.group_chats.create_session(
             group_id=self.group.id,
             title=self.title,
@@ -7484,32 +7495,6 @@ def _group_message_target_label(role: str) -> str:
     return "発言"
 
 
-def _group_participant_ids(settings: dict[str, Any]) -> list[str]:
-    return [str(member_id) for member_id in settings.get("participant_ids", [])]
-
-
-def _settings_with_participant(settings: dict[str, Any], member_id: str) -> dict[str, Any]:
-    next_settings = dict(settings)
-    ids = _group_participant_ids(next_settings)
-    if member_id not in ids:
-        ids.append(member_id)
-    next_settings["participant_ids"] = ids
-    return next_settings
-
-
-def _settings_without_participant(settings: dict[str, Any], member_id: str) -> dict[str, Any]:
-    next_settings = dict(settings)
-    next_settings["participant_ids"] = [
-        current_id for current_id in _group_participant_ids(next_settings)
-        if current_id != member_id
-    ]
-    return next_settings
-
-
-def _group_system_event_message(text: str) -> dict[str, Any]:
-    return _group_message("system", text)
-
-
 def _clean_guest_name(value: str) -> str:
     text = (value or "").strip()
     text = re.sub(r"^guest\s*[:：]\s*", "", text, flags=re.IGNORECASE).strip()
@@ -7577,82 +7562,6 @@ def _group_user_persona_tts_id(persona_id: str) -> str:
 
 def _group_member_tts_id(group_id: str, member_id: str) -> str:
     return f"group-{group_id}-member-{member_id}"
-
-
-def _group_message(
-    role: str,
-    text: str,
-    *,
-    member: GroupMember | None = None,
-    user: GroupUserPersona | None = None,
-    guest_name: str = "",
-    debug: ChatDebugInfo | None = None,
-    speaker_debug: ChatDebugInfo | None = None,
-) -> dict[str, Any]:
-    message = {
-        "role": role,
-        "text": text,
-        "time_label": time_label(),
-    }
-    if member is not None:
-        message.update({
-            "speaker_id": member.id,
-            "speaker_name": member.character.name,
-            "handle": member.handle,
-        })
-    elif user is not None:
-        message.update({
-            "speaker_id": user.id,
-            "speaker_name": user.display_name or user.name or "ユーザー",
-            "handle": user.handle,
-        })
-    elif role == "guest":
-        clean_guest_name = _clean_guest_name(guest_name)
-        message.update({
-            "speaker_id": f"guest:{clean_guest_name}",
-            "speaker_name": _guest_display_name(clean_guest_name),
-            "guest_name": clean_guest_name,
-            "handle": "",
-        })
-    if debug is not None:
-        message["debug"] = {
-            "llm_input": debug.llm_input,
-            "raw_output": debug.raw_output,
-            "reasoning_output": debug.reasoning_output,
-            "input_tokens": debug.input_tokens,
-            "output_tokens": debug.output_tokens,
-            "total_tokens": debug.total_tokens,
-        }
-    if speaker_debug is not None:
-        message["speaker_debug"] = {
-            "llm_input": speaker_debug.llm_input,
-            "raw_output": speaker_debug.raw_output,
-            "reasoning_output": speaker_debug.reasoning_output,
-            "input_tokens": speaker_debug.input_tokens,
-            "output_tokens": speaker_debug.output_tokens,
-            "total_tokens": speaker_debug.total_tokens,
-        }
-    return message
-
-
-def _debug_from_dict(value: Any) -> ChatDebugInfo | None:
-    if not isinstance(value, dict):
-        return None
-    return ChatDebugInfo(
-        llm_input=str(value.get("llm_input", "")),
-        raw_output=str(value.get("raw_output", "")),
-        reasoning_output=str(value.get("reasoning_output", "")),
-        input_tokens=_optional_int(value.get("input_tokens")),
-        output_tokens=_optional_int(value.get("output_tokens")),
-        total_tokens=_optional_int(value.get("total_tokens")),
-    )
-
-
-def _optional_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _render_group_chat_message(
@@ -7780,7 +7689,7 @@ def _render_group_message_meta(
                 ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
                     "この台詞を再生成"
                 )
-            debug = _debug_from_dict(message.get("debug"))
+            debug = debug_from_dict(message.get("debug"))
             if debug is not None:
                 ui.button(
                     icon="bug_report",
@@ -7788,7 +7697,7 @@ def _render_group_message_meta(
                 ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
                     "LLM入出力"
                 )
-            speaker_debug = _debug_from_dict(message.get("speaker_debug"))
+            speaker_debug = debug_from_dict(message.get("speaker_debug"))
             if speaker_debug is not None:
                 ui.button(
                     icon="manage_search",
@@ -7832,27 +7741,6 @@ def _participant_by_speaker_id(
             persona = participant.get("persona")
             if isinstance(persona, GroupUserPersona) and persona.id == speaker_id:
                 return participant
-    return None
-
-
-def _latest_group_message_preview(messages: list[dict[str, Any]], *, limit: int = 56) -> str:
-    if not messages:
-        return "まだ発言がありません"
-    latest = messages[-1]
-    text = str(latest.get("text", "")) if isinstance(latest, dict) else ""
-    text = re.sub(r"\s+", " ", text).strip()
-    if not text:
-        return "まだ発言がありません"
-    name = str(latest.get("speaker_name", "") or "")
-    prefix = f"{name}: " if name else ""
-    preview = f"{prefix}{text}"
-    return preview if len(preview) <= limit else f"{preview[:limit - 1]}…"
-
-
-def _last_dialog_message(messages: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for message in reversed(messages):
-        if message.get("role") in {"user", "character", "guest"}:
-            return message
     return None
 
 
@@ -8077,37 +7965,6 @@ def _configured_group_chat_llm(ctx, profile_id: str):
     return create_llm(profile, endpoint, api_key)
 
 
-def _format_group_history(messages: list[dict[str, Any]], *, limit: int | None = None) -> str:
-    visible = [
-        message for message in messages
-        if message.get("role") in {"user", "character", "guest", "narration", "system"}
-    ]
-    if not visible:
-        return "（まだ会話はありません）"
-    lines: list[str] = []
-    target_messages = visible if limit is None else visible[-limit:]
-    for message in target_messages:
-        role = message.get("role")
-        if role == "narration":
-            label = "地の文"
-        elif role == "system":
-            label = "システム"
-        else:
-            label = str(message.get("speaker_name") or "")
-            handle = str(message.get("handle") or "")
-            if handle:
-                label = f"{label}(@{handle})" if label else f"@{handle}"
-            if not label:
-                if role == "user":
-                    label = "ユーザー"
-                elif role == "guest":
-                    label = "ゲスト"
-                else:
-                    label = "キャラクター"
-        lines.append(f"{label}: {message.get('text', '')}")
-    return "\n".join(lines)
-
-
 def _build_group_system_prompt(
     group: GroupChatRecord,
     settings: dict[str, Any],
@@ -8159,7 +8016,7 @@ def _build_group_character_messages(
         SystemMessage(content=_build_group_system_prompt(group, settings, active, speaker)),
         HumanMessage(
             content=(
-                f"会話履歴:\n{_format_group_history(messages)}\n\n"
+                f"会話履歴:\n{format_group_history(messages)}\n\n"
                 f"次の発言者は @{speaker.handle} / {speaker.character.name} です。"
                 "このキャラクターの自然な次の発言を、本文だけで返してください。"
                 "通常チャットと同じくらい短く、1〜3文程度で相手が返しやすい余白を残してください。"
@@ -8202,7 +8059,7 @@ def _build_group_guest_messages(
                 f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
                 f"{_format_group_relationship_section(group, settings)}"
-                f"会話履歴:\n{_format_group_history(messages)}\n\n"
+                f"会話履歴:\n{format_group_history(messages)}\n\n"
                 f"今回のゲスト発言者: {_guest_display_name(name)}\n"
                 "このゲストの自然な次の発言を、本文だけで返してください。"
                 f"{instruction_text}"
@@ -8234,7 +8091,7 @@ def _build_group_narration_messages(
                 f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
                 f"{_format_group_relationship_section(group, settings)}"
-                f"会話履歴:\n{_format_group_history(messages)}\n\n"
+                f"会話履歴:\n{format_group_history(messages)}\n\n"
                 f"指示: {instruction_line}\n"
                 "出力は地の文だけ。"
             )
@@ -8269,7 +8126,7 @@ def _build_group_input_completion_messages(
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
                 f"{_format_group_relationship_section(group, settings)}"
                 f"{character_context}"
-                f"会話履歴:\n{_format_group_history(messages)}\n\n"
+                f"会話履歴:\n{format_group_history(messages)}\n\n"
                 f"未完の文:\n{left_text.rstrip()}\n\n"
                 "未完の文の続きを出力してください。前置き、引用符、元の文の繰り返しは禁止です。"
             )
@@ -8305,7 +8162,7 @@ def _build_group_tailored_input_messages(
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
                 f"{_format_group_relationship_section(group, settings)}"
                 f"{character_context}"
-                f"会話履歴:\n{_format_group_history(messages)}\n\n"
+                f"会話履歴:\n{format_group_history(messages)}\n\n"
                 f"書き換える文:\n{text.strip()}\n\n"
                 "現在の入力ロールに合う自然な本文へ書き換えてください。"
                 "出力は書き換え後の本文だけ。前置き、引用符、話者名、解説は禁止です。"
@@ -8344,7 +8201,7 @@ def _build_group_response_choice_messages(
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
                 f"{_format_group_relationship_section(group, settings)}"
                 f"{character_context}"
-                f"会話履歴:\n{_format_group_history(messages)}\n\n"
+                f"会話履歴:\n{format_group_history(messages)}\n\n"
                 f"{prefix_line}\n"
                 "出力は3行だけ。番号や箇条書き記号は付けず、候補本文だけを書いてください。"
             )
@@ -8475,7 +8332,7 @@ def _build_group_title_messages(group: GroupChatRecord, messages: list[dict[str,
                 f"グループ名: {group.name}\n"
                 f"世界観:\n{group.world or '未設定'}\n\n"
                 f"{_format_group_relationship_section(group, {})}"
-                f"会話履歴:\n{_format_group_history(messages)}"
+                f"会話履歴:\n{format_group_history(messages)}"
             )
         ),
     ]

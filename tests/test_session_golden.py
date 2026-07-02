@@ -11,13 +11,14 @@ import aiosqlite
 import pytest
 
 from src.core.chat.sessions import ChatSessionRecord
+from src.core.conversation import history as history_module
+from src.core.conversation.history import group_message, group_system_event_message
+from src.core.conversation.schemas import ChatDebugInfo, ChatMessagePreview
 from src.core.group_chat.sessions import GroupChatSessionRecord
 from src.storage.chat_repository import ChatRepository
 from src.storage.group_chat_repository import GroupChatRepository
 from src.ui.chat.controller import chat_message_to_dict, chat_settings_to_dict
-from src.ui.chat.models import ChatDebugInfo, ChatMessagePreview, ChatSessionSettings
-from src.ui.pages import group_chat as group_chat_module
-from src.ui.pages.group_chat import _group_message, _group_system_event_message
+from src.ui.chat.models import ChatSessionSettings
 
 from tests.group_chat_test_helpers import make_group_chat, make_group_settings
 
@@ -179,7 +180,7 @@ async def test_group_chat_session_roundtrip_json_matches_golden(
     user = group.user_persona
     assert user is not None
     time_labels = iter(["21:00", "21:01", "21:02", "21:03", "21:04", "21:05"])
-    monkeypatch.setattr(group_chat_module, "time_label", lambda: next(time_labels))
+    monkeypatch.setattr(history_module, "time_label", lambda: next(time_labels))
     settings = {
         **make_group_settings(),
         "profile_id": "profile-golden",
@@ -201,29 +202,29 @@ async def test_group_chat_session_roundtrip_json_matches_golden(
         total_tokens=76,
     )
     messages = [
-        _group_system_event_message("灯里が入場しました"),
-        _group_message(
+        group_system_event_message("灯里が入場しました"),
+        group_message(
             "user",
             "この星図、昨日と線が違う気がします。",
             user=user,
         ),
-        _group_message(
+        group_message(
             "character",
             "星図は夜ごとに少しだけ息をするんです。",
             member=member,
             debug=debug,
             speaker_debug=speaker_debug,
         ),
-        _group_message(
+        group_message(
             "guest",
             "返却台へお願いします。",
             guest_name="guest:巡回司書",
         ),
-        _group_message(
+        group_message(
             "narration",
             "天球儀の青い光が床に広がった。",
         ),
-        _group_message(
+        group_message(
             "memo",
             "次は湊に星図の修理を促す。",
         ),

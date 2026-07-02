@@ -1,3 +1,4 @@
+from src.core.conversation.history import format_group_history
 from src.ui.pages.group_chat import (
     _build_group_character_messages,
     _build_group_guest_messages,
@@ -7,7 +8,6 @@ from src.ui.pages.group_chat import (
     _build_group_system_prompt,
     _build_group_tailored_input_messages,
     _build_group_title_messages,
-    _format_group_history,
     _format_group_participant_overview,
     _format_group_relationship_section,
     _group_input_target_context,
@@ -98,7 +98,7 @@ def test_group_prompt_helpers_return_current_full_text() -> None:
     group = make_group_chat()
     settings = make_group_settings()
 
-    assert _format_group_history(make_group_messages()) == HISTORY
+    assert format_group_history(make_group_messages()) == HISTORY
     assert _format_group_participant_overview(group, settings) == PARTICIPANT_OVERVIEW
     assert _group_user_persona_context(group.user_persona) == USER_CONTEXT
     assert _format_group_relationship_section(group, settings) == RELATIONSHIP_SECTION

@@ -3,8 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
+
+from ...core.conversation.schemas import ChatDebugInfo, ChatMessagePreview, time_label
+
+__all__ = [
+    "CHAT_COMMANDS",
+    "ChatCommandDefinition",
+    "ChatDebugInfo",
+    "ChatMessagePreview",
+    "ChatRefs",
+    "ChatSessionSettings",
+    "ChatState",
+    "ChatThreadPreview",
+    "time_label",
+]
 
 
 @dataclass(frozen=True)
@@ -14,24 +27,6 @@ class ChatThreadPreview:
     preview: str
     time_label: str
     active: bool = False
-
-
-@dataclass(frozen=True)
-class ChatMessagePreview:
-    speaker: str
-    text: str
-    time_label: str
-    debug: ChatDebugInfo | None = None
-
-
-@dataclass(frozen=True)
-class ChatDebugInfo:
-    llm_input: str
-    raw_output: str
-    reasoning_output: str = ""
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    total_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -87,7 +82,3 @@ class ChatRefs:
     input: Any = None
     input_mode_icon: Any = None
     history_sections: list[Any] = field(default_factory=list)
-
-
-def time_label() -> str:
-    return datetime.now().strftime("%H:%M")
