@@ -1,6 +1,11 @@
+import unittest
+
 from src.core.character_generation.prompts import (
     ASSEMBLY_SYSTEM,
     ASSEMBLY_USER_TEMPLATE,
+    GROUP_ASSEMBLY_USER_TEMPLATE,
+    GROUP_BRAINSTORM_PROMPT,
+    GROUP_RELATED_BRAINSTORM_PROMPT,
     MODIFY_ASSEMBLY_SYSTEM,
     MODIFY_ASSEMBLY_USER_TEMPLATE,
     RELATED_ASSEMBLY_SYSTEM,
@@ -72,3 +77,52 @@ def test_generation_prompts_do_not_request_voice_image() -> None:
     ])
 
     assert "声のイメージ" not in prompt_text
+
+
+def test_group_generation_prompt_uses_fixed_world_context() -> None:
+    prompt_text = "\n".join([
+        GROUP_BRAINSTORM_PROMPT,
+        GROUP_RELATED_BRAINSTORM_PROMPT,
+        GROUP_ASSEMBLY_USER_TEMPLATE,
+    ])
+
+    assert "固定ワールド" in prompt_text
+    assert "新しい世界観は作らず" in prompt_text
+    assert "{group_world}" in GROUP_ASSEMBLY_USER_TEMPLATE
+
+
+def test_group_generation_output_format_omits_group_owned_sections() -> None:
+    output_format = GROUP_ASSEMBLY_USER_TEMPLATE.split("## 出力フォーマット", 1)[1]
+
+    assert "## 世界観・舞台" not in output_format
+    assert "## 人間関係" not in output_format
+
+
+class CharacterGenerationSheetFieldsTest(unittest.TestCase):
+    def test_parse_markdown_extracts_sample_dialogues(self) -> None:
+        test_parse_markdown_extracts_sample_dialogues()
+
+    def test_required_headers_use_sample_dialogues_instead_of_story_hooks(self) -> None:
+        test_required_headers_use_sample_dialogues_instead_of_story_hooks()
+
+    def test_sample_dialogue_prompt_requires_three_sequential_lines(self) -> None:
+        test_sample_dialogue_prompt_requires_three_sequential_lines()
+
+    def test_dialogue_prompt_requires_first_person_and_bans_parenthetical_stage_directions(self) -> None:
+        test_dialogue_prompt_requires_first_person_and_bans_parenthetical_stage_directions()
+
+    def test_prompt_requires_character_name(self) -> None:
+        test_prompt_requires_character_name()
+
+    def test_generation_prompts_do_not_request_voice_image(self) -> None:
+        test_generation_prompts_do_not_request_voice_image()
+
+    def test_group_generation_prompt_uses_fixed_world_context(self) -> None:
+        test_group_generation_prompt_uses_fixed_world_context()
+
+    def test_group_generation_output_format_omits_group_owned_sections(self) -> None:
+        test_group_generation_output_format_omits_group_owned_sections()
+
+
+if __name__ == "__main__":
+    unittest.main()

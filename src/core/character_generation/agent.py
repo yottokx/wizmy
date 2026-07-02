@@ -22,6 +22,12 @@ from .prompts import (
     ASSEMBLY_SYSTEM,
     ASSEMBLY_USER_TEMPLATE,
     BRAINSTORM_PROMPT,
+    GROUP_ASSEMBLY_SYSTEM,
+    GROUP_ASSEMBLY_USER_TEMPLATE,
+    GROUP_BRAINSTORM_PROMPT,
+    GROUP_MODIFY_ASSEMBLY_SYSTEM,
+    GROUP_MODIFY_ASSEMBLY_USER_TEMPLATE,
+    GROUP_RELATED_BRAINSTORM_PROMPT,
     MODIFY_ASSEMBLY_SYSTEM,
     MODIFY_ASSEMBLY_USER_TEMPLATE,
     MODIFY_BRAINSTORM_PROMPT,
@@ -33,6 +39,7 @@ from .prompts import (
     REQUIRED_SHEET_HEADERS,
 )
 from .schemas import (
+    GenerationBaseSheet,
     GenerationMode,
     GenerationPreferences,
     GenerationRequest,
@@ -165,6 +172,102 @@ def _build_related_user_prompt(
     return "\n".join(lines)
 
 
+def _base_sheet_context(base: GenerationBaseSheet, index: int = 1) -> str:
+    label_parts = [f"ベース{index}"]
+    if base.name:
+        label_parts.append(base.name)
+    if base.handle:
+        label_parts.append(f"@{base.handle}")
+    header = " / ".join(label_parts)
+    markdown = (base.sheet_markdown or "").strip()
+    return f"### {header}\n{markdown}" if markdown else f"### {header}\n（シート本文なし）"
+
+
+def _related_base_context(base_sheets: list[GenerationBaseSheet]) -> str:
+    if not base_sheets:
+        return "（ベースメンバー指定なし）"
+    return "\n\n".join(
+        _base_sheet_context(base, index)
+        for index, base in enumerate(base_sheets, start=1)
+    )
+
+
+def _build_group_user_prompt(
+    prefs: GenerationPreferences,
+    group_world: str,
+    new_char_name: str = "",
+) -> str:
+    d = prefs.to_dict()
+    gender = d.get("gender", "おまかせ")
+    age = d.get("age", "おまかせ")
+    extra = d.get("extra", "").strip()
+
+    lines = [
+        "以下の固定グループワールドに存在するキャラクターをブレインストーミングしてください。",
+        "",
+        "## 固定グループワールド",
+        group_world.strip() or "未設定",
+        "",
+        "## 新規キャラクターの指定情報",
+    ]
+    if new_char_name:
+        lines.append(f"- 名前（固定・変更禁止）: {new_char_name}")
+    else:
+        lines.append("- 名前: 指定なし（フェーズDで乱数選択）")
+    lines.append(f"- 性別: {gender if gender != 'おまかせ' else 'おまかせ（乱数で決めてください）'}")
+    lines.append(f"- 年齢帯: {age if age != 'おまかせ' else 'おまかせ（乱数で決めてください）'}")
+    if extra:
+        lines.append(f"- その他の要望: {extra}")
+    lines.append("")
+    lines.append("新しい世界観は作らず、固定グループワールドとの整合性を保ってください。")
+    lines.append("フェーズA〜Dを順番に実行し、必ずツールで乱数選択してください。")
+    if new_char_name:
+        lines.append(f"名前は「{new_char_name}」で固定です。フェーズDの名前選択はスキップしてください。")
+    lines.append("全完了後は[GENERATION_COMPLETE]を出力してください。")
+    return "\n".join(lines)
+
+
+def _build_group_related_user_prompt(
+    prefs: GenerationPreferences,
+    group_world: str,
+    base_sheets: list[GenerationBaseSheet],
+    new_char_name: str,
+) -> str:
+    d = prefs.to_dict()
+    gender = d.get("gender", "おまかせ")
+    age = d.get("age", "おまかせ")
+    extra = d.get("extra", "").strip()
+
+    lines = [
+        "以下の固定グループワールドとベースメンバーを参照し、関連キャラクターをブレインストーミングしてください。",
+        "",
+        "## 固定グループワールド",
+        group_world.strip() or "未設定",
+        "",
+        "## ベースメンバー",
+        _related_base_context(base_sheets),
+        "",
+        "## 新規キャラクターの指定情報",
+    ]
+    if new_char_name:
+        lines.append(f"- 名前（固定・変更禁止）: {new_char_name}")
+    else:
+        lines.append("- 名前: 指定なし（フェーズDで乱数選択）")
+    lines.append(f"- 性別: {gender if gender != 'おまかせ' else 'おまかせ（乱数で決めてください）'}")
+    lines.append(f"- 年齢帯: {age if age != 'おまかせ' else 'おまかせ（乱数で決めてください）'}")
+    if extra:
+        lines.append(f"- その他の要望: {extra}")
+    lines.append("")
+    lines.append("ベースメンバーとの関係性は別データとして保存します。シート本文に関係性欄は作らないでください。")
+    lines.append("フェーズA〜Dを順番に実行してください。")
+    if new_char_name:
+        lines.append(f"名前は「{new_char_name}」で固定です。フェーズDの名前選択はスキップしてください。")
+    if gender != "おまかせ":
+        lines.append(f"性別は「{gender}」で固定です。フェーズAの性別選択はスキップしてください。")
+    lines.append("全完了後は[GENERATION_COMPLETE]を出力してください。")
+    return "\n".join(lines)
+
+
 def _build_assembly_user(
     primary_results: list[str],
     resolution_results: list[str],
@@ -185,6 +288,33 @@ def _build_assembly_user(
     )
 
 
+def _build_group_assembly_user(
+    primary_results: list[str],
+    resolution_results: list[str],
+    prefs: GenerationPreferences,
+    group_world: str,
+    base_sheets: list[GenerationBaseSheet] | None = None,
+    new_char_name: str = "",
+) -> str:
+    d = prefs.to_dict()
+    pref_lines = "\n".join(
+        f"- {k}: {v}" for k, v in d.items() if v and v not in ("おまかせ", "")
+    ) or "（特に指定なし）"
+    primary_text = "\n".join(f"- {r}" for r in primary_results)
+    resolution_text = (
+        "\n".join(f"- {r}" for r in resolution_results) if resolution_results else "（矛盾解決なし）"
+    )
+    name_in_header = new_char_name if new_char_name else "キャラクター名の選択結果"
+    return GROUP_ASSEMBLY_USER_TEMPLATE.format(
+        group_world=group_world.strip() or "未設定",
+        pref_lines=pref_lines,
+        base_context=_related_base_context(base_sheets or []),
+        primary_text=primary_text,
+        resolution_text=resolution_text,
+        name_in_header=name_in_header,
+    )
+
+
 def _build_modify_assembly_user(
     base_sheet: str,
     modification_results: list[str],
@@ -192,6 +322,21 @@ def _build_modify_assembly_user(
 ) -> str:
     results_text = "\n".join(f"- {r}" for r in modification_results)
     return MODIFY_ASSEMBLY_USER_TEMPLATE.format(
+        modify_request=modify_request,
+        base_sheet=base_sheet,
+        results_text=results_text,
+    )
+
+
+def _build_group_modify_assembly_user(
+    base_sheet: str,
+    modification_results: list[str],
+    modify_request: str,
+    group_world: str,
+) -> str:
+    results_text = "\n".join(f"- {r}" for r in modification_results)
+    return GROUP_MODIFY_ASSEMBLY_USER_TEMPLATE.format(
+        group_world=group_world.strip() or "未設定",
         modify_request=modify_request,
         base_sheet=base_sheet,
         results_text=results_text,
@@ -325,6 +470,31 @@ def _assemble_sheet(
     return _extract_text(response.content)
 
 
+def _assemble_group_sheet(
+    llm: BaseChatModel,
+    primary_results: list[str],
+    resolution_results: list[str],
+    prefs: GenerationPreferences,
+    group_world: str,
+    base_sheets: list[GenerationBaseSheet] | None = None,
+    new_char_name: str = "",
+) -> str:
+    response = llm.invoke([
+        SystemMessage(content=GROUP_ASSEMBLY_SYSTEM),
+        HumanMessage(
+            content=_build_group_assembly_user(
+                primary_results,
+                resolution_results,
+                prefs,
+                group_world,
+                base_sheets,
+                new_char_name,
+            )
+        ),
+    ])
+    return _extract_text(response.content)
+
+
 def _assemble_modify_sheet(
     llm: BaseChatModel,
     base_sheet: str,
@@ -334,6 +504,27 @@ def _assemble_modify_sheet(
     response = llm.invoke([
         SystemMessage(content=MODIFY_ASSEMBLY_SYSTEM),
         HumanMessage(content=_build_modify_assembly_user(base_sheet, modification_results, modify_request)),
+    ])
+    return _extract_text(response.content)
+
+
+def _assemble_group_modify_sheet(
+    llm: BaseChatModel,
+    base_sheet: str,
+    modification_results: list[str],
+    modify_request: str,
+    group_world: str,
+) -> str:
+    response = llm.invoke([
+        SystemMessage(content=GROUP_MODIFY_ASSEMBLY_SYSTEM),
+        HumanMessage(
+            content=_build_group_modify_assembly_user(
+                base_sheet,
+                modification_results,
+                modify_request,
+                group_world,
+            )
+        ),
     ])
     return _extract_text(response.content)
 
@@ -406,6 +597,14 @@ def score_completion(
     }
 
 
+def _group_related_bases(request: GenerationRequest) -> list[GenerationBaseSheet]:
+    if request.related_base_sheets:
+        return request.related_base_sheets
+    if request.base_sheet:
+        return [GenerationBaseSheet(sheet_markdown=request.base_sheet)]
+    return []
+
+
 def run_generation(
     llm: BaseChatModel,
     request: GenerationRequest,
@@ -425,10 +624,19 @@ def run_generation(
         GenerationResult
     """
     mode = request.mode
+    is_group_generation = bool(request.omit_group_sections)
 
     if mode == GenerationMode.NEW:
-        system_prompt = BRAINSTORM_PROMPT
-        user_message = _build_user_prompt(request.preferences)
+        if is_group_generation:
+            system_prompt = GROUP_BRAINSTORM_PROMPT
+            user_message = _build_group_user_prompt(
+                request.preferences,
+                request.group_world,
+                request.new_char_name,
+            )
+        else:
+            system_prompt = BRAINSTORM_PROMPT
+            user_message = _build_user_prompt(request.preferences)
         complete_marker = "[GENERATION_COMPLETE]"
     elif mode == GenerationMode.MODIFY:
         system_prompt = MODIFY_BRAINSTORM_PROMPT
@@ -436,12 +644,28 @@ def run_generation(
             base_sheet=request.base_sheet,
             modify_request=request.modify_request,
         )
+        if is_group_generation:
+            user_message += (
+                "\n\n## グループ内生成の追加制約\n"
+                f"固定グループワールド:\n{request.group_world.strip() or '未設定'}\n\n"
+                "ワールド説明欄と人間関係欄はグループ側で管理します。"
+                "この2つの欄の追加・修正はブレインストーミング対象にしないでください。"
+            )
         complete_marker = "[MODIFICATION_COMPLETE]"
     else:  # RELATED
-        system_prompt = RELATED_BRAINSTORM_PROMPT
-        user_message = _build_related_user_prompt(
-            request.preferences, request.base_sheet, request.new_char_name
-        )
+        if is_group_generation:
+            system_prompt = GROUP_RELATED_BRAINSTORM_PROMPT
+            user_message = _build_group_related_user_prompt(
+                request.preferences,
+                request.group_world,
+                _group_related_bases(request),
+                request.new_char_name,
+            )
+        else:
+            system_prompt = RELATED_BRAINSTORM_PROMPT
+            user_message = _build_related_user_prompt(
+                request.preferences, request.base_sheet, request.new_char_name
+            )
         complete_marker = "[GENERATION_COMPLETE]"
 
     graph = create_agent(llm, GENERATION_TOOLS, system_prompt=system_prompt)
@@ -551,16 +775,46 @@ def run_generation(
 
     try:
         if mode == GenerationMode.MODIFY:
-            sheet = _assemble_modify_sheet(
-                llm, request.base_sheet, all_results, request.modify_request
-            )
+            if is_group_generation:
+                sheet = _assemble_group_modify_sheet(
+                    llm,
+                    request.base_sheet,
+                    all_results,
+                    request.modify_request,
+                    request.group_world,
+                )
+            else:
+                sheet = _assemble_modify_sheet(
+                    llm, request.base_sheet, all_results, request.modify_request
+                )
         elif mode == GenerationMode.RELATED:
-            sheet = _assemble_related_sheet(
-                llm, primary_results, resolution_results,
-                request.preferences, request.base_sheet, request.new_char_name,
-            )
+            if is_group_generation:
+                sheet = _assemble_group_sheet(
+                    llm,
+                    primary_results,
+                    resolution_results,
+                    request.preferences,
+                    request.group_world,
+                    _group_related_bases(request),
+                    request.new_char_name,
+                )
+            else:
+                sheet = _assemble_related_sheet(
+                    llm, primary_results, resolution_results,
+                    request.preferences, request.base_sheet, request.new_char_name,
+                )
         else:
-            sheet = _assemble_sheet(llm, primary_results, resolution_results, request.preferences)
+            if is_group_generation:
+                sheet = _assemble_group_sheet(
+                    llm,
+                    primary_results,
+                    resolution_results,
+                    request.preferences,
+                    request.group_world,
+                    new_char_name=request.new_char_name,
+                )
+            else:
+                sheet = _assemble_sheet(llm, primary_results, resolution_results, request.preferences)
     except Exception as exc:
         error_msg = f"Stage 2 エラー: {exc}"
         if progress_callback:

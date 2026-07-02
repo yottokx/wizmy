@@ -448,6 +448,94 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
 
             self.assertIsNone(result)
 
+    async def test_add_generated_member_adds_native_group_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = GroupChatService(GroupChatRepository(Path(tmp_dir) / "wizmy.db"))
+            await service.initialize()
+
+            group = await service.create_group(
+                name="テストグループ",
+                world="テスト用の世界",
+                completion_profile_id="",
+                members=[],
+                user_persona=UserPersona(id="persona-1", name="テストユーザー"),
+                user_handle="User",
+            )
+            generated = CharacterSheet(
+                id="generated-1",
+                name="生成キャラ",
+                raw_markdown="# 生成キャラ",
+            )
+
+            saved_member = await service.add_generated_member(
+                group.id,
+                generated,
+                "GenChar",
+            )
+
+            self.assertIsNotNone(saved_member)
+            reloaded = await service.get(group.id)
+            self.assertIsNotNone(reloaded)
+            assert reloaded is not None
+            self.assertEqual(1, len(reloaded.members))
+            member = reloaded.members[0]
+            self.assertEqual("", member.source_character_id)
+            self.assertEqual("GenChar", member.handle)
+            self.assertEqual("generated-1", member.character.id)
+            self.assertEqual("native", member.world_entry_type)
+            self.assertEqual("", member.arrival_reason)
+            self.assertEqual("", member.world_adaptation_note)
+
+    async def test_generated_related_member_relationships_can_be_saved_for_all_bases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = GroupChatService(GroupChatRepository(Path(tmp_dir) / "wizmy.db"))
+            await service.initialize()
+
+            group = await service.create_group(
+                name="テストグループ",
+                world="テスト用の世界",
+                completion_profile_id="",
+                members=[
+                    (CharacterSheet(id="character-1", name="ベース1"), "BaseOne"),
+                    (CharacterSheet(id="character-2", name="ベース2"), "BaseTwo"),
+                ],
+                user_persona=UserPersona(id="persona-1", name="テストユーザー"),
+                user_handle="User",
+            )
+            generated_member = await service.add_generated_member(
+                group.id,
+                CharacterSheet(id="generated-1", name="関連キャラ"),
+                "Related",
+            )
+            self.assertIsNotNone(generated_member)
+            assert generated_member is not None
+
+            for base in group.members:
+                await service.save_relationship(
+                    group.id,
+                    GroupRelationship(
+                        id="",
+                        participant_a_key=f"member:{generated_member.id}",
+                        participant_b_key=f"member:{base.id}",
+                        description=f"{base.character.name}との関係",
+                    ),
+                )
+
+            reloaded = await service.get(group.id)
+            self.assertIsNotNone(reloaded)
+            assert reloaded is not None
+            pairs = {
+                frozenset({item.participant_a_key, item.participant_b_key})
+                for item in reloaded.relationships
+            }
+            self.assertEqual(
+                {
+                    frozenset({f"member:{generated_member.id}", f"member:{group.members[0].id}"}),
+                    frozenset({f"member:{generated_member.id}", f"member:{group.members[1].id}"}),
+                },
+                pairs,
+            )
+
     async def test_group_member_image_bytes_are_saved_without_deleting_source_media(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             data_dir = Path(tmp_dir) / "data"

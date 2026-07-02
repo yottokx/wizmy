@@ -39,6 +39,15 @@ class GenerationPreferences:
 
 
 @dataclass
+class GenerationBaseSheet:
+    """関連キャラ生成で参照するベースキャラクター情報。"""
+    id: str = ""
+    name: str = ""
+    handle: str = ""
+    sheet_markdown: str = ""
+
+
+@dataclass
 class GenerationRequest:
     """生成エージェントへの入力。"""
     preferences: GenerationPreferences
@@ -46,6 +55,9 @@ class GenerationRequest:
     base_sheet: str = ""
     modify_request: str = ""
     new_char_name: str = ""
+    group_world: str = ""
+    related_base_sheets: list[GenerationBaseSheet] = field(default_factory=list)
+    omit_group_sections: bool = False
     recursion_limit: int = 100
 
 

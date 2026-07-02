@@ -172,6 +172,31 @@ class GroupChatService:
             group.model_copy(update={"members": [*group.members, *added]}, deep=True)
         )
 
+    async def add_generated_member(
+        self,
+        group_id: str,
+        character: CharacterSheet,
+        handle: str,
+    ) -> GroupMember | None:
+        """生成結果をグループ内ネイティブメンバーとして追加する。"""
+        group = await self._repo.get(group_id)
+        if group is None:
+            return None
+
+        member = GroupMember(
+            id=uuid.uuid4().hex,
+            source_character_id="",
+            handle=handle,
+            character=character.model_copy(deep=True),
+            world_entry_type="native",
+            arrival_reason="",
+            world_adaptation_note="",
+        )
+        saved = await self._repo.save(
+            group.model_copy(update={"members": [*group.members, member]}, deep=True)
+        )
+        return next((item for item in saved.members if item.id == member.id), member)
+
     async def update_member_character(
         self,
         group_id: str,

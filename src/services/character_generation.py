@@ -55,6 +55,7 @@ class GenerationJob:
     request: GenerationRequest
     profile: LLMProfile
     endpoint: Endpoint
+    auto_save: bool = True
     status: GenerationJobStatus = GenerationJobStatus.QUEUED
     base_character_id: str = ""
     events: list[ProgressEvent] = field(default_factory=list)
@@ -156,6 +157,7 @@ class CharacterGenerationService:
         api_key: str | None = None,
         generation_id: str | None = None,
         base_character_id: str = "",
+        auto_save: bool = True,
     ) -> GenerationJob:
         """生成ジョブをバックグラウンドで開始する。"""
         gen_id = generation_id or f"gen-{uuid.uuid4().hex[:12]}"
@@ -164,6 +166,7 @@ class CharacterGenerationService:
             request=request,
             profile=profile,
             endpoint=endpoint,
+            auto_save=auto_save,
             base_character_id=base_character_id,
         )
         self._jobs[job.id] = job
@@ -236,13 +239,21 @@ class CharacterGenerationService:
         endpoint: Endpoint,
         api_key: str | None = None,
         generation_id: str | None = None,
+        auto_save: bool = True,
     ) -> AsyncIterator[ProgressEvent]:
         """
         生成を実行し、進捗イベントを非同期ストリームで返す。
 
         生成 ID を指定すると stop() で途中停止できる。
         """
-        job = self.start_job(request, profile, endpoint, api_key, generation_id)
+        job = self.start_job(
+            request,
+            profile,
+            endpoint,
+            api_key,
+            generation_id,
+            auto_save=auto_save,
+        )
         async for event in self.stream_events(job.id):
             yield event
 
@@ -271,7 +282,7 @@ class CharacterGenerationService:
             if result.success:
                 job.result = result
                 job.sheet_markdown = result.sheet_markdown
-                if job.request.mode != GenerationMode.MODIFY:
+                if job.auto_save and job.request.mode != GenerationMode.MODIFY:
                     try:
                         saved = await self.save_result(result, job.profile)
                         job.saved_character_id = saved.id
