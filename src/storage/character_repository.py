@@ -1,7 +1,7 @@
 """
 キャラクターシートの SQLite 永続化リポジトリ。
 
-SQLAlchemy Core (非ORM) + aiosqlite で非同期アクセスを提供する。
+aiosqlite + 生SQL で非同期アクセスを提供する。
 キャラクターは構造化フィールド + raw_markdown の両方を保持する。
 """
 

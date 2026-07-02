@@ -36,3 +36,14 @@ uv run mypy
 ```
 
 現在は既存ファイルの一括整形を避けるため、`ruff format` の対象外ファイルを `pyproject.toml` に明記しています。新規ファイルは除外リストへ追加せず、formatter の確認対象にしてください。
+
+## 依存関係ファイルの更新方法
+
+依存関係は `pyproject.toml` と `uv.lock` で管理します。`requirements.txt` は配布・互換用途の生成物として扱い、直接編集しません。
+
+`requirements.txt` を更新する場合は、次のコマンドで uv の lock から生成してください。
+
+```powershell
+"# このファイルは uv export で生成されます。直接編集しないでください。" | Set-Content -Path requirements.txt -Encoding UTF8
+uv export --no-dev --format requirements.txt --no-hashes --no-header --no-annotate | Add-Content -Path requirements.txt -Encoding UTF8
+```
