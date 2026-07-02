@@ -90,7 +90,8 @@ class DanbooruPromptService:
         metadata: dict | None = None,
         result_handler: Callable[[list[DanbooruPromptCandidate], AIJobRecord], Awaitable[object] | object] | None = None,
     ) -> AIJobRecord:
-        if self._ai_jobs is None:
+        ai_jobs = self._ai_jobs
+        if ai_jobs is None:
             raise DanbooruPromptServiceError("AIジョブサービスが初期化されていません。")
 
         async def _runner(job: AIJobRecord) -> object:
@@ -107,10 +108,10 @@ class DanbooruPromptService:
             if inspect.isawaitable(handled):
                 handled = await handled
             if isinstance(handled, dict):
-                self._ai_jobs.set_result_meta(job.id, handled)
+                ai_jobs.set_result_meta(job.id, handled)
             return handled if handled is not None else candidates
 
-        return self._ai_jobs.start_job(
+        return ai_jobs.start_job(
             kind=AIJobKind.LLM_PROMPT,
             label=label,
             scope=scope,

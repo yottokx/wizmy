@@ -7,8 +7,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-IMAGE_PROVIDER_WIZMY_GEN_SERVER = "wizmy_gen_server"
 ImageGenerationProvider = Literal["wizmy_gen_server"]
+IMAGE_PROVIDER_WIZMY_GEN_SERVER: ImageGenerationProvider = "wizmy_gen_server"
 
 IMAGE_PROVIDER_LABELS: dict[str, str] = {
     IMAGE_PROVIDER_WIZMY_GEN_SERVER: "Wizmy-Gen-Server",

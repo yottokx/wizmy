@@ -367,7 +367,8 @@ class AIJobService:
             if not job.is_active and job.completed_at is not None
         ]
         for job in completed:
-            if now - job.completed_at > self._completed_ttl:
+            completed_at = job.completed_at
+            if completed_at is not None and now - completed_at > self._completed_ttl:
                 self._jobs.pop(job.id, None)
 
         completed = [

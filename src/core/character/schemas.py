@@ -55,14 +55,14 @@ class CharacterVoiceAsset(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
-CHARACTER_TTS_API_DEFAULT = "default"
-CHARACTER_TTS_API_TTS = "tts"
-CHARACTER_TTS_API_GEN_SERVER = "gen_server"
 CharacterTTSApiType = Literal["default", "tts", "gen_server"]
+CHARACTER_TTS_API_DEFAULT: CharacterTTSApiType = "default"
+CHARACTER_TTS_API_TTS: CharacterTTSApiType = "tts"
+CHARACTER_TTS_API_GEN_SERVER: CharacterTTSApiType = "gen_server"
 
-CHARACTER_GEN_SERVER_TTS_MODE_CLONE = "voice_clone"
-CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3 = "voice_design_v3"
 CharacterGenServerTTSMode = Literal["voice_clone", "voice_design_v3"]
+CHARACTER_GEN_SERVER_TTS_MODE_CLONE: CharacterGenServerTTSMode = "voice_clone"
+CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3: CharacterGenServerTTSMode = "voice_design_v3"
 
 
 class CharacterTTSSettings(BaseModel):

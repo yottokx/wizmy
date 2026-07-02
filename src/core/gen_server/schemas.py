@@ -8,14 +8,14 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-GEN_SERVER_MODE_IRODORI_VOICE_CLONE = "irodori_voice_clone"
-GEN_SERVER_MODE_IRODORI_VOICE_DESIGN = "irodori_voice_design"
-GEN_SERVER_MODE_SDXL_IMAGE = "sdxl_image"
 GenServerMode = Literal[
     "irodori_voice_clone",
     "irodori_voice_design",
     "sdxl_image",
 ]
+GEN_SERVER_MODE_IRODORI_VOICE_CLONE: GenServerMode = "irodori_voice_clone"
+GEN_SERVER_MODE_IRODORI_VOICE_DESIGN: GenServerMode = "irodori_voice_design"
+GEN_SERVER_MODE_SDXL_IMAGE: GenServerMode = "sdxl_image"
 
 GEN_SERVER_MODES: tuple[GenServerMode, ...] = (
     GEN_SERVER_MODE_SDXL_IMAGE,

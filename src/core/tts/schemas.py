@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ..character.schemas import CharacterTTSSettings, CharacterVoiceAsset
 
 
-TTS_PROVIDER_IRODORI_GRADIO = "irodori_gradio_07dfa74"
-TTS_PROVIDER_IRODORI_SERVER = "irodori_tts_server"
 TTSProvider = Literal["irodori_gradio_07dfa74", "irodori_tts_server"]
+TTS_PROVIDER_IRODORI_GRADIO: TTSProvider = "irodori_gradio_07dfa74"
+TTS_PROVIDER_IRODORI_SERVER: TTSProvider = "irodori_tts_server"
 
 _URL_MESSAGE = "URLは http://host:port の形式で入力してください。"
 

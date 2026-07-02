@@ -677,7 +677,7 @@ def run_generation(
     _pending_inputs: dict[str, dict] = {}
 
     try:
-        for chunk in graph.stream(
+        for chunk in graph.stream(  # type: ignore[call-overload]  # 理由: LangGraph の型定義が create_agent の実行時引数を狭く扱うため。
             {"messages": [HumanMessage(content=user_message)]},
             stream_mode="updates",
             config=graph_config,
@@ -714,7 +714,7 @@ def run_generation(
                                 raw_opts = tc_args.get("options") or []
                                 all_opts = [str(o) for o in raw_opts] if isinstance(raw_opts, list) else []
                             tc = ToolCallRecord(
-                                tool_name=msg.name if hasattr(msg, "name") else "",
+                                tool_name=msg.name if hasattr(msg, "name") else "",  # type: ignore[arg-type]  # 理由: ToolMessage.name は実行時互換のため既存値をそのまま記録する。
                                 result=result,
                                 is_resolution=is_resolution,
                                 all_options=all_opts,

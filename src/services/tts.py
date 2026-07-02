@@ -11,7 +11,7 @@ import wave
 from collections.abc import Awaitable, Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 from urllib.parse import quote, urljoin
 
 import httpx
@@ -116,6 +116,30 @@ class TTSService:
     def voice_id_for_character(self, character_id: str, voice_id: str = "") -> str:
         return voice_id.strip() or _voice_id_for_character(character_id)
 
+    @overload
+    def resolve_gen_server_voice_clone_endpoint(
+        self,
+        *,
+        raise_on_missing: Literal[True] = True,
+    ) -> GenServerEndpoint:
+        ...
+
+    @overload
+    def resolve_gen_server_voice_clone_endpoint(
+        self,
+        *,
+        raise_on_missing: Literal[False],
+    ) -> GenServerEndpoint | None:
+        ...
+
+    @overload
+    def resolve_gen_server_voice_clone_endpoint(
+        self,
+        *,
+        raise_on_missing: bool,
+    ) -> GenServerEndpoint | None:
+        ...
+
     def resolve_gen_server_voice_clone_endpoint(
         self,
         *,
@@ -127,6 +151,30 @@ class TTSService:
             raise_on_missing=raise_on_missing,
         )
 
+    @overload
+    def resolve_gen_server_voice_design_endpoint(
+        self,
+        *,
+        raise_on_missing: Literal[True] = True,
+    ) -> GenServerEndpoint:
+        ...
+
+    @overload
+    def resolve_gen_server_voice_design_endpoint(
+        self,
+        *,
+        raise_on_missing: Literal[False],
+    ) -> GenServerEndpoint | None:
+        ...
+
+    @overload
+    def resolve_gen_server_voice_design_endpoint(
+        self,
+        *,
+        raise_on_missing: bool,
+    ) -> GenServerEndpoint | None:
+        ...
+
     def resolve_gen_server_voice_design_endpoint(
         self,
         *,
@@ -137,6 +185,36 @@ class TTSService:
             "ボイスデザイン",
             raise_on_missing=raise_on_missing,
         )
+
+    @overload
+    def _resolve_gen_server_endpoint(
+        self,
+        mode: str,
+        label: str,
+        *,
+        raise_on_missing: Literal[True] = True,
+    ) -> GenServerEndpoint:
+        ...
+
+    @overload
+    def _resolve_gen_server_endpoint(
+        self,
+        mode: str,
+        label: str,
+        *,
+        raise_on_missing: Literal[False],
+    ) -> GenServerEndpoint | None:
+        ...
+
+    @overload
+    def _resolve_gen_server_endpoint(
+        self,
+        mode: str,
+        label: str,
+        *,
+        raise_on_missing: bool,
+    ) -> GenServerEndpoint | None:
+        ...
 
     def _resolve_gen_server_endpoint(
         self,
@@ -244,9 +322,9 @@ class TTSService:
                 caption = voice_caption.strip()
                 if not caption:
                     raise TTSServiceError("VoiceDesign v3で読み上げるにはキャプションが必要です。")
-                endpoint = self.resolve_gen_server_voice_design_endpoint()
+                gen_server_endpoint = self.resolve_gen_server_voice_design_endpoint()
                 model_id, params = self._gen_server_voice_design_options(gen_server_params or {})
-                return await self._voice_design_client(endpoint).synthesize(
+                return await self._voice_design_client(gen_server_endpoint).synthesize(
                     text,
                     caption,
                     voice_path,
@@ -259,9 +337,9 @@ class TTSService:
                     ai_job=ai_job,
                 )
 
-            endpoint = self.resolve_gen_server_voice_clone_endpoint()
+            gen_server_endpoint = self.resolve_gen_server_voice_clone_endpoint()
             model_id, params = self._gen_server_voice_clone_options(gen_server_params or {})
-            return await self._voice_clone_client(endpoint).synthesize(
+            return await self._voice_clone_client(gen_server_endpoint).synthesize(
                 text,
                 voice_path,
                 model_id=model_id,
@@ -273,15 +351,15 @@ class TTSService:
                 ai_job=ai_job,
             )
 
-        endpoint = self.resolve_endpoint(self._resolve_tts_endpoint_id(endpoint_id))
-        if endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
-            return await IrodoriTTSServerClient(endpoint).synthesize(
+        tts_endpoint = self.resolve_endpoint(self._resolve_tts_endpoint_id(endpoint_id))
+        if tts_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
+            return await IrodoriTTSServerClient(tts_endpoint).synthesize(
                 self.voice_id_for_character(character_id, voice_id),
                 text,
                 chunking_enabled=resolved_chunking_enabled,
                 chunk_min_chars=resolved_chunk_min_chars,
             )
-        return await IrodoriGradioClient(endpoint).synthesize(
+        return await IrodoriGradioClient(tts_endpoint).synthesize(
             text,
             voice_path,
             filename=filename,
@@ -311,7 +389,8 @@ class TTSService:
         metadata: dict[str, Any] | None = None,
         result_handler: Callable[[bytes, AIJobRecord], Awaitable[Any] | Any] | None = None,
     ) -> AIJobRecord:
-        if self._ai_jobs is None:
+        ai_jobs = self._ai_jobs
+        if ai_jobs is None:
             raise TTSServiceError("AIジョブサービスが初期化されていません。")
 
         async def _runner(job: AIJobRecord) -> Any:
@@ -337,10 +416,10 @@ class TTSService:
             if inspect.isawaitable(handled):
                 handled = await handled
             if isinstance(handled, dict):
-                self._ai_jobs.set_result_meta(job.id, handled)
+                ai_jobs.set_result_meta(job.id, handled)
             return handled if handled is not None else audio
 
-        return self._ai_jobs.start_job(
+        return ai_jobs.start_job(
             kind=AIJobKind.TTS_SYNTHESIS,
             label=label,
             scope=scope,
@@ -362,7 +441,8 @@ class TTSService:
         metadata: dict[str, Any] | None = None,
         result_handler: Callable[[bytes, AIJobRecord], Awaitable[Any] | Any] | None = None,
     ) -> AIJobRecord:
-        if self._ai_jobs is None:
+        ai_jobs = self._ai_jobs
+        if ai_jobs is None:
             raise TTSServiceError("AIジョブサービスが初期化されていません。")
 
         async def _runner(job: AIJobRecord) -> Any:
@@ -381,10 +461,10 @@ class TTSService:
             if inspect.isawaitable(handled):
                 handled = await handled
             if isinstance(handled, dict):
-                self._ai_jobs.set_result_meta(job.id, handled)
+                ai_jobs.set_result_meta(job.id, handled)
             return handled if handled is not None else audio
 
-        return self._ai_jobs.start_job(
+        return ai_jobs.start_job(
             kind=AIJobKind.TTS_DESIGN,
             label=label,
             scope=scope,
@@ -876,7 +956,7 @@ class WizmyGenServerVoiceCloneClient:
 
 
 class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
-    async def synthesize(
+    async def synthesize(  # type: ignore[override]  # 理由: VoiceDesign は共通HTTP処理を継承しつつ、API仕様上 caption 引数を追加するため。
         self,
         text: str,
         caption: str,
@@ -915,7 +995,7 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
             except httpx.HTTPError as exc:
                 raise TTSServiceError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
 
-    async def _synthesize_once(
+    async def _synthesize_once(  # type: ignore[override]  # 理由: VoiceDesign のAPI仕様に合わせ、共通処理の一部だけを差し替えるため。
         self,
         client: httpx.AsyncClient,
         text: str,

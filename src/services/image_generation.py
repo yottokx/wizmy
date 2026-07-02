@@ -107,7 +107,8 @@ class ImageGenerationService:
         metadata: dict[str, Any] | None = None,
         result_handler: Callable[[list[GeneratedImage], AIJobRecord], Awaitable[Any] | Any] | None = None,
     ) -> AIJobRecord:
-        if self._ai_jobs is None:
+        ai_jobs = self._ai_jobs
+        if ai_jobs is None:
             raise ImageGenerationError("AIジョブサービスが初期化されていません。")
 
         async def _runner(job: AIJobRecord) -> Any:
@@ -122,10 +123,10 @@ class ImageGenerationService:
             if inspect.isawaitable(handled):
                 handled = await handled
             if isinstance(handled, dict):
-                self._ai_jobs.set_result_meta(job.id, handled)
+                ai_jobs.set_result_meta(job.id, handled)
             return handled if handled is not None else images
 
-        return self._ai_jobs.start_job(
+        return ai_jobs.start_job(
             kind=AIJobKind.IMAGE_SDXL,
             label=label,
             scope=scope,

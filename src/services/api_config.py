@@ -69,7 +69,7 @@ class ApiConfigService:
         ep = Endpoint(
             id=self._store.new_id(),
             name=name,
-            type=ep_type,  # type: ignore[arg-type]
+            type=ep_type,  # type: ignore[arg-type]  # 理由: 既存UIから渡る文字列を保存時のモデル検証に委ねるため。
             base_url=base_url,
         )
         self._store.upsert_endpoint(ep)

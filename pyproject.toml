@@ -16,3 +16,134 @@ dependencies = [
     "pydantic-settings==2.14.1",
     "sqlalchemy==2.0.49",
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.20",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+    "src/core",
+    "src/services",
+    "src/storage",
+    "src/config.py",
+    "src/app_context.py",
+]
+exclude = [
+    "^src/ui/",
+]
+plugins = ["pydantic.mypy"]
+check_untyped_defs = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "langchain.*",
+    "langchain_core.*",
+    "langchain_ollama.*",
+    "langchain_openai.*",
+]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F"]
+# TODO: 既存コードの import 順整理を別タスクで行った後に I を有効化する。
+ignore = [
+    "E402",
+    "E501",
+    "E731",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"main.py" = ["F401"]
+"src/services/tts.py" = ["F401"]
+"src/ui/chat/controller.py" = ["F401"]
+"src/ui/pages/character_detail.py" = ["F841"]
+"src/ui/pages/characters.py" = ["F841"]
+"src/ui/pages/group_chat.py" = ["F841"]
+"src/ui/pages/settings/api_config.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+# 既存ファイルの一括整形は Task 0-1 の対象外。新規ファイルはこの除外に追加しない。
+exclude = [
+    "src/app_context.py",
+    "src/config.py",
+    "src/core/character/markdown.py",
+    "src/core/character_generation/__init__.py",
+    "src/core/character_generation/agent.py",
+    "src/core/character_generation/prompts.py",
+    "src/core/character_generation/schemas.py",
+    "src/core/chat/schemas.py",
+    "src/core/danbooru_prompt/generator.py",
+    "src/core/danbooru_prompt/tag_dictionary.py",
+    "src/core/gen_server/schemas.py",
+    "src/core/group_chat/__init__.py",
+    "src/core/group_chat/schemas.py",
+    "src/core/image_generation/schemas.py",
+    "src/core/llm/base_provider.py",
+    "src/core/llm/factory.py",
+    "src/core/llm/providers/ollama.py",
+    "src/core/llm/providers/openai_compat.py",
+    "src/core/llm/schemas.py",
+    "src/core/tts/__init__.py",
+    "src/core/tts/schemas.py",
+    "src/services/ai_jobs.py",
+    "src/services/api_config.py",
+    "src/services/character.py",
+    "src/services/character_generation.py",
+    "src/services/chat.py",
+    "src/services/danbooru_prompt.py",
+    "src/services/group_chat.py",
+    "src/services/image_generation.py",
+    "src/services/tts.py",
+    "src/storage/api_config_store.py",
+    "src/storage/chat_repository.py",
+    "src/storage/character_repository.py",
+    "src/storage/group_chat_repository.py",
+    "src/storage/key_vault.py",
+    "src/ui/chat/__init__.py",
+    "src/ui/chat/commands.py",
+    "src/ui/chat/components.py",
+    "src/ui/chat/controller.py",
+    "src/ui/chat/media.py",
+    "src/ui/chat/prompts.py",
+    "src/ui/chat/style.py",
+    "src/ui/components/character_card.py",
+    "src/ui/components/character_picker.py",
+    "src/ui/components/progress_stream.py",
+    "src/ui/layout.py",
+    "src/ui/pages/__init__.py",
+    "src/ui/pages/character_chat.py",
+    "src/ui/pages/character_detail.py",
+    "src/ui/pages/characters.py",
+    "src/ui/pages/generation.py",
+    "src/ui/pages/group_chat.py",
+    "src/ui/pages/group_chat_mock.py",
+    "src/ui/pages/settings/api_config.py",
+    "src/ui/server_noise.py",
+    "src/ui/state.py",
+    "tests/test_ai_jobs.py",
+    "tests/test_character_generation_service.py",
+    "tests/test_character_generation_sheet_fields.py",
+    "tests/test_chat_prompts.py",
+    "tests/test_danbooru_prompt.py",
+    "tests/test_group_chat_service.py",
+    "tests/test_image_generation_profiles.py",
+    "tests/test_narrator_tts.py",
+    "tests/test_tts_voice_design_v3.py",
+    "tests/test_user_persona.py",
+]
