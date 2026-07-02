@@ -6,7 +6,6 @@ import asyncio
 import difflib
 import html as _html
 import json
-import random
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -61,6 +60,13 @@ from ...core.conversation.sanitize import (
     sanitize_group_character_reply,
     sanitize_group_guest_reply,
     sanitize_group_narration,
+)
+from ...core.conversation.speaker_selection import (
+    choose_weighted_speaker,
+    format_speaker_selection_debug,
+    mentioned_member,
+    speaker_weights_from_llm_output,
+    try_parse_json_fragment,
 )
 from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
@@ -4008,7 +4014,7 @@ def _parse_relationship_draft_response(
     raw: str,
     participants: list[dict[str, str]],
 ) -> list[dict[str, str]]:
-    parsed = _try_parse_json_fragment(raw)
+    parsed = try_parse_json_fragment(raw)
     if parsed is None:
         return []
     items = parsed.get("relationships") if isinstance(parsed, dict) else parsed
@@ -7035,7 +7041,7 @@ event => {
     async def choose_next_speaker(self, llm, active: list[GroupMember]) -> GroupMember:
         last = last_dialog_message(self.messages)
         if last is not None and last.get("role") == "user":
-            mentioned = _mentioned_member(last.get("text", ""), active)
+            mentioned = mentioned_member(last.get("text", ""), active)
             if mentioned is not None:
                 return mentioned
             if len(active) == 1:
@@ -7084,11 +7090,11 @@ event => {
         debug_input = format_llm_input(llm_messages)
         response = await llm.ainvoke(llm_messages)
         raw = message_content_to_text(getattr(response, "content", response))
-        weights = _speaker_weights_from_llm_output(raw, candidates)
-        selected, normalized_weights, roll = _choose_weighted_speaker(weights, candidates)
+        weights = speaker_weights_from_llm_output(raw, candidates)
+        selected, normalized_weights, roll = choose_weighted_speaker(weights, candidates)
         self.last_speaker_debug = build_debug_info(
             debug_input,
-            _format_speaker_selection_debug(raw, normalized_weights, selected, roll),
+            format_speaker_selection_debug(raw, normalized_weights, selected, roll),
             response,
         )
         return selected
@@ -7697,208 +7703,6 @@ def _participant_by_speaker_id(
             if isinstance(persona, GroupUserPersona) and persona.id == speaker_id:
                 return participant
     return None
-
-
-def _mentioned_member(text: str, members: list[GroupMember]) -> GroupMember | None:
-    handles = re.findall(r"@([A-Za-z0-9_]{3,12})", text or "")
-    if not handles:
-        return None
-    by_handle = {member.handle.lower(): member for member in members}
-    for handle in handles:
-        member = by_handle.get(handle.lower())
-        if member is not None:
-            return member
-    return None
-
-
-def _member_from_llm_choice(raw: str, members: list[GroupMember]) -> GroupMember | None:
-    text = (raw or "").strip()
-    if not text:
-        return None
-    lowered = text.lower()
-    for member in members:
-        if re.search(rf"@?{re.escape(member.handle.lower())}\b", lowered):
-            return member
-    for member in members:
-        if member.character.name and member.character.name in text:
-            return member
-    return None
-
-
-def _speaker_weights_from_llm_output(raw: str, members: list[GroupMember]) -> dict[str, float]:
-    weights: dict[str, float] = {}
-    parsed = _try_parse_json_fragment(raw)
-    if parsed is not None:
-        for identifier, weight in _collect_speaker_weight_entries(parsed):
-            member = _member_from_identifier(identifier, members)
-            if member is not None and weight > 0:
-                weights[member.id] = max(weights.get(member.id, 0.0), weight)
-    if weights:
-        return weights
-
-    for line in (raw or "").splitlines():
-        member = _member_from_llm_choice(line, members)
-        if member is None:
-            continue
-        scrubbed = line
-        for candidate in members:
-            scrubbed = re.sub(rf"@?{re.escape(candidate.handle)}\b", "", scrubbed, flags=re.IGNORECASE)
-            if candidate.character.name:
-                scrubbed = scrubbed.replace(candidate.character.name, "")
-        numbers = re.findall(r"(?<![A-Za-z0-9_])(\d+(?:\.\d+)?)\s*%?", scrubbed)
-        if numbers:
-            weights[member.id] = max(weights.get(member.id, 0.0), float(numbers[-1]))
-    if weights:
-        return weights
-
-    selected = _member_from_llm_choice(raw, members)
-    if selected is not None:
-        return {member.id: 2.0 if member.id == selected.id else 1.0 for member in members}
-    return {}
-
-
-def _try_parse_json_fragment(raw: str):
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json(text)
-    if parsed is not None:
-        return parsed
-    decoder = json.JSONDecoder()
-    for index, char in enumerate(text):
-        if char not in "{[":
-            continue
-        try:
-            value, _ = decoder.raw_decode(text[index:])
-        except json.JSONDecodeError:
-            continue
-        return value
-    return None
-
-
-def _collect_speaker_weight_entries(value) -> list[tuple[str, float]]:
-    entries: list[tuple[str, float]] = []
-    if isinstance(value, dict):
-        identifier = _speaker_identifier_from_dict(value)
-        weight = _speaker_weight_from_dict(value)
-        if identifier and weight is not None:
-            entries.append((identifier, weight))
-        for key, item in value.items():
-            direct = _number_from_weight_value(item)
-            if direct is not None:
-                entries.append((str(key), direct))
-            elif isinstance(item, (dict, list)):
-                entries.extend(_collect_speaker_weight_entries(item))
-        return entries
-    if isinstance(value, list):
-        if len(value) >= 2 and not isinstance(value[0], (dict, list)):
-            weight = _number_from_weight_value(value[1])
-            if weight is not None:
-                entries.append((str(value[0]), weight))
-            return entries
-        for item in value:
-            if isinstance(item, (dict, list)):
-                entries.extend(_collect_speaker_weight_entries(item))
-            elif isinstance(item, tuple) and len(item) >= 2:
-                weight = _number_from_weight_value(item[1])
-                if weight is not None:
-                    entries.append((str(item[0]), weight))
-        return entries
-    return entries
-
-
-def _speaker_identifier_from_dict(value: dict) -> str:
-    for key in ("handle", "id", "member_id", "speaker_id", "name", "character", "candidate"):
-        item = value.get(key)
-        if isinstance(item, str) and item.strip():
-            return item.strip()
-    return ""
-
-
-def _speaker_weight_from_dict(value: dict) -> float | None:
-    for key in ("weight", "ratio", "probability", "possibility", "score", "percent", "chance"):
-        number = _number_from_weight_value(value.get(key))
-        if number is not None:
-            return number
-    return None
-
-
-def _number_from_weight_value(value) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int | float):
-        number = float(value)
-    elif isinstance(value, str):
-        match = re.search(r"-?\d+(?:\.\d+)?", value)
-        if not match:
-            return None
-        number = float(match.group(0))
-    else:
-        return None
-    if number <= 0 or number == float("inf") or number == float("-inf") or number != number:
-        return None
-    return number
-
-
-def _member_from_identifier(identifier: str, members: list[GroupMember]) -> GroupMember | None:
-    text = (identifier or "").strip()
-    if not text:
-        return None
-    normalized = text.lstrip("@").lower()
-    for member in members:
-        if normalized in {
-            member.id.lower(),
-            member.handle.lower(),
-            member.character.name.lower(),
-        }:
-            return member
-    return _member_from_llm_choice(text, members)
-
-
-def _choose_weighted_speaker(
-    weights: dict[str, float],
-    candidates: list[GroupMember],
-) -> tuple[GroupMember, list[tuple[GroupMember, float, float]], float]:
-    if not candidates:
-        raise ValueError("発言候補がありません")
-    weighted = [
-        (member, max(0.0, float(weights.get(member.id, 0.0))))
-        for member in candidates
-    ]
-    total = sum(weight for _, weight in weighted)
-    if total <= 0:
-        weighted = [(member, 1.0) for member in candidates]
-        total = float(len(candidates))
-
-    roll = random.random()
-    threshold = roll * total
-    current = 0.0
-    selected = weighted[-1][0]
-    for member, weight in weighted:
-        current += weight
-        if threshold <= current:
-            selected = member
-            break
-    normalized = [
-        (member, weight, (weight / total) * 100 if total > 0 else 0.0)
-        for member, weight in weighted
-    ]
-    return selected, normalized, roll
-
-
-def _format_speaker_selection_debug(
-    raw: str,
-    weights: list[tuple[GroupMember, float, float]],
-    selected: GroupMember,
-    roll: float,
-) -> str:
-    lines = [(raw or "").strip() or "（空の応答）", "", "--- 内部抽選 ---"]
-    lines.append(f"乱数: {roll:.4f}")
-    lines.append("発言可能性:")
-    for member, weight, percent in weights:
-        lines.append(f"- @{member.handle} / {member.character.name}: {weight:g} ({percent:.1f}%)")
-    lines.append(f"選択: @{selected.handle} / {selected.character.name}")
-    return "\n".join(lines)
 
 
 def _configured_group_chat_llm(ctx, profile_id: str):

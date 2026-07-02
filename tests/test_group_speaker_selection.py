@@ -1,13 +1,19 @@
+import random
+
 import pytest
 
-from src.ui.pages import group_chat as group_chat_module
-from src.ui.pages.group_chat import (
-    _choose_weighted_speaker,
-    _member_from_identifier,
-    _member_from_llm_choice,
-    _mentioned_member,
-    _speaker_weights_from_llm_output,
-    _try_parse_json_fragment,
+from src.core.conversation.speaker_selection import (
+    choose_weighted_speaker,
+    collect_speaker_weight_entries,
+    format_speaker_selection_debug,
+    member_from_identifier,
+    member_from_llm_choice,
+    mentioned_member,
+    number_from_weight_value,
+    speaker_identifier_from_dict,
+    speaker_weight_from_dict,
+    speaker_weights_from_llm_output,
+    try_parse_json_fragment,
 )
 
 from tests.group_chat_test_helpers import make_group_members
@@ -16,25 +22,25 @@ from tests.group_chat_test_helpers import make_group_members
 def test_member_from_llm_choice_accepts_handle_and_character_name() -> None:
     members = make_group_members()
 
-    assert _member_from_llm_choice("次は @Akari が自然です。", members) == members[0]
-    assert _member_from_llm_choice("ここは湊が返します。", members) == members[1]
-    assert _member_from_llm_choice("誰でもありません", members) is None
+    assert member_from_llm_choice("次は @Akari が自然です。", members) == members[0]
+    assert member_from_llm_choice("ここは湊が返します。", members) == members[1]
+    assert member_from_llm_choice("誰でもありません", members) is None
 
 
 def test_member_from_identifier_accepts_id_handle_and_name() -> None:
     members = make_group_members()
 
-    assert _member_from_identifier("member-akari", members) == members[0]
-    assert _member_from_identifier("@Minato", members) == members[1]
-    assert _member_from_identifier("灯里", members) == members[0]
-    assert _member_from_identifier("unknown", members) is None
+    assert member_from_identifier("member-akari", members) == members[0]
+    assert member_from_identifier("@Minato", members) == members[1]
+    assert member_from_identifier("灯里", members) == members[0]
+    assert member_from_identifier("unknown", members) is None
 
 
 def test_mentioned_member_uses_first_known_handle() -> None:
     members = make_group_members()
 
-    assert _mentioned_member("@Nobody から @Minato に渡す。", members) == members[1]
-    assert _mentioned_member("メンションなし", members) is None
+    assert mentioned_member("@Nobody から @Minato に渡す。", members) == members[1]
+    assert mentioned_member("メンションなし", members) is None
 
 
 @pytest.mark.parametrize(
@@ -56,7 +62,7 @@ def test_mentioned_member_uses_first_known_handle() -> None:
     ],
 )
 def test_speaker_weights_from_llm_output_covers_current_patterns(raw: str, expected: dict[str, float]) -> None:
-    assert _speaker_weights_from_llm_output(raw, make_group_members()) == expected
+    assert speaker_weights_from_llm_output(raw, make_group_members()) == expected
 
 
 @pytest.mark.parametrize(
@@ -69,27 +75,51 @@ def test_speaker_weights_from_llm_output_covers_current_patterns(raw: str, expec
     ],
 )
 def test_try_parse_json_fragment_returns_current_parse_result(raw: str, expected) -> None:
-    assert _try_parse_json_fragment(raw) == expected
+    assert try_parse_json_fragment(raw) == expected
+
+
+def test_collect_speaker_weight_entries_recurses_current_patterns() -> None:
+    value = {
+        "weights": [
+            {"handle": "Akari", "weight": "2.5"},
+            {"speaker_id": "member-minato", "chance": 0},
+            {"Minato": 3},
+        ]
+    }
+
+    assert collect_speaker_weight_entries(value) == [
+        ("Akari", 2.5),
+        ("weight", 2.5),
+        ("Minato", 3.0),
+    ]
+
+
+def test_speaker_weight_helpers_keep_current_parsing() -> None:
+    assert speaker_identifier_from_dict({"candidate": " Akari "}) == "Akari"
+    assert speaker_weight_from_dict({"percent": "70%"}) == 70.0
+    assert number_from_weight_value(True) is None
+    assert number_from_weight_value("-1") is None
+    assert number_from_weight_value("1.5") == 1.5
 
 
 @pytest.mark.parametrize(
-    ("roll", "expected_id"),
+    ("seed", "expected_id"),
     [
-        (0.1, "member-akari"),
-        (0.9, "member-minato"),
+        (1, "member-akari"),
+        (2, "member-minato"),
     ],
 )
-def test_choose_weighted_speaker_is_deterministic_with_monkeypatched_random(
-    monkeypatch: pytest.MonkeyPatch,
-    roll: float,
+def test_choose_weighted_speaker_is_deterministic_with_seeded_rng(
+    seed: int,
     expected_id: str,
 ) -> None:
     members = make_group_members()
-    monkeypatch.setattr(group_chat_module.random, "random", lambda: roll)
+    expected_roll = random.Random(seed).random()
 
-    selected, normalized, actual_roll = _choose_weighted_speaker(
+    selected, normalized, actual_roll = choose_weighted_speaker(
         {"member-akari": 1.0, "member-minato": 3.0},
         members,
+        rng=random.Random(seed),
     )
 
     assert selected.id == expected_id
@@ -97,25 +127,44 @@ def test_choose_weighted_speaker_is_deterministic_with_monkeypatched_random(
         ("member-akari", 1.0, 25.0),
         ("member-minato", 3.0, 75.0),
     ]
-    assert actual_roll == roll
+    assert actual_roll == expected_roll
 
 
-def test_choose_weighted_speaker_uses_equal_weights_when_all_weights_are_zero(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_choose_weighted_speaker_uses_equal_weights_when_all_weights_are_zero() -> None:
     members = make_group_members()
-    monkeypatch.setattr(group_chat_module.random, "random", lambda: 0.75)
+    seed = 0
+    expected_roll = random.Random(seed).random()
 
-    selected, normalized, roll = _choose_weighted_speaker({}, members)
+    selected, normalized, roll = choose_weighted_speaker({}, members, rng=random.Random(seed))
 
     assert selected == members[1]
     assert [(member.id, weight, percent) for member, weight, percent in normalized] == [
         ("member-akari", 1.0, 50.0),
         ("member-minato", 1.0, 50.0),
     ]
-    assert roll == 0.75
+    assert roll == expected_roll
+
+
+def test_format_speaker_selection_debug_keeps_current_text() -> None:
+    members = make_group_members()
+    selected, normalized, roll = choose_weighted_speaker(
+        {"member-akari": 1.0, "member-minato": 3.0},
+        members,
+        rng=random.Random(1),
+    )
+
+    assert format_speaker_selection_debug(" raw ", normalized, selected, roll) == (
+        "raw\n"
+        "\n"
+        "--- 内部抽選 ---\n"
+        "乱数: 0.1344\n"
+        "発言可能性:\n"
+        "- @Akari / 灯里: 1 (25.0%)\n"
+        "- @Minato / 湊: 3 (75.0%)\n"
+        "選択: @Akari / 灯里"
+    )
 
 
 def test_choose_weighted_speaker_rejects_empty_candidates() -> None:
     with pytest.raises(ValueError, match="発言候補がありません"):
-        _choose_weighted_speaker({}, [])
+        choose_weighted_speaker({}, [])
