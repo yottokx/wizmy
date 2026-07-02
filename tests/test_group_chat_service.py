@@ -19,6 +19,11 @@ from src.core.conversation.history import (
     settings_with_participant,
     settings_without_participant,
 )
+from src.core.conversation.sanitize import (
+    clean_relationship_enhancement,
+    guest_display_name,
+    guest_name_from_actor_text,
+)
 from src.core.group_chat.schemas import (
     GroupChatRecord,
     GroupMember,
@@ -28,14 +33,11 @@ from src.core.group_chat.schemas import (
 from src.services.group_chat import GroupChatService
 from src.storage.group_chat_repository import GroupChatRepository
 from src.ui.pages.group_chat import (
-    _clean_relationship_enhancement,
     _clean_generated_group_name,
     _format_group_relationship_section,
     _format_group_participant_overview,
     _format_optional_instruction,
     _group_relationship_enhancement_participants,
-    _guest_display_name,
-    _guest_name_from_actor_text,
     _guest_prefix_completion,
     _limit_relationship_drafts,
     _parse_relationship_draft_response,
@@ -295,7 +297,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
     def test_clean_relationship_enhancement_removes_label(self) -> None:
         self.assertEqual(
             "互いに秘密を共有している。",
-            _clean_relationship_enhancement("関係性: 互いに秘密を共有している。"),
+            clean_relationship_enhancement("関係性: 互いに秘密を共有している。"),
         )
 
     async def test_create_group_stores_world_settings_and_relationship_drafts(self) -> None:
@@ -943,10 +945,10 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("システム: アリスが入場しました", history)
 
     def test_guest_actor_text_accepts_prefix_and_suffix_notation(self) -> None:
-        self.assertEqual("酒場のマスター", _guest_name_from_actor_text("guest:酒場のマスター"))
-        self.assertEqual("酒場のマスター", _guest_name_from_actor_text("guest：酒場のマスター"))
-        self.assertEqual("酒場のマスター", _guest_name_from_actor_text("酒場のマスター【ゲスト】"))
-        self.assertEqual("酒場のマスター【ゲスト】", _guest_display_name("guest:酒場のマスター"))
+        self.assertEqual("酒場のマスター", guest_name_from_actor_text("guest:酒場のマスター"))
+        self.assertEqual("酒場のマスター", guest_name_from_actor_text("guest：酒場のマスター"))
+        self.assertEqual("酒場のマスター", guest_name_from_actor_text("酒場のマスター【ゲスト】"))
+        self.assertEqual("酒場のマスター【ゲスト】", guest_display_name("guest:酒場のマスター"))
 
     def test_guest_message_is_included_in_group_history(self) -> None:
         history = format_group_history([

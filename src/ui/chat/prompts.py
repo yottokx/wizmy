@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ...core.character.schemas import CharacterSheet
+from ...core.conversation.sanitize import sanitize_character_reply as sanitize_character_reply
 from .commands import clean_short_llm_text
 from .models import ChatDebugInfo, ChatMessagePreview, ChatSessionSettings
 
@@ -483,32 +484,6 @@ def message_content_to_text(content) -> str:
                 parts.append(str(item))
         return "\n".join(parts)
     return str(content)
-
-
-def sanitize_character_reply(text: str, character_name: str = "") -> str:
-    text = text.strip()
-    text = re.sub(r"^```(?:\w+)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-
-    lines: list[str] = []
-    speaker_pattern = (
-        rf"^(?:{re.escape(character_name)}|キャラクター|キャラ|assistant|AI)\s*[:：]\s*"
-        if character_name
-        else r"^(?:キャラクター|キャラ|assistant|AI)\s*[:：]\s*"
-    )
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        line = re.sub(speaker_pattern, "", line, flags=re.IGNORECASE).strip()
-        line = re.sub(r"^[（(][^）)]*[）)]\s*", "", line).strip()
-        line = line.strip("*＊")
-        if not line or re.fullmatch(r"[（(【\[].*[）)】\]]", line):
-            continue
-        lines.append(line)
-
-    cleaned = "\n".join(lines[:3]).strip()
-    return cleaned.strip("「」『』\"'")
 
 
 def sanitize_narration(text: str) -> str:

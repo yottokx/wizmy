@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from ...core.conversation.sanitize import clean_short_llm_text
 from .models import CHAT_COMMANDS, ChatCommandDefinition
 
 
@@ -58,14 +59,6 @@ def parse_response_choices(raw_output: str) -> list[str]:
         if len(choices) >= 3:
             break
     return choices
-
-
-def clean_short_llm_text(text: str) -> str:
-    text = text.strip()
-    text = re.sub(r"^```(?:\w+)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    text = re.sub(r"^(?:候補|返答|回答|ユーザー|キャラクター|キャラ|地の文|ナラティブ|コメント)\s*[:：]\s*", "", text.strip())
-    return text.strip()
 
 
 def input_mode_label(mode: str) -> str:

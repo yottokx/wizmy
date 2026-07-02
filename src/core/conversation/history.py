@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from ..group_chat.schemas import GroupMember, GroupUserPersona
+from .sanitize import clean_guest_name, guest_display_name
 from .schemas import ChatDebugInfo, time_label
 
 
@@ -32,18 +33,6 @@ def settings_without_participant(settings: dict[str, Any], member_id: str) -> di
 
 def group_system_event_message(text: str) -> dict[str, Any]:
     return group_message("system", text)
-
-
-def _clean_guest_name(value: str) -> str:
-    text = (value or "").strip()
-    text = re.sub(r"^guest\s*[:：]\s*", "", text, flags=re.IGNORECASE).strip()
-    text = re.sub(r"\s*【ゲスト】\s*$", "", text).strip()
-    return text
-
-
-def _guest_display_name(name: str) -> str:
-    clean = _clean_guest_name(name)
-    return f"{clean}【ゲスト】" if clean else "ゲスト【ゲスト】"
 
 
 def group_message(
@@ -78,12 +67,12 @@ def group_message(
             }
         )
     elif role == "guest":
-        clean_guest_name = _clean_guest_name(guest_name)
+        cleaned_guest_name = clean_guest_name(guest_name)
         message.update(
             {
-                "speaker_id": f"guest:{clean_guest_name}",
-                "speaker_name": _guest_display_name(clean_guest_name),
-                "guest_name": clean_guest_name,
+                "speaker_id": f"guest:{cleaned_guest_name}",
+                "speaker_name": guest_display_name(cleaned_guest_name),
+                "guest_name": cleaned_guest_name,
                 "handle": "",
             }
         )

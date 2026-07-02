@@ -50,6 +50,18 @@ from ...core.conversation.history import (
     settings_with_participant,
     settings_without_participant,
 )
+from ...core.conversation.sanitize import (
+    clean_arrival_reason_response,
+    clean_character_markdown_response,
+    clean_guest_name,
+    clean_persona_description_response,
+    clean_relationship_enhancement,
+    guest_display_name,
+    guest_name_from_actor_text,
+    sanitize_group_character_reply,
+    sanitize_group_guest_reply,
+    sanitize_group_narration,
+)
 from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
@@ -75,7 +87,6 @@ from ..chat.prompts import (
     character_summary,
     format_llm_input,
     message_content_to_text,
-    sanitize_character_reply,
     sanitize_chat_title,
 )
 from ..chat.style import CHAT_CSS
@@ -1450,7 +1461,7 @@ def _generation_base_sheet_from_member(member: GroupMember) -> GenerationBaseShe
 
 
 def _sanitize_group_generated_markdown(markdown: str) -> str:
-    cleaned = _clean_character_markdown_response(markdown)
+    cleaned = clean_character_markdown_response(markdown)
     cleaned = _remove_markdown_section(cleaned, "世界観・舞台")
     cleaned = _remove_markdown_section(cleaned, "人間関係")
     cleaned = _remove_markdown_section(cleaned, "この世界に来た理由")
@@ -3412,7 +3423,7 @@ async def _adapt_character_to_world(
                 f"現在のキャラクターシートMarkdown:\n{original_markdown}"
             )),
         ])
-        return _clean_character_markdown_response(
+        return clean_character_markdown_response(
             message_content_to_text(getattr(response, "content", response))
         )
 
@@ -3449,16 +3460,6 @@ async def _adapt_character_to_world(
         apply_callback,
         page_client,
     )
-
-
-def _clean_character_markdown_response(raw: str) -> str:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:markdown|md)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json_fragment(text)
-    if parsed is not None:
-        text = _longest_json_string(parsed) or text
-    return text.strip()
 
 
 async def _open_character_adaptation_preview_dialog(
@@ -3531,7 +3532,7 @@ async def _adapt_user_persona_to_world(
                 f"現在のユーザーペルソナ説明:\n{current_description or '未設定'}"
             )),
         ])
-        return _clean_persona_description_response(
+        return clean_persona_description_response(
             message_content_to_text(getattr(response, "content", response))
         )
 
@@ -3568,17 +3569,6 @@ async def _adapt_user_persona_to_world(
         apply_callback,
         page_client,
     )
-
-
-def _clean_persona_description_response(raw: str) -> str:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:markdown|md)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json_fragment(text)
-    if parsed is not None:
-        text = _longest_json_string(parsed) or text
-    text = re.sub(r"^(?:説明|ユーザーペルソナ|更新後の説明)\s*[:：]\s*", "", text.strip())
-    return text.strip(" \t\r\n\"'「」『』")
 
 
 async def _open_user_persona_adaptation_preview_dialog(
@@ -3680,7 +3670,7 @@ async def _generate_arrival_reason(
                 f"ワールド:\n{world.strip()}"
             )),
         ])
-        return _clean_arrival_reason_response(
+        return clean_arrival_reason_response(
             message_content_to_text(getattr(response, "content", response))
         )
 
@@ -3712,12 +3702,6 @@ async def _generate_arrival_reason(
         return ""
     _notify_on_client(page_client, "来訪理由を補完しました", type="positive")
     return reason
-
-
-def _clean_arrival_reason_response(raw: str) -> str:
-    text = clean_short_llm_text(raw)
-    text = re.sub(r"^(?:来訪理由|理由|補完結果)\s*[:：]\s*", "", text.strip())
-    return text.strip(" \t\r\n\"'「」『』")
 
 
 def _open_relationship_draft_dialog(
@@ -3889,18 +3873,12 @@ async def _enhance_relationship_description(
             timeout=10000,
         )
         return ""
-    enhanced = _clean_relationship_enhancement(str(finished.result or ""))
+    enhanced = clean_relationship_enhancement(str(finished.result or ""))
     if not enhanced:
         _notify_on_client(page_client, "関係性を補完できませんでした", type="warning")
         return ""
     _notify_on_client(page_client, "関係性を補完しました", type="positive")
     return enhanced
-
-
-def _clean_relationship_enhancement(raw: str) -> str:
-    text = _clean_group_situation_enhancement(raw)
-    text = re.sub(r"^(?:関係性|関係|補完結果)\s*[:：]\s*", "", text.strip())
-    return text.strip(" \t\r\n\"'「」『』")
 
 
 def _delete_relationship_draft(
@@ -4853,7 +4831,7 @@ event => {
         self.refresh_profiles()
 
     def set_guest_input_mode(self, guest_name: str) -> None:
-        name = _clean_guest_name(guest_name)
+        name = clean_guest_name(guest_name)
         if not name:
             ui.notify("ゲスト名を入力してください", type="warning")
             return
@@ -4871,7 +4849,7 @@ event => {
             ).props("outlined dense clearable").classes("w-full")
 
             def _apply() -> None:
-                name = _clean_guest_name(str(name_input.value or ""))
+                name = clean_guest_name(str(name_input.value or ""))
                 if not name:
                     ui.notify("ゲスト名を入力してください", type="warning")
                     return
@@ -4880,7 +4858,7 @@ event => {
                     self.set_input_value(left_text.rstrip())
                 self.focus_chat_input_at_end()
                 dlg.close()
-                ui.notify(f"{_guest_display_name(name)}入力モードにしました", type="info")
+                ui.notify(f"{guest_display_name(name)}入力モードにしました", type="info")
 
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
@@ -5139,7 +5117,7 @@ event => {
             self.input_box.set_value(str(message.get("text", "")))
             self.input_box.enable()
         if role == "guest":
-            self.guest_input_name = _clean_guest_name(str(message.get("guest_name") or message.get("speaker_name") or ""))
+            self.guest_input_name = clean_guest_name(str(message.get("guest_name") or message.get("speaker_name") or ""))
         self.set_input_mode(_group_input_mode_for_role(role))
         self.set_sending(False)
         self.tts_generating_index = None
@@ -5604,7 +5582,7 @@ event => {
         await self.save_current_session()
 
     async def post_guest_input(self, text: str, guest_name: str | None = None) -> None:
-        name = _clean_guest_name(guest_name or self.guest_input_name)
+        name = clean_guest_name(guest_name or self.guest_input_name)
         if not name:
             ui.notify("ゲスト名を入力してください", type="warning")
             self.open_guest_input_mode_dialog(text)
@@ -5677,7 +5655,7 @@ event => {
             debug_input = format_llm_input(llm_messages)
             response = await llm.ainvoke(llm_messages)
             raw = message_content_to_text(getattr(response, "content", response))
-            narration = _sanitize_group_narration(raw)
+            narration = sanitize_group_narration(raw)
             if not narration:
                 narration = "場面は静かに次の言葉を待っている。"
             messages = prior_messages + [group_message(
@@ -5943,14 +5921,14 @@ setTimeout(() => {
         def _resolve_actor_input(value: str) -> dict[str, Any] | None:
             raw = (value or "").strip()
             lowered = raw.lower()
-            guest_name = _guest_name_from_actor_text(raw)
+            guest_name = guest_name_from_actor_text(raw)
             if guest_name:
                 return {
                     "kind": "guest",
                     "active": False,
                     "member": None,
                     "guest_name": guest_name,
-                    "label": _guest_display_name(guest_name),
+                    "label": guest_display_name(guest_name),
                 }
             if lowered in {"character", "char", "キャラ", "キャラクター", "キャラクター（自動）"}:
                 return {"kind": "auto", "active": False, "member": None, "label": "キャラクター（自動）"}
@@ -5981,7 +5959,7 @@ setTimeout(() => {
             if isinstance(member, GroupMember):
                 return member.character.name
             if resolved.get("kind") == "guest":
-                return _guest_display_name(str(resolved.get("guest_name") or ""))
+                return guest_display_name(str(resolved.get("guest_name") or ""))
             return str(resolved.get("label") or "")
 
         def _actor_suggestions(value: str) -> list[dict[str, Any]]:
@@ -6139,12 +6117,12 @@ setTimeout(() => {
                     ).props("outlined dense clearable").classes("w-full")
 
                     def _apply_guest() -> None:
-                        name = _clean_guest_name(str(guest_name_input.value or ""))
+                        name = clean_guest_name(str(guest_name_input.value or ""))
                         if not name:
                             ui.notify("ゲスト名を入力してください", type="warning")
                             return
                         guest_dialog.close()
-                        _choose_actor(_guest_display_name(name), menu_to_close)
+                        _choose_actor(guest_display_name(name), menu_to_close)
 
                     with ui.row().classes("justify-end gap-2 mt-4"):
                         ui.button("キャンセル", on_click=guest_dialog.close).props("flat")
@@ -6357,14 +6335,14 @@ event => {
 
         def _resolve_actor_input(value: str) -> dict[str, Any] | None:
             raw = (value or "").strip()
-            guest_name = _guest_name_from_actor_text(raw)
+            guest_name = guest_name_from_actor_text(raw)
             if guest_name:
                 return {
                     "kind": "guest",
                     "member": None,
                     "active": False,
                     "guest_name": guest_name,
-                    "label": _guest_display_name(guest_name),
+                    "label": guest_display_name(guest_name),
                 }
             identifier = raw.lower().removeprefix("@")
             for member in self.group.members:
@@ -6382,7 +6360,7 @@ event => {
             if isinstance(member, GroupMember):
                 return member.character.name
             if resolved.get("kind") == "guest":
-                return _guest_display_name(str(resolved.get("guest_name") or ""))
+                return guest_display_name(str(resolved.get("guest_name") or ""))
             return str(resolved.get("label") or "")
 
         def _actor_suggestions(value: str) -> list[dict[str, Any]]:
@@ -6493,12 +6471,12 @@ event => {
                     ).props("outlined dense clearable").classes("w-full")
 
                     def _apply_guest() -> None:
-                        name = _clean_guest_name(str(guest_name_input.value or ""))
+                        name = clean_guest_name(str(guest_name_input.value or ""))
                         if not name:
                             ui.notify("ゲスト名を入力してください", type="warning")
                             return
                         guest_dialog.close()
-                        _choose_actor(_guest_display_name(name), menu_to_close)
+                        _choose_actor(guest_display_name(name), menu_to_close)
 
                     with ui.row().classes("justify-end gap-2 mt-4"):
                         ui.button("キャンセル", on_click=guest_dialog.close).props("flat")
@@ -6751,7 +6729,7 @@ event => {
             await self.save_current_session()
             return
         if self.input_mode == "guest":
-            name = _clean_guest_name(self.guest_input_name)
+            name = clean_guest_name(self.guest_input_name)
             if not name:
                 ui.notify("ゲスト名を入力してください", type="warning")
                 self.open_guest_input_mode_dialog(text)
@@ -6976,7 +6954,7 @@ event => {
         *,
         turn_instruction: str = "",
     ) -> None:
-        name = _clean_guest_name(guest_name)
+        name = clean_guest_name(guest_name)
         if not name:
             ui.notify("ゲスト名を入力してください", type="warning")
             return
@@ -7011,7 +6989,7 @@ event => {
                 debug_input = format_llm_input(llm_messages)
                 response = await llm.ainvoke(llm_messages)
                 raw = message_content_to_text(getattr(response, "content", response))
-                reply = _sanitize_group_guest_reply(raw, name)
+                reply = sanitize_group_guest_reply(raw, name)
                 if not reply:
                     reply = "……。"
                 messages = prior_messages + [group_message(
@@ -7135,7 +7113,7 @@ event => {
         debug_input = format_llm_input(llm_messages)
         response = await llm.ainvoke(llm_messages)
         raw = message_content_to_text(getattr(response, "content", response))
-        reply = _sanitize_group_character_reply(raw, speaker)
+        reply = sanitize_group_character_reply(raw, speaker)
         if not reply:
             reply = "……ごめん、今はうまく言葉にできなかった。"
         return group_message(
@@ -7493,29 +7471,6 @@ def _group_message_target_label(role: str) -> str:
     if role == "memo":
         return "コメント"
     return "発言"
-
-
-def _clean_guest_name(value: str) -> str:
-    text = (value or "").strip()
-    text = re.sub(r"^guest\s*[:：]\s*", "", text, flags=re.IGNORECASE).strip()
-    text = re.sub(r"\s*【ゲスト】\s*$", "", text).strip()
-    return text
-
-
-def _guest_name_from_actor_text(value: str) -> str:
-    text = (value or "").strip()
-    if not text:
-        return ""
-    if re.match(r"^guest\s*[:：]", text, flags=re.IGNORECASE):
-        return _clean_guest_name(text)
-    if text.endswith("【ゲスト】"):
-        return _clean_guest_name(text)
-    return ""
-
-
-def _guest_display_name(name: str) -> str:
-    clean = _clean_guest_name(name)
-    return f"{clean}【ゲスト】" if clean else "ゲスト【ゲスト】"
 
 
 def _guest_prefix_completion(value: str) -> dict[str, Any] | None:
@@ -8034,7 +7989,7 @@ def _build_group_guest_messages(
     *,
     turn_instruction: str = "",
 ) -> list:
-    name = _clean_guest_name(guest_name)
+    name = clean_guest_name(guest_name)
     instruction = turn_instruction.strip()
     instruction_text = (
         "\n\n次の返答だけに適用するメタ指示です。"
@@ -8060,7 +8015,7 @@ def _build_group_guest_messages(
                 f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
                 f"{_format_group_relationship_section(group, settings)}"
                 f"会話履歴:\n{format_group_history(messages)}\n\n"
-                f"今回のゲスト発言者: {_guest_display_name(name)}\n"
+                f"今回のゲスト発言者: {guest_display_name(name)}\n"
                 "このゲストの自然な次の発言を、本文だけで返してください。"
                 f"{instruction_text}"
             )
@@ -8232,8 +8187,8 @@ def _group_input_target_context(
             "",
         )
     if input_mode == "guest":
-        clean_guest_name = _clean_guest_name(guest_name)
-        guest_label = _guest_display_name(clean_guest_name) if clean_guest_name else "ゲスト"
+        cleaned_guest_name = clean_guest_name(guest_name)
+        guest_label = guest_display_name(cleaned_guest_name) if cleaned_guest_name else "ゲスト"
         return (
             f"ゲスト（{guest_label}）",
             f"あなたはゲスト発言を{action}編集者です。指定されたゲスト本人の自然なセリフだけを短く出力してください。",
@@ -8336,29 +8291,6 @@ def _build_group_title_messages(group: GroupChatRecord, messages: list[dict[str,
             )
         ),
     ]
-
-
-def _sanitize_group_character_reply(raw: str, speaker: GroupMember) -> str:
-    text = sanitize_character_reply(raw, speaker.character.name)
-    text = re.sub(rf"^\s*@?{re.escape(speaker.handle)}\s*[：:\-]\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(rf"^\s*{re.escape(speaker.character.name)}\s*[：:\-]\s*", "", text)
-    text = text.strip(" \t\r\n\"'「」『』")
-    return text
-
-
-def _sanitize_group_guest_reply(raw: str, guest_name: str) -> str:
-    name = _clean_guest_name(guest_name)
-    text = sanitize_character_reply(raw, name)
-    text = re.sub(rf"^\s*{re.escape(_guest_display_name(name))}\s*[：:\-]\s*", "", text)
-    text = re.sub(rf"^\s*{re.escape(name)}\s*[：:\-]\s*", "", text)
-    text = text.strip(" \t\r\n\"'「」『』")
-    return text
-
-
-def _sanitize_group_narration(raw: str) -> str:
-    text = clean_short_llm_text(raw)
-    text = re.sub(r"^(?:地の文|ナラティブ|描写)\s*[:：]\s*", "", text.strip())
-    return text.strip(" \t\r\n\"'「」『』")
 
 
 def _render_group_profile_panel(

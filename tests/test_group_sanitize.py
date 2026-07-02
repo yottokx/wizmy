@@ -8,14 +8,18 @@ from src.core.conversation.history import (
     latest_group_message_preview,
     optional_int,
 )
-from src.core.conversation.schemas import ChatDebugInfo
-from src.ui.pages.group_chat import (
-    _clean_guest_name,
-    _guest_name_from_actor_text,
-    _sanitize_group_character_reply,
-    _sanitize_group_guest_reply,
-    _sanitize_group_narration,
+from src.core.conversation.sanitize import (
+    clean_arrival_reason_response,
+    clean_character_markdown_response,
+    clean_guest_name,
+    clean_persona_description_response,
+    clean_relationship_enhancement,
+    guest_name_from_actor_text,
+    sanitize_group_character_reply,
+    sanitize_group_guest_reply,
+    sanitize_group_narration,
 )
+from src.core.conversation.schemas import ChatDebugInfo
 
 from tests.group_chat_test_helpers import make_group_chat
 
@@ -23,28 +27,37 @@ from tests.group_chat_test_helpers import make_group_chat
 def test_sanitize_group_character_reply_removes_current_prefixes() -> None:
     member = make_group_chat().members[0]
 
-    assert _sanitize_group_character_reply("灯里: 「この棚はまだ起きています」", member) == "この棚はまだ起きています"
-    assert _sanitize_group_character_reply("@Akari: まだ明かりは消しません。", member) == "まだ明かりは消しません。"
+    assert sanitize_group_character_reply("灯里: 「この棚はまだ起きています」", member) == "この棚はまだ起きています"
+    assert sanitize_group_character_reply("@Akari: まだ明かりは消しません。", member) == "まだ明かりは消しません。"
 
 
 def test_sanitize_group_guest_reply_removes_current_prefixes() -> None:
     assert (
-        _sanitize_group_guest_reply("巡回司書【ゲスト】: 「そろそろ閉館です」", "guest:巡回司書") == "そろそろ閉館です"
+        sanitize_group_guest_reply("巡回司書【ゲスト】: 「そろそろ閉館です」", "guest:巡回司書") == "そろそろ閉館です"
     )
-    assert _sanitize_group_guest_reply("巡回司書: 星図は返却台へ。", "巡回司書") == "星図は返却台へ。"
+    assert sanitize_group_guest_reply("巡回司書: 星図は返却台へ。", "巡回司書") == "星図は返却台へ。"
 
 
 def test_sanitize_group_narration_removes_current_labels() -> None:
-    assert _sanitize_group_narration("地の文: 窓の外で星が瞬いた。") == "窓の外で星が瞬いた。"
-    assert _sanitize_group_narration("```text\nナラティブ: 天球儀が静かに回る。\n```") == "天球儀が静かに回る。"
+    assert sanitize_group_narration("地の文: 窓の外で星が瞬いた。") == "窓の外で星が瞬いた。"
+    assert sanitize_group_narration("```text\nナラティブ: 天球儀が静かに回る。\n```") == "天球儀が静かに回る。"
 
 
 def test_guest_name_helpers_keep_current_notation() -> None:
-    assert _clean_guest_name("guest: 巡回司書") == "巡回司書"
-    assert _clean_guest_name("巡回司書【ゲスト】") == "巡回司書"
-    assert _guest_name_from_actor_text("guest：巡回司書") == "巡回司書"
-    assert _guest_name_from_actor_text("巡回司書【ゲスト】") == "巡回司書"
-    assert _guest_name_from_actor_text("巡回司書") == ""
+    assert clean_guest_name("guest: 巡回司書") == "巡回司書"
+    assert clean_guest_name("巡回司書【ゲスト】") == "巡回司書"
+    assert guest_name_from_actor_text("guest：巡回司書") == "巡回司書"
+    assert guest_name_from_actor_text("巡回司書【ゲスト】") == "巡回司書"
+    assert guest_name_from_actor_text("巡回司書") == ""
+
+
+def test_auxiliary_cleaners_keep_current_labels_and_json_handling() -> None:
+    assert (
+        clean_character_markdown_response('```json\n{"sheet":"# 灯里\\n星図を読む。"}\n```') == "# 灯里\n星図を読む。"
+    )
+    assert clean_persona_description_response("説明: 星空を記録する観察者。") == "星空を記録する観察者。"
+    assert clean_arrival_reason_response("理由: 星図を届けに来た。") == "星図を届けに来た。"
+    assert clean_relationship_enhancement("関係性: 互いに秘密を共有している。") == "互いに秘密を共有している。"
 
 
 def test_group_message_serializes_member_user_guest_and_debug(
