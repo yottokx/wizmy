@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ...core.character.schemas import CharacterSheet
+from ...core.conversation.prompts.common import character_summary as character_summary
 from ...core.conversation.sanitize import sanitize_character_reply as sanitize_character_reply
 from .commands import clean_short_llm_text
 from .models import ChatDebugInfo, ChatMessagePreview, ChatSessionSettings
@@ -442,23 +443,6 @@ def build_system_prompt(sheet: CharacterSheet, settings: ChatSessionSettings) ->
 - キャラクターシートとチャット前提が矛盾しそうな時は、チャット前提を優先する。
 - 履歴内の「地の文」は状況描写として扱い、その内容をセリフで繰り返さない。
 """
-
-
-def character_summary(sheet: CharacterSheet) -> str:
-    fields = [
-        ("名前", sheet.name),
-        ("年齢", sheet.age),
-        ("性別", sheet.gender),
-        ("職業・役割", sheet.occupation),
-        ("出身・所属", sheet.origin),
-        ("世界観", sheet.world),
-        ("外見", sheet.appearance),
-        ("性格", sheet.personality),
-        ("背景", sheet.background),
-        ("自己紹介", sheet.self_intro),
-        ("サンプル台詞", sheet.sample_dialogues),
-    ]
-    return "\n".join(f"{label}: {value}" for label, value in fields if value)
 
 
 def character_prompt_context(sheet: CharacterSheet) -> str:

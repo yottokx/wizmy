@@ -19,6 +19,10 @@ from src.core.conversation.history import (
     settings_with_participant,
     settings_without_participant,
 )
+from src.core.conversation.prompts.group import (
+    format_group_participant_overview,
+    format_group_relationship_section,
+)
 from src.core.conversation.sanitize import (
     clean_relationship_enhancement,
     guest_display_name,
@@ -34,8 +38,6 @@ from src.services.group_chat import GroupChatService
 from src.storage.group_chat_repository import GroupChatRepository
 from src.ui.pages.group_chat import (
     _clean_generated_group_name,
-    _format_group_relationship_section,
-    _format_group_participant_overview,
     _format_optional_instruction,
     _group_relationship_enhancement_participants,
     _guest_prefix_completion,
@@ -194,7 +196,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        overview = _format_group_participant_overview(group, {})
+        overview = format_group_participant_overview(group, {})
 
         self.assertIn("調整済みの説明", overview)
         self.assertIn("この世界に来た理由: 依頼を受けて訪れた。", overview)
@@ -892,7 +894,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-        section = _format_group_relationship_section(
+        section = format_group_relationship_section(
             group,
             {"participant_ids": ["member-a", "member-b"]},
         )

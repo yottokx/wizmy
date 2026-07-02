@@ -49,6 +49,21 @@ from ...core.conversation.history import (
     settings_with_participant,
     settings_without_participant,
 )
+from ...core.conversation.prompts.common import compact_character_summary
+from ...core.conversation.prompts.group import (
+    build_group_character_messages,
+    build_group_guest_messages,
+    build_group_input_completion_messages,
+    build_group_narration_messages,
+    build_group_response_choice_messages,
+    build_group_system_prompt,
+    build_group_tailored_input_messages,
+    build_group_title_messages,
+    format_group_relationship_section,
+    group_input_mode_for_role,
+    group_participant_labels,
+    group_user_persona_context,
+)
 from ...core.conversation.sanitize import (
     clean_arrival_reason_response,
     clean_character_markdown_response,
@@ -90,7 +105,6 @@ from ..chat.media import cropped_background_style
 from ..chat.models import ChatDebugInfo, ChatThreadPreview
 from ..chat.prompts import (
     build_debug_info,
-    character_summary,
     format_llm_input,
     message_content_to_text,
     sanitize_chat_title,
@@ -1569,14 +1583,14 @@ async def _generate_group_generation_relationship_drafts(
         "world": group.world,
         "generated": {
             "name": generated_sheet.name,
-            "summary": _compact_character_summary(generated_sheet),
+            "summary": compact_character_summary(generated_sheet),
         },
         "bases": [
             {
                 "member_id": member.id,
                 "handle": member.handle,
                 "name": member.character.name,
-                "summary": _compact_character_summary(member.character),
+                "summary": compact_character_summary(member.character),
             }
             for member in base_members
         ],
@@ -2995,7 +3009,7 @@ def open_new_group_dialog(
                     _render_entry_row(
                         _participant_key_for_sheet(sheet),
                         display_sheet.name,
-                        _compact_character_summary(display_sheet),
+                        compact_character_summary(display_sheet),
                         is_character=True,
                         source_sheet=display_sheet,
                     )
@@ -3475,7 +3489,7 @@ async def _open_character_adaptation_preview_dialog(
     apply_callback: Callable[[CharacterSheet], None],
     page_client=None,
 ) -> None:
-    diff_html = _build_group_diff_html(original_markdown, updated_markdown)
+    diff_html = _group_diff_html(original_markdown, updated_markdown)
     try:
         if page_client is not None and not getattr(page_client, "_deleted", False):
             with page_client:
@@ -3584,7 +3598,7 @@ async def _open_user_persona_adaptation_preview_dialog(
     apply_callback: Callable[[str], None],
     page_client=None,
 ) -> None:
-    diff_html = _build_group_diff_html(current_description, updated_description)
+    diff_html = _group_diff_html(current_description, updated_description)
     try:
         if page_client is not None and not getattr(page_client, "_deleted", False):
             with page_client:
@@ -3608,7 +3622,7 @@ async def _open_user_persona_adaptation_preview_dialog(
         _notify_on_client(page_client, "調整結果の確認画面を開けませんでした", type="warning")
 
 
-def _build_group_diff_html(old_text: str, new_text: str) -> str:
+def _group_diff_html(old_text: str, new_text: str) -> str:
     old_lines = old_text.splitlines()
     new_lines = new_text.splitlines()
     diff = list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=2))
@@ -3988,7 +4002,7 @@ def _relationship_draft_participants(
             "key": f"character:{sheet.id}",
             "id": sheet.id,
             "name": sheet.name,
-            "summary": _compact_character_summary(sheet),
+            "summary": compact_character_summary(sheet),
             "kind": "character",
             "world_entry_type": state.get("entry_modes", {}).get(f"character:{sheet.id}", "native"),
             "arrival_reason": state.get("arrival_reasons", {}).get(f"character:{sheet.id}", ""),
@@ -5124,7 +5138,7 @@ event => {
             self.input_box.enable()
         if role == "guest":
             self.guest_input_name = clean_guest_name(str(message.get("guest_name") or message.get("speaker_name") or ""))
-        self.set_input_mode(_group_input_mode_for_role(role))
+        self.set_input_mode(group_input_mode_for_role(role))
         self.set_sending(False)
         self.tts_generating_index = None
         self.refresh_messages()
@@ -5652,7 +5666,7 @@ event => {
         await self.save_current_session(refresh_history=False)
 
         async def _runner(job) -> list[dict[str, Any]]:
-            llm_messages = _build_group_narration_messages(
+            llm_messages = build_group_narration_messages(
                 self.group,
                 settings_snapshot,
                 prior_messages,
@@ -5728,7 +5742,7 @@ event => {
 
         async def _runner() -> str:
             response = await llm.ainvoke(
-                _build_group_input_completion_messages(
+                build_group_input_completion_messages(
                     self.group,
                     self.settings,
                     self.messages,
@@ -5763,7 +5777,7 @@ event => {
 
         async def _runner() -> str:
             response = await llm.ainvoke(
-                _build_group_tailored_input_messages(
+                build_group_tailored_input_messages(
                     self.group,
                     self.settings,
                     self.messages,
@@ -5802,7 +5816,7 @@ event => {
 
         async def _runner() -> list[str]:
             response = await llm.ainvoke(
-                _build_group_response_choice_messages(
+                build_group_response_choice_messages(
                     self.group,
                     self.settings,
                     self.messages,
@@ -6985,7 +6999,7 @@ event => {
 
         async def _runner(job) -> list[dict[str, Any]]:
             try:
-                llm_messages = _build_group_guest_messages(
+                llm_messages = build_group_guest_messages(
                     self.group,
                     settings_snapshot,
                     prior_messages,
@@ -7066,7 +7080,7 @@ event => {
             f"- @{member.handle}: {member.character.name} / {member.character.occupation or '役割未設定'}"
             for member in candidates
         )
-        relationship_section = _format_group_relationship_section(self.group, self.settings or {})
+        relationship_section = format_group_relationship_section(self.group, self.settings or {})
         llm_messages = [
             SystemMessage(
                 content=(
@@ -7109,7 +7123,7 @@ event => {
         turn_instruction: str = "",
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        llm_messages = _build_group_character_messages(
+        llm_messages = build_group_character_messages(
             self.group,
             settings or self.settings or {},
             self.messages if prior_messages is None else prior_messages,
@@ -7143,7 +7157,7 @@ event => {
             return
         self.title_generation_attempted = True
         try:
-            response = await llm.ainvoke(_build_group_title_messages(self.group, self.messages))
+            response = await llm.ainvoke(build_group_title_messages(self.group, self.messages))
             title = sanitize_chat_title(message_content_to_text(getattr(response, "content", response)))
         except Exception:
             return
@@ -7266,10 +7280,10 @@ event => {
             if member.id in set(participant_ids)
         ] or self.group.members
         member_lines = "\n".join(
-            f"- @{member.handle} / {member.character.name}: {_compact_character_summary(member.character)}"
+            f"- @{member.handle} / {member.character.name}: {compact_character_summary(member.character)}"
             for member in active
         )
-        relationship_section = _format_group_relationship_section(
+        relationship_section = format_group_relationship_section(
             self.group,
             {"participant_ids": participant_ids},
         )
@@ -7436,7 +7450,7 @@ event => {
         if not active:
             ui.notify("参加キャラがいません", type="warning")
             return
-        prompt = _build_group_system_prompt(self.group, self.settings, active, active[0])
+        prompt = build_group_system_prompt(self.group, self.settings, active, active[0])
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl"):
             ui.label("システムプロンプト").classes("text-base font-semibold")
             ui.code(prompt, language="markdown").classes("w-full text-xs")
@@ -7453,18 +7467,6 @@ def _group_input_mode_icon(mode: str) -> str:
         "memo": "sticky_note_2",
         "user": "person",
     }.get(mode, "person")
-
-
-def _group_input_mode_for_role(role: str) -> str:
-    if role == "character":
-        return "character"
-    if role == "guest":
-        return "guest"
-    if role == "narration":
-        return "narration"
-    if role == "memo":
-        return "memo"
-    return "user"
 
 
 def _group_message_target_label(role: str) -> str:
@@ -7724,379 +7726,6 @@ def _configured_group_chat_llm(ctx, profile_id: str):
     return create_llm(profile, endpoint, api_key)
 
 
-def _build_group_system_prompt(
-    group: GroupChatRecord,
-    settings: dict[str, Any],
-    active_members: list[GroupMember],
-    speaker: GroupMember,
-) -> str:
-    user = group.user_persona
-    active_overview = "\n".join(
-        f"- @{member.handle} / {member.character.name}: {_compact_character_summary(member.character)}"
-        for member in active_members
-    )
-    return (
-        "あなたはグループチャットの参加キャラクターを演じます。\n"
-        "指定された次の発言者だけとして発言してください。話者名、ハンドル、引用符、前置き、解説は出力しないでください。\n"
-        "特別な理由がない限り、キャラクター発言にメンションは含めないでください。\n\n"
-        "発言は通常の1対1チャットと同じくらい短くしてください。1〜3文程度で短く返し、相手が返しやすい余白を残してください。\n\n"
-        f"グループ名: {group.name}\n"
-        f"世界観:\n{group.world or '未設定'}\n\n"
-        f"ユーザー:\n@{user.handle if user else 'User'} / "
-        f"{(user.display_name or user.name) if user else 'ユーザー'}\n"
-        f"{_group_user_persona_context(user)}\n\n"
-        f"参加キャラクター:\n{active_overview or 'なし'}\n\n"
-        f"{_format_group_relationship_section(group, settings)}"
-        f"今回の発言者:\n@{speaker.handle} / {speaker.character.name}\n"
-        f"{character_summary(speaker.character)}\n\n"
-        f"シチュエーション:\n{settings.get('situation', '') or '未設定'}"
-    )
-
-
-def _build_group_character_messages(
-    group: GroupChatRecord,
-    settings: dict[str, Any],
-    messages: list[dict[str, Any]],
-    speaker: GroupMember,
-    *,
-    turn_instruction: str = "",
-) -> list:
-    participant_ids = {str(member_id) for member_id in settings.get("participant_ids", [])}
-    active = [member for member in group.members if member.id in participant_ids] or group.members
-    instruction = turn_instruction.strip()
-    instruction_text = (
-        "\n\n次の返答だけに適用するメタ指示です。"
-        "この指示を作中で説明せず、返答本文にだけ反映してください。\n"
-        f"{instruction}"
-        if instruction
-        else ""
-    )
-    return [
-        SystemMessage(content=_build_group_system_prompt(group, settings, active, speaker)),
-        HumanMessage(
-            content=(
-                f"会話履歴:\n{format_group_history(messages)}\n\n"
-                f"次の発言者は @{speaker.handle} / {speaker.character.name} です。"
-                "このキャラクターの自然な次の発言を、本文だけで返してください。"
-                "通常チャットと同じくらい短く、1〜3文程度で相手が返しやすい余白を残してください。"
-                f"{instruction_text}"
-            )
-        ),
-    ]
-
-
-def _build_group_guest_messages(
-    group: GroupChatRecord,
-    settings: dict[str, Any],
-    messages: list[dict[str, Any]],
-    guest_name: str,
-    *,
-    turn_instruction: str = "",
-) -> list:
-    name = clean_guest_name(guest_name)
-    instruction = turn_instruction.strip()
-    instruction_text = (
-        "\n\n次の返答だけに適用するメタ指示です。"
-        "この指示を作中で説明せず、返答本文にだけ反映してください。\n"
-        f"{instruction}"
-        if instruction
-        else ""
-    )
-    return [
-        SystemMessage(
-            content=(
-                "あなたはグループチャットの一時的なゲスト発言者を演じます。"
-                "指定されたゲスト本人の自然な発言本文だけを出力してください。"
-                "話者名、ハンドル、引用符、前置き、解説は出力しないでください。"
-                "発言は短く、1〜3文程度で場面に自然につながる内容にしてください。"
-            )
-        ),
-        HumanMessage(
-            content=(
-                f"グループ名: {group.name}\n"
-                f"世界観:\n{group.world or '未設定'}\n\n"
-                f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
-                f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
-                f"{_format_group_relationship_section(group, settings)}"
-                f"会話履歴:\n{format_group_history(messages)}\n\n"
-                f"今回のゲスト発言者: {guest_display_name(name)}\n"
-                "このゲストの自然な次の発言を、本文だけで返してください。"
-                f"{instruction_text}"
-            )
-        ),
-    ]
-
-
-def _build_group_narration_messages(
-    group: GroupChatRecord,
-    settings: dict[str, Any],
-    messages: list[dict[str, Any]],
-    *,
-    instruction: str = "",
-) -> list:
-    instruction_line = instruction.strip() or "現在の会話を受けて、次に自然につながる地の文を書く。"
-    return [
-        SystemMessage(
-            content=(
-                "あなたはグループチャットの地の文を書くナレーターです。"
-                "セリフ、話者名、箇条書き、解説、メタ発言は出力しないでください。"
-                "1〜3文で、場面・空気・動きだけを簡潔に描写してください。"
-            )
-        ),
-        HumanMessage(
-            content=(
-                f"グループ名: {group.name}\n"
-                f"世界観:\n{group.world or '未設定'}\n\n"
-                f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
-                f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
-                f"{_format_group_relationship_section(group, settings)}"
-                f"会話履歴:\n{format_group_history(messages)}\n\n"
-                f"指示: {instruction_line}\n"
-                "出力は地の文だけ。"
-            )
-        ),
-    ]
-
-
-def _build_group_input_completion_messages(
-    group: GroupChatRecord,
-    settings: dict[str, Any],
-    messages: list[dict[str, Any]],
-    left_text: str,
-    *,
-    input_mode: str,
-    speaker: GroupMember | None = None,
-    guest_name: str = "",
-) -> list:
-    target_label, system_instruction, character_context = _group_input_target_context(
-        group,
-        input_mode,
-        speaker,
-        guest_name=guest_name,
-    )
-    return [
-        SystemMessage(content=system_instruction),
-        HumanMessage(
-            content=(
-                f"現在話そうとしているもの: {target_label}\n"
-                f"グループ名: {group.name}\n"
-                f"世界観:\n{group.world or '未設定'}\n"
-                f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
-                f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
-                f"{_format_group_relationship_section(group, settings)}"
-                f"{character_context}"
-                f"会話履歴:\n{format_group_history(messages)}\n\n"
-                f"未完の文:\n{left_text.rstrip()}\n\n"
-                "未完の文の続きを出力してください。前置き、引用符、元の文の繰り返しは禁止です。"
-            )
-        ),
-    ]
-
-
-def _build_group_tailored_input_messages(
-    group: GroupChatRecord,
-    settings: dict[str, Any],
-    messages: list[dict[str, Any]],
-    text: str,
-    *,
-    input_mode: str,
-    speaker: GroupMember | None = None,
-    guest_name: str = "",
-) -> list:
-    target_label, system_instruction, character_context = _group_input_target_context(
-        group,
-        input_mode,
-        speaker,
-        guest_name=guest_name,
-        tailor=True,
-    )
-    return [
-        SystemMessage(content=system_instruction),
-        HumanMessage(
-            content=(
-                f"現在の入力ロール: {target_label}\n"
-                f"グループ名: {group.name}\n"
-                f"世界観:\n{group.world or '未設定'}\n"
-                f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
-                f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
-                f"{_format_group_relationship_section(group, settings)}"
-                f"{character_context}"
-                f"会話履歴:\n{format_group_history(messages)}\n\n"
-                f"書き換える文:\n{text.strip()}\n\n"
-                "現在の入力ロールに合う自然な本文へ書き換えてください。"
-                "出力は書き換え後の本文だけ。前置き、引用符、話者名、解説は禁止です。"
-            )
-        ),
-    ]
-
-
-def _build_group_response_choice_messages(
-    group: GroupChatRecord,
-    settings: dict[str, Any],
-    messages: list[dict[str, Any]],
-    left_text: str,
-    *,
-    input_mode: str,
-    speaker: GroupMember | None = None,
-    guest_name: str = "",
-) -> list:
-    target_label, system_instruction, character_context = _group_input_target_context(
-        group,
-        input_mode,
-        speaker,
-        guest_name=guest_name,
-        choices=True,
-    )
-    prefix = left_text.strip()
-    prefix_line = f"各候補は次の書き出しに自然につなげる: {prefix}" if prefix else "各候補は独立した短い返答にする。"
-    return [
-        SystemMessage(content=system_instruction),
-        HumanMessage(
-            content=(
-                f"現在話そうとしているもの: {target_label}\n"
-                f"グループ名: {group.name}\n"
-                f"世界観:\n{group.world or '未設定'}\n"
-                f"シチュエーション:\n{settings.get('situation', '') or '未設定'}\n\n"
-                f"参加者:\n{_format_group_participant_overview(group, settings)}\n\n"
-                f"{_format_group_relationship_section(group, settings)}"
-                f"{character_context}"
-                f"会話履歴:\n{format_group_history(messages)}\n\n"
-                f"{prefix_line}\n"
-                "出力は3行だけ。番号や箇条書き記号は付けず、候補本文だけを書いてください。"
-            )
-        ),
-    ]
-
-
-def _group_input_target_context(
-    group: GroupChatRecord,
-    input_mode: str,
-    speaker: GroupMember | None,
-    *,
-    guest_name: str = "",
-    tailor: bool = False,
-    choices: bool = False,
-) -> tuple[str, str, str]:
-    action = "候補を作る" if choices else "書き換える" if tailor else "続きを補完する"
-    if input_mode == "narration":
-        return (
-            "地の文",
-            f"あなたはグループチャットの地の文を{action}編集者です。セリフではなく、状況描写として自然な本文だけを短く出力してください。",
-            "",
-        )
-    if input_mode == "memo":
-        return (
-            "コメント",
-            f"あなたはグループチャットログ上に残すコメントを{action}編集者です。会話本文ではなく、作者向けの短いメモとして自然な本文だけを出力してください。",
-            "",
-        )
-    if input_mode == "guest":
-        cleaned_guest_name = clean_guest_name(guest_name)
-        guest_label = guest_display_name(cleaned_guest_name) if cleaned_guest_name else "ゲスト"
-        return (
-            f"ゲスト（{guest_label}）",
-            f"あなたはゲスト発言を{action}編集者です。指定されたゲスト本人の自然なセリフだけを短く出力してください。",
-            f"ゲスト発言者:\n{guest_label}\n\n",
-        )
-    if input_mode == "character":
-        member = speaker or (group.members[0] if group.members else None)
-        if member is None:
-            return (
-                "キャラクター",
-                f"あなたはキャラクター発言を{action}編集者です。キャラクター本人の自然なセリフだけを短く出力してください。",
-                "",
-            )
-        return (
-            f"キャラクター（{member.character.name} / @{member.handle}）",
-            f"あなたはキャラクター発言を{action}編集者です。指定キャラクター本人の自然なセリフだけを短く出力してください。",
-            f"対象キャラクター:\n@{member.handle} / {member.character.name}\n{character_summary(member.character)}\n\n",
-        )
-    user = group.user_persona
-    return (
-        f"ユーザー（{(user.display_name or user.name) if user else 'ユーザー'}）",
-        f"あなたはユーザー発言を{action}編集者です。ユーザー本人の口調として自然につながる本文だけを短く出力してください。",
-        f"ユーザー設定:\n@{user.handle if user else 'User'} / {(user.display_name or user.name) if user else 'ユーザー'}\n{_group_user_persona_context(user)}\n\n",
-    )
-
-
-def _format_group_participant_overview(group: GroupChatRecord, settings: dict[str, Any]) -> str:
-    participant_ids = {str(member_id) for member_id in settings.get("participant_ids", [])}
-    active = [member for member in group.members if member.id in participant_ids] or group.members
-    lines = [
-        f"- @{member.handle} / {member.character.name}: {_compact_character_summary(member.character)}"
-        for member in active
-    ]
-    if group.user_persona is not None:
-        user = group.user_persona
-        lines.append(f"- @{user.handle} / {user.display_name or user.name or 'ユーザー'}: {_group_user_persona_context(user)}")
-    return "\n".join(lines) if lines else "なし"
-
-
-def _group_user_persona_context(user: GroupUserPersona | None) -> str:
-    if user is None:
-        return ""
-    lines = [(user.description or "ユーザー").strip()]
-    if user.world_entry_type == "visitor" and user.arrival_reason.strip():
-        lines.append(f"この世界に来た理由: {user.arrival_reason.strip()}")
-    return "\n".join(line for line in lines if line)
-
-
-def _format_group_relationship_section(group: GroupChatRecord, settings: dict[str, Any]) -> str:
-    relationships = _active_group_relationship_lines(group, settings)
-    if not relationships:
-        return ""
-    return "関係性:\n" + "\n".join(relationships) + "\n\n"
-
-
-def _active_group_relationship_lines(group: GroupChatRecord, settings: dict[str, Any]) -> list[str]:
-    active_keys = _active_group_participant_keys(group, settings)
-    labels = _group_participant_labels(group)
-    lines: list[str] = []
-    for relationship in group.relationships:
-        if relationship.participant_a_key not in active_keys:
-            continue
-        if relationship.participant_b_key not in active_keys:
-            continue
-        description = relationship.description.strip()
-        if not description:
-            continue
-        left = labels.get(relationship.participant_a_key)
-        right = labels.get(relationship.participant_b_key)
-        if not left or not right:
-            continue
-        lines.append(f"- {left} ↔ {right}: {description}")
-    return lines
-
-
-def _active_group_participant_keys(group: GroupChatRecord, settings: dict[str, Any]) -> set[str]:
-    participant_ids = {str(member_id) for member_id in settings.get("participant_ids", [])}
-    active_members = [member for member in group.members if member.id in participant_ids] or group.members
-    keys = {f"member:{member.id}" for member in active_members}
-    if group.user_persona is not None:
-        keys.add(f"user:{group.user_persona.id}")
-    return keys
-
-
-def _build_group_title_messages(group: GroupChatRecord, messages: list[dict[str, Any]]) -> list:
-    return [
-        SystemMessage(
-            content=(
-                "あなたはグループチャット履歴に短いタイトルを付ける編集者です。"
-                "出力はタイトル本文だけにしてください。引用符、句点、解説、前置きは禁止です。"
-                "12〜24文字程度で、会話の中心が分かる自然な日本語にしてください。"
-            )
-        ),
-        HumanMessage(
-            content=(
-                f"グループ名: {group.name}\n"
-                f"世界観:\n{group.world or '未設定'}\n\n"
-                f"{_format_group_relationship_section(group, {})}"
-                f"会話履歴:\n{format_group_history(messages)}"
-            )
-        ),
-    ]
-
-
 def _render_group_profile_panel(
     ctx,
     group: GroupChatRecord,
@@ -8230,7 +7859,7 @@ def _render_group_world_panel(
             ui.label("関係性を設定できる参加者が足りません").classes("cs-group-profile-summary")
             return
 
-        labels = _group_participant_labels(group)
+        labels = group_participant_labels(group)
         with ui.element("div").classes("cs-group-relationship-list"):
             if not group.relationships:
                 ui.label("設定済みの関係性はありません").classes("cs-group-profile-summary")
@@ -8278,18 +7907,8 @@ def _render_group_relationship_row(
         ui.label(relationship.description or "未設定").classes("cs-group-relationship-text")
 
 
-def _group_participant_labels(group: GroupChatRecord) -> dict[str, str]:
-    labels: dict[str, str] = {}
-    for participant in _group_participants(group):
-        name = str(participant.get("name") or "参加者")
-        handle = str(participant.get("handle") or "")
-        label = f"{name} (@{handle})" if handle else name
-        labels[str(participant["key"])] = label
-    return labels
-
-
 def _group_relationship_options(group: GroupChatRecord) -> dict[str, str]:
-    return _group_participant_labels(group)
+    return group_participant_labels(group)
 
 
 def _group_relationship_enhancement_participants(group: GroupChatRecord) -> list[dict[str, str]]:
@@ -8298,7 +7917,7 @@ def _group_relationship_enhancement_participants(group: GroupChatRecord) -> list
             "key": f"member:{member.id}",
             "id": member.id,
             "name": member.character.name,
-            "summary": _compact_character_summary(member.character),
+            "summary": compact_character_summary(member.character),
             "kind": "character",
             "world_entry_type": member.world_entry_type,
             "arrival_reason": member.arrival_reason,
@@ -8312,7 +7931,7 @@ def _group_relationship_enhancement_participants(group: GroupChatRecord) -> list
             "key": f"user:{user.id}",
             "id": user.id,
             "name": user.display_name or user.name or "ユーザー",
-            "summary": _group_user_persona_context(user),
+            "summary": group_user_persona_context(user),
             "kind": "user_persona",
             "world_entry_type": user.world_entry_type,
             "arrival_reason": user.arrival_reason,
@@ -8745,7 +8364,7 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
                     str(state.get("profile_id") or ""),
                     sheet.name,
                     _world_text(),
-                    _compact_character_summary(sheet),
+                    compact_character_summary(sheet),
                     page_client,
                     on_job_started=_set_busy_job,
                 )
@@ -9026,7 +8645,7 @@ async def _generate_handles(
                 "id": sheet.id,
                 "name": sheet.name,
                 "role": sheet.occupation,
-                "summary": _compact_character_summary(sheet),
+                "summary": compact_character_summary(sheet),
             }
             for sheet in characters
         ],
@@ -9177,7 +8796,7 @@ async def _generate_group_name_from_world(
         return ""
 
     participant_lines = "\n".join(
-        f"- {sheet.name}: {_compact_character_summary(sheet)}"
+        f"- {sheet.name}: {compact_character_summary(sheet)}"
         for sheet in characters
     )
     if persona is not None:
@@ -9556,12 +9175,6 @@ def _ascii_outside_parentheses(value: str) -> str:
     text = re.sub(r"（[^）]*）", "", value)
     text = re.sub(r"\([^)]*\)", "", text)
     return re.sub(r"[^A-Za-z0-9_]", "", text)
-
-
-def _compact_character_summary(sheet: CharacterSheet) -> str:
-    summary = character_summary(sheet)
-    summary = re.sub(r"\s+", " ", summary).strip()
-    return summary[:420]
 
 
 def _time_label(value: datetime) -> str:

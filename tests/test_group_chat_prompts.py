@@ -1,17 +1,17 @@
 from src.core.conversation.history import format_group_history
-from src.ui.pages.group_chat import (
-    _build_group_character_messages,
-    _build_group_guest_messages,
-    _build_group_input_completion_messages,
-    _build_group_narration_messages,
-    _build_group_response_choice_messages,
-    _build_group_system_prompt,
-    _build_group_tailored_input_messages,
-    _build_group_title_messages,
-    _format_group_participant_overview,
-    _format_group_relationship_section,
-    _group_input_target_context,
-    _group_user_persona_context,
+from src.core.conversation.prompts.group import (
+    build_group_character_messages,
+    build_group_guest_messages,
+    build_group_input_completion_messages,
+    build_group_narration_messages,
+    build_group_response_choice_messages,
+    build_group_system_prompt,
+    build_group_tailored_input_messages,
+    build_group_title_messages,
+    format_group_participant_overview,
+    format_group_relationship_section,
+    group_input_target_context,
+    group_user_persona_context,
 )
 
 from tests.group_chat_test_helpers import (
@@ -99,10 +99,10 @@ def test_group_prompt_helpers_return_current_full_text() -> None:
     settings = make_group_settings()
 
     assert format_group_history(make_group_messages()) == HISTORY
-    assert _format_group_participant_overview(group, settings) == PARTICIPANT_OVERVIEW
-    assert _group_user_persona_context(group.user_persona) == USER_CONTEXT
-    assert _format_group_relationship_section(group, settings) == RELATIONSHIP_SECTION
-    assert _group_input_target_context(group, "memo", None, tailor=True) == (
+    assert format_group_participant_overview(group, settings) == PARTICIPANT_OVERVIEW
+    assert group_user_persona_context(group.user_persona) == USER_CONTEXT
+    assert format_group_relationship_section(group, settings) == RELATIONSHIP_SECTION
+    assert group_input_target_context(group, "memo", None, tailor=True) == (
         "コメント",
         "あなたはグループチャットログ上に残すコメントを書き換える編集者です。会話本文ではなく、作者向けの短いメモとして自然な本文だけを出力してください。",
         "",
@@ -113,7 +113,7 @@ def test_build_group_system_prompt_returns_current_full_text() -> None:
     group = make_group_chat()
     settings = make_group_settings()
 
-    prompt = _build_group_system_prompt(group, settings, group.members, group.members[0])
+    prompt = build_group_system_prompt(group, settings, group.members, group.members[0])
 
     assert prompt == SYSTEM_PROMPT
 
@@ -123,7 +123,7 @@ def test_build_group_character_messages_returns_current_full_text() -> None:
     settings = make_group_settings()
     messages = make_group_messages()
 
-    result = _build_group_character_messages(
+    result = build_group_character_messages(
         group,
         settings,
         messages,
@@ -149,7 +149,7 @@ def test_build_group_guest_messages_returns_current_full_text() -> None:
     settings = make_group_settings()
     messages = make_group_messages()
 
-    result = _build_group_guest_messages(
+    result = build_group_guest_messages(
         group,
         settings,
         messages,
@@ -188,7 +188,7 @@ def test_build_group_narration_messages_returns_current_full_text() -> None:
     settings = make_group_settings()
     messages = make_group_messages()
 
-    result = _build_group_narration_messages(group, settings, messages, instruction="星図の光を描写する。")
+    result = build_group_narration_messages(group, settings, messages, instruction="星図の光を描写する。")
 
     assert message_roles_and_contents(result) == [
         (
@@ -218,7 +218,7 @@ def test_build_group_input_completion_messages_returns_current_full_text() -> No
     settings = make_group_settings()
     messages = make_group_messages()
 
-    result = _build_group_input_completion_messages(
+    result = build_group_input_completion_messages(
         group,
         settings,
         messages,
@@ -256,7 +256,7 @@ def test_build_group_tailored_input_messages_returns_current_full_text() -> None
     settings = make_group_settings()
     messages = make_group_messages()
 
-    result = _build_group_tailored_input_messages(
+    result = build_group_tailored_input_messages(
         group,
         settings,
         messages,
@@ -296,7 +296,7 @@ def test_build_group_response_choice_messages_returns_current_full_text() -> Non
     settings = make_group_settings()
     messages = make_group_messages()
 
-    result = _build_group_response_choice_messages(
+    result = build_group_response_choice_messages(
         group,
         settings,
         messages,
@@ -331,7 +331,7 @@ def test_build_group_title_messages_returns_current_full_text() -> None:
     group = make_group_chat()
     messages = make_group_messages()
 
-    result = _build_group_title_messages(group, messages)
+    result = build_group_title_messages(group, messages)
 
     assert message_roles_and_contents(result) == [
         (
