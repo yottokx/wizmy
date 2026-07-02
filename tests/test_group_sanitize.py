@@ -1,0 +1,147 @@
+import pytest
+
+from src.ui.chat.models import ChatDebugInfo
+from src.ui.pages import group_chat as group_chat_module
+from src.ui.pages.group_chat import (
+    _clean_guest_name,
+    _debug_from_dict,
+    _group_message,
+    _guest_name_from_actor_text,
+    _last_dialog_message,
+    _latest_group_message_preview,
+    _optional_int,
+    _sanitize_group_character_reply,
+    _sanitize_group_guest_reply,
+    _sanitize_group_narration,
+)
+
+from tests.group_chat_test_helpers import make_group_chat
+
+
+def test_sanitize_group_character_reply_removes_current_prefixes() -> None:
+    member = make_group_chat().members[0]
+
+    assert _sanitize_group_character_reply("灯里: 「この棚はまだ起きています」", member) == "この棚はまだ起きています"
+    assert _sanitize_group_character_reply("@Akari: まだ明かりは消しません。", member) == "まだ明かりは消しません。"
+
+
+def test_sanitize_group_guest_reply_removes_current_prefixes() -> None:
+    assert (
+        _sanitize_group_guest_reply("巡回司書【ゲスト】: 「そろそろ閉館です」", "guest:巡回司書") == "そろそろ閉館です"
+    )
+    assert _sanitize_group_guest_reply("巡回司書: 星図は返却台へ。", "巡回司書") == "星図は返却台へ。"
+
+
+def test_sanitize_group_narration_removes_current_labels() -> None:
+    assert _sanitize_group_narration("地の文: 窓の外で星が瞬いた。") == "窓の外で星が瞬いた。"
+    assert _sanitize_group_narration("```text\nナラティブ: 天球儀が静かに回る。\n```") == "天球儀が静かに回る。"
+
+
+def test_guest_name_helpers_keep_current_notation() -> None:
+    assert _clean_guest_name("guest: 巡回司書") == "巡回司書"
+    assert _clean_guest_name("巡回司書【ゲスト】") == "巡回司書"
+    assert _guest_name_from_actor_text("guest：巡回司書") == "巡回司書"
+    assert _guest_name_from_actor_text("巡回司書【ゲスト】") == "巡回司書"
+    assert _guest_name_from_actor_text("巡回司書") == ""
+
+
+def test_group_message_serializes_member_user_guest_and_debug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    group = make_group_chat()
+    member = group.members[0]
+    user = group.user_persona
+    assert user is not None
+    monkeypatch.setattr(group_chat_module, "time_label", lambda: "12:34")
+    debug = ChatDebugInfo(
+        llm_input="入力",
+        raw_output="出力",
+        reasoning_output="理由",
+        input_tokens=1,
+        output_tokens=2,
+        total_tokens=3,
+    )
+    speaker_debug = ChatDebugInfo(llm_input="話者入力", raw_output="話者出力")
+
+    assert _group_message(
+        "character", "星図が揺れています。", member=member, debug=debug, speaker_debug=speaker_debug
+    ) == {
+        "role": "character",
+        "text": "星図が揺れています。",
+        "time_label": "12:34",
+        "speaker_id": "member-akari",
+        "speaker_name": "灯里",
+        "handle": "Akari",
+        "debug": {
+            "llm_input": "入力",
+            "raw_output": "出力",
+            "reasoning_output": "理由",
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "total_tokens": 3,
+        },
+        "speaker_debug": {
+            "llm_input": "話者入力",
+            "raw_output": "話者出力",
+            "reasoning_output": "",
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        },
+    }
+    assert _group_message("user", "記録します。", user=user) == {
+        "role": "user",
+        "text": "記録します。",
+        "time_label": "12:34",
+        "speaker_id": "persona-sora",
+        "speaker_name": "ソラ",
+        "handle": "Sora",
+    }
+    assert _group_message("guest", "閉館です。", guest_name="guest:巡回司書") == {
+        "role": "guest",
+        "text": "閉館です。",
+        "time_label": "12:34",
+        "speaker_id": "guest:巡回司書",
+        "speaker_name": "巡回司書【ゲスト】",
+        "guest_name": "巡回司書",
+        "handle": "",
+    }
+
+
+def test_debug_from_dict_and_optional_int_keep_current_fallbacks() -> None:
+    debug = _debug_from_dict(
+        {
+            "llm_input": "入力",
+            "raw_output": "出力",
+            "reasoning_output": "理由",
+            "input_tokens": "10",
+            "output_tokens": "bad",
+            "total_tokens": None,
+        }
+    )
+
+    assert debug == ChatDebugInfo(
+        llm_input="入力",
+        raw_output="出力",
+        reasoning_output="理由",
+        input_tokens=10,
+        output_tokens=None,
+        total_tokens=None,
+    )
+    assert _debug_from_dict("not dict") is None
+    assert _optional_int("42") == 42
+    assert _optional_int("bad") is None
+
+
+def test_group_message_preview_and_last_dialog_message_keep_current_filters() -> None:
+    messages = [
+        {"role": "system", "text": "システム通知"},
+        {"role": "narration", "text": "天球儀が光った。"},
+        {"role": "memo", "text": "メモ"},
+        {"role": "guest", "speaker_name": "巡回司書【ゲスト】", "text": "閉館の鐘が鳴ります。"},
+    ]
+
+    assert _latest_group_message_preview([]) == "まだ発言がありません"
+    assert _latest_group_message_preview(messages, limit=16) == "巡回司書【ゲスト】: 閉館の鐘…"
+    assert _last_dialog_message(messages) == messages[-1]
+    assert _last_dialog_message([{"role": "narration", "text": "静かだった。"}]) is None
