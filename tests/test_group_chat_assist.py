@@ -213,3 +213,43 @@ class GroupChatAssistServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(["もう少し詳しく見せてください", "窓辺へ移動しましょう"], choices.value)
         self.assertEqual("天球儀が青く光った。", scene["text"])
         self.assertEqual("閲覧室の机に古い星図が広げられている。", situation.value)
+
+    async def test_group_setup_generation_use_cases_run_as_jobs_with_stub_llm(self) -> None:
+        group = make_group_chat()
+        assert group.user_persona is not None
+        llm = FakeLLM(
+            [
+                '{"characters":[{"id":"character-akari","handle":"Akari_Star"}],"user":"SoraNote"}',
+                "世界観: 星明かりの蔵書室では、古い星図が夜ごとに線を変える。",
+                "グループ名: 星屑街の夜会",
+            ]
+        )
+        service, patcher = _service(llm)
+
+        with patcher:
+            handles = await service.generate_handles(
+                profile_id="profile-test",
+                vault_password=None,
+                characters=[member.character for member in group.members],
+                persona=group.user_persona,
+            )
+            world = await service.enhance_world(
+                profile_id="profile-test",
+                vault_password=None,
+                current_world="古い星図がある図書館。",
+                group_name=group.name,
+                characters=[member.character for member in group.members],
+                persona=group.user_persona,
+            )
+            name = await service.generate_group_name_from_world(
+                profile_id="profile-test",
+                vault_password=None,
+                world=group.world,
+                characters=[member.character for member in group.members],
+                persona=group.user_persona,
+            )
+
+        self.assertEqual("Akari_Star", handles.value["character-akari"])
+        self.assertEqual("SoraNote", handles.value["user"])
+        self.assertEqual("星明かりの蔵書室では、古い星図が夜ごとに線を変える。", world.value)
+        self.assertEqual("星屑街の夜会", name.value)

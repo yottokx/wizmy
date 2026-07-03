@@ -11,7 +11,6 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from nicegui import app, ui
 
 from ...app_context import get_context
@@ -26,7 +25,6 @@ from ...core.character.schemas import (
 from ...core.character.markdown import (
     base_character_markdown as _base_character_markdown,
     parse_markdown_to_sheet,
-    remove_markdown_section as _remove_markdown_section,
     sheet_from_markdown_preserving as _sheet_from_markdown_preserving,
 )
 from ...core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS
@@ -53,6 +51,14 @@ from ...core.conversation.history import (
     settings_with_participant,
     settings_without_participant,
 )
+from ...core.conversation.group_setup import (
+    ascii_outside_parentheses,
+    fallback_handle,
+    fallback_persona_handle,
+    sanitize_group_generated_markdown,
+    sanitize_handle,
+    unique_handle,
+)
 from ...core.conversation.prompts.common import compact_character_summary
 from ...core.conversation.prompts.group import (
     build_group_system_prompt,
@@ -67,7 +73,6 @@ from ...core.conversation.relationship_drafts import (
     upsert_relationship_draft as _upsert_relationship_draft,
 )
 from ...core.conversation.sanitize import (
-    clean_character_markdown_response,
     clean_guest_name,
     guest_display_name,
     guest_name_from_actor_text,
@@ -92,10 +97,6 @@ from ..chat.commands import (
 )
 from ..chat.media import cropped_background_style
 from ..chat.models import ChatDebugInfo, ChatThreadPreview
-from ..chat.prompts import (
-    message_content_to_text,
-    sanitize_chat_title,
-)
 from ..chat.style import CHAT_CSS
 from ..components.character_picker import open_character_picker
 from ..components.progress_stream import ProgressPanel
@@ -1467,18 +1468,10 @@ def _generation_base_sheet_from_member(member: GroupMember) -> GenerationBaseShe
     )
 
 
-def _sanitize_group_generated_markdown(markdown: str) -> str:
-    cleaned = clean_character_markdown_response(markdown)
-    cleaned = _remove_markdown_section(cleaned, "世界観・舞台")
-    cleaned = _remove_markdown_section(cleaned, "人間関係")
-    cleaned = _remove_markdown_section(cleaned, "この世界に来た理由")
-    return cleaned.strip()
-
-
 def _clear_group_generated_sheet_sections(sheet: CharacterSheet, markdown: str) -> CharacterSheet:
     sheet.world = ""
     sheet.relationships = []
-    sheet.raw_markdown = _sanitize_group_generated_markdown(markdown)
+    sheet.raw_markdown = sanitize_group_generated_markdown(markdown)
     return sheet
 
 
@@ -1488,7 +1481,7 @@ def _group_generated_sheet_from_result(
     job: GenerationJob,
     result,
 ) -> CharacterSheet:
-    sanitized = _sanitize_group_generated_markdown(markdown)
+    sanitized = sanitize_group_generated_markdown(markdown)
     sheet = parse_markdown_to_sheet(sanitized, sheet_id)
     _clear_group_generated_sheet_sections(sheet, sanitized)
     sheet.generation_meta = GenerationMeta(
@@ -1506,9 +1499,9 @@ def _group_generated_sheet_from_result(
 
 def _default_generated_handle(sheet: CharacterSheet, group: GroupChatRecord) -> str:
     used = {member.handle.lower() for member in group.members}
-    fallback = _fallback_handle(sheet, len(group.members) + 1)
-    candidate = _ascii_outside_parentheses(sheet.name) or fallback
-    return _unique_handle(_sanitize_handle(candidate, fallback), used)
+    fallback = fallback_handle(sheet, len(group.members) + 1)
+    candidate = ascii_outside_parentheses(sheet.name) or fallback
+    return unique_handle(sanitize_handle(candidate, fallback), used)
 
 
 async def _generate_group_generation_relationship_drafts(
@@ -1850,7 +1843,7 @@ async def group_generation_page(group_id: str) -> None:
                 return
 
             prompted_modify_review.add(job.id)
-            sanitized = _sanitize_group_generated_markdown(result.sheet_markdown)
+            sanitized = sanitize_group_generated_markdown(result.sheet_markdown)
             diff_html = _build_diff_html(_base_character_markdown(base_member.character), sanitized)
 
             async def _save_approved() -> None:
@@ -1881,7 +1874,7 @@ async def group_generation_page(group_id: str) -> None:
             )
 
         async def _open_group_save_dialog(job: GenerationJob, result) -> None:
-            sanitized = _sanitize_group_generated_markdown(current_result.get("sheet") or result.sheet_markdown)
+            sanitized = sanitize_group_generated_markdown(current_result.get("sheet") or result.sheet_markdown)
             draft_sheet = _group_generated_sheet_from_result(
                 sanitized,
                 ctx.characters.new_id(),
@@ -1979,13 +1972,13 @@ async def group_generation_page(group_id: str) -> None:
             _sync_job_controls(job)
 
             if event.type == ProgressEventType.SHEET_READY:
-                sanitized = _sanitize_group_generated_markdown(str(event.data or ""))
+                sanitized = sanitize_group_generated_markdown(str(event.data or ""))
                 current_result["sheet"] = sanitized
                 _render_sheet_result(result_area, sanitized)
             elif event.type == ProgressEventType.DONE:
                 result = event.data
                 if result and result.success:
-                    sanitized = _sanitize_group_generated_markdown(result.sheet_markdown)
+                    sanitized = sanitize_group_generated_markdown(result.sheet_markdown)
                     result.sheet_markdown = sanitized
                     job.sheet_markdown = sanitized
                     current_result["gen_result"] = result
@@ -2058,7 +2051,7 @@ async def group_generation_page(group_id: str) -> None:
                 request = GenerationRequest(
                     preferences=GenerationPreferences(),
                     mode=mode,
-                    base_sheet=_sanitize_group_generated_markdown(_base_character_markdown(member.character)),
+                    base_sheet=sanitize_group_generated_markdown(_base_character_markdown(member.character)),
                     modify_request=str(modify_request_input.value or ""),
                     group_world=group.world,
                     omit_group_sections=True,
@@ -2285,7 +2278,7 @@ async def group_persona_detail_page(group_id: str) -> None:
                 description_input["ref"].value if description_input["ref"] is not None else ""
             ).strip()
 
-            sanitized_handle = _sanitize_handle(handle, persona.handle or "User")
+            sanitized_handle = sanitize_handle(handle, persona.handle or "User")
             used_handles = {member.handle.lower() for member in group.members}
             if sanitized_handle.lower() in used_handles:
                 ui.notify("同じハンドルのメンバーが既にいます", type="warning")
@@ -2943,7 +2936,7 @@ def open_new_group_dialog(
             options = {
                 _participant_key_for_sheet(sheet): (
                     f"{state['draft_sheets'].get(sheet.id, sheet).name} "
-                    f"(@{state['handle_values'].get(sheet.id, _fallback_handle(sheet, 1))})"
+                    f"(@{state['handle_values'].get(sheet.id, fallback_handle(sheet, 1))})"
                 )
                 for sheet in selected["characters"]
             }
@@ -3192,7 +3185,7 @@ def _group_user_persona_from_selected(persona, handle: str) -> GroupUserPersona 
     return GroupUserPersona(
         id=str(getattr(persona, "id", "") or "user"),
         source_persona_id=str(getattr(persona, "id", "") or ""),
-        handle=_sanitize_handle(handle or "User", "User"),
+        handle=sanitize_handle(handle or "User", "User"),
         name=str(getattr(persona, "name", "") or ""),
         display_name=str(getattr(persona, "display_name", "") or ""),
         description=str(getattr(persona, "description", "") or ""),
@@ -7610,7 +7603,7 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
                         label="ハンドル",
                         value=state["handle_values"].get(
                             sheet.id,
-                            _fallback_handle(sheet, len(handle_inputs) + 1),
+                            fallback_handle(sheet, len(handle_inputs) + 1),
                         ),
                     ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
                     entry_select = ui.select(
@@ -8019,7 +8012,7 @@ def _render_selected_character_row(
             ui.label(meta or "キャラクター").classes("cs-group-selected-meta")
         handle_inputs[sheet.id] = ui.input(
             label="ハンドル",
-            value=value or _fallback_handle(sheet, len(handle_inputs) + 1),
+            value=value or fallback_handle(sheet, len(handle_inputs) + 1),
         ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
         ui.button(icon="close", on_click=remove).props("flat round dense").tooltip("リストから外す")
 
@@ -8061,53 +8054,20 @@ async def _generate_handles(
     if persona is None:
         ui.notify("ユーザーペルソナを選択してください", type="warning")
         return
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
+    try:
+        finished = await ctx.group_chat_assist.generate_handles(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            characters=characters,
+            persona=persona,
+            on_job_started=on_job_started,
+        )
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
         return
-
-    payload = {
-        "characters": [
-            {
-                "id": sheet.id,
-                "name": sheet.name,
-                "role": sheet.occupation,
-                "summary": compact_character_summary(sheet),
-            }
-            for sheet in characters
-        ],
-        "user": {
-            "id": "user",
-            "name": persona.name,
-            "display_name": persona.display_name,
-            "persona_name": getattr(persona, "persona_name", ""),
-            "description": persona.description[:1000],
-        },
-    }
-    async def _runner() -> dict[str, str]:
-        response = await llm.ainvoke([
-            SystemMessage(content="あなたはグループチャット用のメンションハンドルを作る編集者です。"),
-            HumanMessage(content=(
-                "次の参加者に似合う、重複しないハンドルを作ってください。\n"
-                "制約: 3〜12文字、英数字と_のみ、全員で重複禁止。\n"
-                "ユーザーのハンドルもペルソナ名・説明・役割に寄せ、User、Player、Me のような汎用名は避けてください。\n"
-                "出力はJSONのみ。形式は {\"characters\":[{\"id\":\"...\",\"handle\":\"...\"}],\"user\":\"...\"}。\n\n"
-                f"{json.dumps(payload, ensure_ascii=False)}"
-            )),
-        ])
-        raw = message_content_to_text(getattr(response, "content", response))
-        return _parse_handle_response(raw)
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="グループハンドル生成",
-        scope="group_setup:handles",
-        metadata={"character_count": len(characters)},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return
     if finished.status == AIJobStatus.CANCELLED:
         ui.notify("ハンドル生成を停止しました", type="info")
         return
@@ -8122,13 +8082,13 @@ async def _generate_handles(
 
     used: set[str] = {handle.lower() for handle in reserved_handles or set()}
     for index, sheet in enumerate(characters, start=1):
-        candidate = suggested.get(sheet.id) or suggested.get(sheet.name) or _fallback_handle(sheet, index)
-        handle = _unique_handle(_sanitize_handle(candidate, _fallback_handle(sheet, index)), used)
+        candidate = suggested.get(sheet.id) or suggested.get(sheet.name) or fallback_handle(sheet, index)
+        handle = unique_handle(sanitize_handle(candidate, fallback_handle(sheet, index)), used)
         used.add(handle.lower())
         handle_inputs[sheet.id].set_value(handle)
-    user_fallback = _fallback_persona_handle(persona)
+    user_fallback = fallback_persona_handle(persona)
     user_candidate = suggested.get("user") or suggested.get(persona.display_name) or user_fallback
-    user_handle = _unique_handle(_sanitize_handle(user_candidate, user_fallback), used)
+    user_handle = unique_handle(sanitize_handle(user_candidate, user_fallback), used)
     if user_handle_input is not None:
         user_handle_input.set_value(user_handle)
     ui.notify("ハンドルを生成しました", type="positive")
@@ -8147,39 +8107,22 @@ async def _enhance_world_click(
     if not current_world:
         ui.notify("先に世界観を入力してください", type="warning")
         return
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
+    try:
+        finished = await ctx.group_chat_assist.enhance_world(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            current_world=current_world,
+            group_name=str(name_input.value or ""),
+            characters=characters,
+            persona=persona,
+            on_job_started=on_job_started,
+        )
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
         return
-
-    async def _runner() -> str:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはグループチャットの世界観設定を膨らませる編集者です。"
-                "出力には世界観本文以外を絶対に含めません。"
-            )),
-            HumanMessage(content=(
-                "既存の世界観入力を、核を変えずに具体化してください。\n"
-                "通常チャットのシチュエーション補完や/tailorのように、入力済みの内容を広げるだけにしてください。\n"
-                "新しい固有名詞や重大設定を増やしすぎず、会話開始時に使いやすい密度にしてください。\n"
-                "参加者紹介、ユーザー説明、グループ名、見出し、ラベル、箇条書き、解説、前置き、引用符は出力しないでください。\n"
-                "出力は補完後の世界観本文だけにしてください。\n\n"
-                "補完対象の世界観本文:\n"
-                f"{current_world}"
-            )),
-        ])
-        return message_content_to_text(getattr(response, "content", response))
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="グループ世界観補完",
-        scope="group_setup:world",
-        metadata={"character_count": len(characters)},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return
     if finished.status == AIJobStatus.CANCELLED:
         ui.notify("世界観補完を停止しました", type="info")
         return
@@ -8190,13 +8133,7 @@ async def _enhance_world_click(
             timeout=10000,
         )
         return
-    enhanced = _clean_world_enhancement(
-        str(finished.result or ""),
-        current_world=current_world,
-        group_name=str(name_input.value or ""),
-        characters=characters,
-        persona=persona,
-    )
+    enhanced = str(finished.result or "")
     if not enhanced:
         ui.notify("世界観を補完できませんでした", type="warning")
         return
@@ -8217,47 +8154,21 @@ async def _generate_group_name_from_world(
     if not current_world:
         ui.notify("先にワールドを入力してください", type="warning")
         return ""
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
-        return ""
-
-    participant_lines = "\n".join(
-        f"- {sheet.name}: {compact_character_summary(sheet)}"
-        for sheet in characters
-    )
-    if persona is not None:
-        participant_lines += (
-            f"\n- {persona.display_name or persona.name or 'ユーザー'}: "
-            f"{getattr(persona, 'description', '') or 'ユーザー'}"
+    try:
+        finished = await ctx.group_chat_assist.generate_group_name_from_world(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            world=current_world,
+            characters=characters,
+            persona=persona,
+            on_job_started=on_job_started,
         )
-
-    async def _runner() -> str:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはグループチャットの短いグループ名を作る編集者です。"
-                "出力はグループ名本文だけにしてください。"
-            )),
-            HumanMessage(content=(
-                "次のワールド説明から、グループチャットの名前を1つだけ作ってください。\n"
-                "制約: 8〜20文字程度、会話一覧で見分けやすい自然な日本語、引用符・句点・解説・前置きは禁止。\n"
-                "参加者名をそのまま並べるだけの名前は避け、ワールドの雰囲気や場を反映してください。\n\n"
-                f"ワールド:\n{current_world}\n\n"
-                f"参加者:\n{participant_lines or '未設定'}"
-            )),
-        ])
-        return message_content_to_text(getattr(response, "content", response))
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="グループ名補完",
-        scope="group_setup:name",
-        metadata={"character_count": len(characters)},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
+        return ""
+    except Exception as err:
+        _notify_on_client(page_client, f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return ""
     if finished.status == AIJobStatus.CANCELLED:
         _notify_on_client(page_client, "グループ名補完を停止しました", type="info")
         return ""
@@ -8269,136 +8180,12 @@ async def _generate_group_name_from_world(
             timeout=10000,
         )
         return ""
-    name = _clean_generated_group_name(str(finished.result or ""))
+    name = str(finished.result or "")
     if not name:
         _notify_on_client(page_client, "グループ名を補完できませんでした", type="warning")
         return ""
     _notify_on_client(page_client, "グループ名を補完しました", type="positive")
     return name
-
-
-def _clean_generated_group_name(raw: str) -> str:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:\w+)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json(text)
-    if parsed is not None:
-        text = _longest_json_string(parsed) or text
-    text = _strip_possible_label_prefix(text.strip())
-    return sanitize_chat_title(text, max_chars=24)
-
-
-def _clean_world_enhancement(
-    raw: str,
-    *,
-    current_world: str,
-    group_name: str,
-    characters: list[CharacterSheet],
-    persona,
-) -> str:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:\w+)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text).strip()
-
-    parsed = _try_parse_json(text)
-    if parsed is not None:
-        text = _longest_json_string(parsed) or text
-
-    lines: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            lines.append("")
-            continue
-        line = _strip_possible_label_prefix(line)
-        if not line:
-            continue
-        if _looks_like_non_world_line(line):
-            continue
-        lines.append(line)
-
-    cleaned = "\n".join(lines).strip()
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    cleaned = cleaned.strip(" \t\r\n\"'「」『』")
-
-    if _contains_known_non_world_content(
-        cleaned,
-        current_world=current_world,
-        group_name=group_name,
-        characters=characters,
-        persona=persona,
-    ):
-        return ""
-    return cleaned
-
-
-def _try_parse_json(text: str):
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
-
-
-def _longest_json_string(value) -> str:
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, dict):
-        values = [_longest_json_string(item) for item in value.values()]
-        return max(values, key=len, default="")
-    if isinstance(value, list):
-        values = [_longest_json_string(item) for item in value]
-        return max(values, key=len, default="")
-    return ""
-
-
-def _looks_like_non_world_line(line: str) -> bool:
-    normalized = line.strip()
-    if not normalized:
-        return False
-    if re.match(r"^[-*・]\s+", normalized):
-        return True
-    if len(normalized) <= 40 and re.match(r"^[^。.!?！？]{1,40}[：:]\s*.*$", normalized):
-        return True
-    if re.match(r"^[#>\[\]{}]+", normalized):
-        return True
-    return False
-
-
-def _strip_possible_label_prefix(line: str) -> str:
-    match = re.match(r"^([^。.!?！？\n]{1,24})[：:]\s*(.+)$", line)
-    if not match:
-        return line
-    prefix, body = match.groups()
-    if re.search(r"\s", prefix) and not re.search(r"[A-Za-z0-9_]", prefix):
-        return line
-    return body.strip()
-
-
-def _contains_known_non_world_content(
-    text: str,
-    *,
-    current_world: str,
-    group_name: str,
-    characters: list[CharacterSheet],
-    persona,
-) -> bool:
-    if not text:
-        return False
-    allowed = current_world or ""
-    fragments = [group_name.strip()]
-    fragments.extend(sheet.name.strip() for sheet in characters)
-    if persona is not None:
-        fragments.extend([
-            str(getattr(persona, "name", "") or "").strip(),
-            str(getattr(persona, "persona_name", "") or "").strip(),
-            str(getattr(persona, "display_name", "") or "").strip(),
-        ])
-    for fragment in fragments:
-        if len(fragment) < 3:
-            continue
-        if fragment in text and fragment not in allowed:
-            return True
-    return False
 
 
 def _validate_member_handles(
@@ -8441,24 +8228,6 @@ def _validate_handles(
     return handles, user_handle
 
 
-def _configured_llm(ctx, profile_id: str):
-    try:
-        return build_configured_llm(ctx.api_config, profile_id, get_vault_password())
-    except LLMRuntimeError as err:
-        if err.kind == PROFILE_NOT_FOUND:
-            ui.notify("補完用LLMプロファイルを選択してください", type="warning")
-        elif err.kind == MODEL_ID_MISSING:
-            ui.notify("補完用LLMプロファイルのモデルIDが未設定です", type="negative")
-        elif err.kind == ENDPOINT_NOT_FOUND:
-            ui.notify("補完用LLMプロファイルのエンドポイントが見つかりません", type="negative")
-        elif err.kind == API_KEY_LOCKED:
-            ui.notify("APIキーボルトをロック解除してください", type="warning", timeout=8000)
-        return None
-    except Exception as err:
-        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
-        return None
-
-
 def _profile_options(ctx, profiles) -> dict[str, str]:
     endpoints = {endpoint.id: endpoint for endpoint in ctx.api_config.get_endpoints()}
     options: dict[str, str] = {}
@@ -8484,89 +8253,6 @@ def _default_persona_id(options: dict[str, str]) -> str:
 
 def _selected_persona(ctx, persona_id: str):
     return ctx.api_config.get_user_persona(persona_id) if persona_id else None
-
-
-def _parse_handle_response(raw: str) -> dict[str, str]:
-    text = raw.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    result: dict[str, str] = {}
-    if isinstance(data, dict):
-        for item in data.get("characters", []):
-            if isinstance(item, dict):
-                key = str(item.get("id") or item.get("name") or "")
-                value = str(item.get("handle") or "")
-                if key and value:
-                    result[key] = value
-        user = data.get("user")
-        if isinstance(user, str):
-            result["user"] = user
-        elif isinstance(user, dict):
-            result["user"] = str(user.get("handle") or "")
-        for key, value in data.items():
-            if isinstance(value, str):
-                result.setdefault(str(key), value)
-    return result
-
-
-def _sanitize_handle(value: str, fallback: str) -> str:
-    candidate = re.sub(r"[^A-Za-z0-9_]", "", value or "")
-    if len(candidate) < 3:
-        candidate = fallback
-    candidate = re.sub(r"[^A-Za-z0-9_]", "", candidate)
-    if len(candidate) < 3:
-        candidate = "User"
-    return candidate[:12]
-
-
-def _unique_handle(candidate: str, used: set[str]) -> str:
-    base = candidate[:12] or "User"
-    if len(base) < 3:
-        base = (base + "___")[:3]
-    if base.lower() not in used:
-        return base
-    for index in range(2, 100):
-        suffix = str(index)
-        prefix = base[: 12 - len(suffix)]
-        handle = f"{prefix}{suffix}"
-        if len(handle) >= 3 and handle.lower() not in used:
-            return handle
-    return uuid_like_handle(used)
-
-
-def uuid_like_handle(used: set[str]) -> str:
-    index = len(used) + 1
-    while True:
-        handle = f"User{index}"
-        if handle.lower() not in used:
-            return handle
-        index += 1
-
-
-def _fallback_handle(sheet: CharacterSheet, index: int) -> str:
-    return f"Char{index}"
-
-
-def _fallback_persona_handle(persona) -> str:
-    for value in (
-        getattr(persona, "persona_name", ""),
-        getattr(persona, "name", ""),
-        getattr(persona, "display_name", ""),
-    ):
-        candidate = _ascii_outside_parentheses(str(value or ""))
-        if len(candidate) >= 3:
-            return candidate[:12]
-    return "Persona"
-
-
-def _ascii_outside_parentheses(value: str) -> str:
-    text = re.sub(r"（[^）]*）", "", value)
-    text = re.sub(r"\([^)]*\)", "", text)
-    return re.sub(r"[^A-Za-z0-9_]", "", text)
 
 
 def _time_label(value: datetime) -> str:

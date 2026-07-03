@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import re
-from typing import Any
 
 from ..group_chat.schemas import GroupMember
+from .json_utils import longest_json_string, try_parse_json, try_parse_json_fragment
 
 
 def clean_short_llm_text(text: str) -> str:
@@ -95,9 +94,9 @@ def clean_character_markdown_response(raw: str) -> str:
     text = (raw or "").strip()
     text = re.sub(r"^```(?:markdown|md)?\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json_fragment(text)
+    parsed = try_parse_json_fragment(text)
     if parsed is not None:
-        text = _longest_json_string(parsed) or text
+        text = longest_json_string(parsed) or text
     return text.strip()
 
 
@@ -105,9 +104,9 @@ def clean_persona_description_response(raw: str) -> str:
     text = (raw or "").strip()
     text = re.sub(r"^```(?:markdown|md)?\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json_fragment(text)
+    parsed = try_parse_json_fragment(text)
     if parsed is not None:
-        text = _longest_json_string(parsed) or text
+        text = longest_json_string(parsed) or text
     text = re.sub(r"^(?:説明|ユーザーペルソナ|更新後の説明)\s*[:：]\s*", "", text.strip())
     return text.strip(" \t\r\n\"'「」『』")
 
@@ -129,9 +128,9 @@ def clean_group_situation_enhancement(raw: str) -> str:
     text = re.sub(r"^```(?:\w+)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text).strip()
 
-    parsed = _try_parse_json(text)
+    parsed = try_parse_json(text)
     if parsed is not None:
-        text = _longest_json_string(parsed) or text
+        text = longest_json_string(parsed) or text
 
     lines: list[str] = []
     for raw_line in text.splitlines():
@@ -151,44 +150,6 @@ def clean_group_situation_enhancement(raw: str) -> str:
     cleaned = "\n".join(lines).strip()
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip(" \t\r\n\"'「」『』")
-
-
-def _try_parse_json_fragment(raw: str) -> Any | None:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json(text)
-    if parsed is not None:
-        return parsed
-    decoder = json.JSONDecoder()
-    for index, char in enumerate(text):
-        if char not in "{[":
-            continue
-        try:
-            value, _ = decoder.raw_decode(text[index:])
-        except json.JSONDecodeError:
-            continue
-        return value
-    return None
-
-
-def _try_parse_json(text: str) -> Any | None:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
-
-
-def _longest_json_string(value: Any) -> str:
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, dict):
-        values = [_longest_json_string(item) for item in value.values()]
-        return max(values, key=len, default="")
-    if isinstance(value, list):
-        values = [_longest_json_string(item) for item in value]
-        return max(values, key=len, default="")
-    return ""
 
 
 def _strip_possible_label_prefix(line: str) -> str:

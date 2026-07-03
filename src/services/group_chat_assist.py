@@ -12,6 +12,11 @@ from ..core.character.markdown import base_character_markdown, remove_markdown_s
 from ..core.character.schemas import CharacterSheet
 from ..core.chat.schemas import UserPersona
 from ..core.conversation.history import group_message
+from ..core.conversation.group_setup import (
+    clean_generated_group_name,
+    clean_world_enhancement,
+    parse_handle_response,
+)
 from ..core.conversation.input_assist import merge_completion, parse_response_choices
 from ..core.conversation.llm_io import (
     build_debug_info,
@@ -362,6 +367,165 @@ class GroupChatAssistService:
             on_job_started=on_job_started,
         )
         return result
+
+    async def generate_handles(
+        self,
+        *,
+        profile_id: str,
+        vault_password: str | None,
+        characters: list[CharacterSheet],
+        persona: Any,
+        on_job_started=None,
+    ) -> GroupChatAssistJobResult:
+        llm = self.build_llm(profile_id, vault_password)
+        payload = {
+            "characters": [
+                {
+                    "id": sheet.id,
+                    "name": sheet.name,
+                    "role": sheet.occupation,
+                    "summary": compact_character_summary(sheet),
+                }
+                for sheet in characters
+            ],
+            "user": {
+                "id": "user",
+                "name": persona.name,
+                "display_name": persona.display_name,
+                "persona_name": getattr(persona, "persona_name", ""),
+                "description": persona.description[:1000],
+            },
+        }
+
+        async def _runner() -> dict[str, str]:
+            response = await llm.ainvoke(
+                [
+                    SystemMessage(content="あなたはグループチャット用のメンションハンドルを作る編集者です。"),
+                    HumanMessage(
+                        content=(
+                            "次の参加者に似合う、重複しないハンドルを作ってください。\n"
+                            "制約: 3〜12文字、英数字と_のみ、全員で重複禁止。\n"
+                            "ユーザーのハンドルもペルソナ名・説明・役割に寄せ、User、Player、Me のような汎用名は避けてください。\n"
+                            "出力はJSONのみ。形式は {\"characters\":[{\"id\":\"...\",\"handle\":\"...\"}],\"user\":\"...\"}。\n\n"
+                            f"{json.dumps(payload, ensure_ascii=False)}"
+                        )
+                    ),
+                ]
+            )
+            raw = message_content_to_text(getattr(response, "content", response))
+            return parse_handle_response(raw)
+
+        return await self.run_assist_job(
+            label="グループハンドル生成",
+            scope="group_setup:handles",
+            metadata={"character_count": len(characters)},
+            result_url="/groups",
+            runner=_runner,
+            on_job_started=on_job_started,
+        )
+
+    async def enhance_world(
+        self,
+        *,
+        profile_id: str,
+        vault_password: str | None,
+        current_world: str,
+        group_name: str,
+        characters: list[CharacterSheet],
+        persona: Any,
+        on_job_started=None,
+    ) -> GroupChatAssistJobResult:
+        llm = self.build_llm(profile_id, vault_password)
+
+        async def _runner() -> str:
+            response = await llm.ainvoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "あなたはグループチャットの世界観設定を膨らませる編集者です。"
+                            "出力には世界観本文以外を絶対に含めません。"
+                        )
+                    ),
+                    HumanMessage(
+                        content=(
+                            "既存の世界観入力を、核を変えずに具体化してください。\n"
+                            "通常チャットのシチュエーション補完や/tailorのように、入力済みの内容を広げるだけにしてください。\n"
+                            "新しい固有名詞や重大設定を増やしすぎず、会話開始時に使いやすい密度にしてください。\n"
+                            "参加者紹介、ユーザー説明、グループ名、見出し、ラベル、箇条書き、解説、前置き、引用符は出力しないでください。\n"
+                            "出力は補完後の世界観本文だけにしてください。\n\n"
+                            "補完対象の世界観本文:\n"
+                            f"{current_world}"
+                        )
+                    ),
+                ]
+            )
+            raw = message_content_to_text(getattr(response, "content", response))
+            return clean_world_enhancement(
+                raw,
+                current_world=current_world,
+                group_name=group_name,
+                characters=characters,
+                persona=persona,
+            )
+
+        return await self.run_assist_job(
+            label="グループ世界観補完",
+            scope="group_setup:world",
+            metadata={"character_count": len(characters)},
+            result_url="/groups",
+            runner=_runner,
+            on_job_started=on_job_started,
+        )
+
+    async def generate_group_name_from_world(
+        self,
+        *,
+        profile_id: str,
+        vault_password: str | None,
+        world: str,
+        characters: list[CharacterSheet],
+        persona: Any,
+        on_job_started=None,
+    ) -> GroupChatAssistJobResult:
+        llm = self.build_llm(profile_id, vault_password)
+        participant_lines = "\n".join(f"- {sheet.name}: {compact_character_summary(sheet)}" for sheet in characters)
+        if persona is not None:
+            participant_lines += (
+                f"\n- {persona.display_name or persona.name or 'ユーザー'}: "
+                f"{getattr(persona, 'description', '') or 'ユーザー'}"
+            )
+
+        async def _runner() -> str:
+            response = await llm.ainvoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "あなたはグループチャットの短いグループ名を作る編集者です。"
+                            "出力はグループ名本文だけにしてください。"
+                        )
+                    ),
+                    HumanMessage(
+                        content=(
+                            "次のワールド説明から、グループチャットの名前を1つだけ作ってください。\n"
+                            "制約: 8〜20文字程度、会話一覧で見分けやすい自然な日本語、引用符・句点・解説・前置きは禁止。\n"
+                            "参加者名をそのまま並べるだけの名前は避け、ワールドの雰囲気や場を反映してください。\n\n"
+                            f"ワールド:\n{world}\n\n"
+                            f"参加者:\n{participant_lines or '未設定'}"
+                        )
+                    ),
+                ]
+            )
+            raw = message_content_to_text(getattr(response, "content", response))
+            return clean_generated_group_name(raw)
+
+        return await self.run_assist_job(
+            label="グループ名補完",
+            scope="group_setup:name",
+            metadata={"character_count": len(characters)},
+            result_url="/groups",
+            runner=_runner,
+            on_job_started=on_job_started,
+        )
 
     async def enhance_relationship_description(
         self,

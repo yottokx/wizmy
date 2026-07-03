@@ -19,6 +19,7 @@ from src.core.conversation.history import (
     settings_with_participant,
     settings_without_participant,
 )
+from src.core.conversation.group_setup import clean_generated_group_name
 from src.core.conversation.prompts.group import (
     format_group_participant_overview,
     format_group_relationship_section,
@@ -47,7 +48,6 @@ from src.core.group_chat.schemas import (
 from src.services.group_chat import GroupChatService
 from src.storage.group_chat_repository import GroupChatRepository
 from src.ui.pages.group_chat import (
-    _clean_generated_group_name,
     _group_relationship_enhancement_participants,
     _guest_prefix_completion,
     _world_source_options_for_characters,
@@ -213,8 +213,8 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("追加指示:\n口調は変えない\n\n", format_optional_instruction("  口調は変えない  "))
 
     def test_clean_generated_group_name_removes_label_and_json(self) -> None:
-        self.assertEqual("薄明図書館の盟友", _clean_generated_group_name("グループ名: 薄明図書館の盟友"))
-        self.assertEqual("星屑街の夜会", _clean_generated_group_name('{"name":"星屑街の夜会"}'))
+        self.assertEqual("薄明図書館の盟友", clean_generated_group_name("グループ名: 薄明図書館の盟友"))
+        self.assertEqual("星屑街の夜会", clean_generated_group_name('{"name":"星屑街の夜会"}'))
 
     def test_relationship_draft_participants_use_updated_descriptions(self) -> None:
         participants = relationship_draft_participants(

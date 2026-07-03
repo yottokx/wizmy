@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import random
 import re
 from typing import Any
 
 from ..group_chat.schemas import GroupMember
+from .json_utils import try_parse_json_fragment
 
 
 def mentioned_member(text: str, members: list[GroupMember]) -> GroupMember | None:
@@ -66,25 +66,6 @@ def speaker_weights_from_llm_output(raw: str, members: list[GroupMember]) -> dic
     if selected is not None:
         return {member.id: 2.0 if member.id == selected.id else 1.0 for member in members}
     return {}
-
-
-def try_parse_json_fragment(raw: str) -> Any | None:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json(text)
-    if parsed is not None:
-        return parsed
-    decoder = json.JSONDecoder()
-    for index, char in enumerate(text):
-        if char not in "{[":
-            continue
-        try:
-            value, _ = decoder.raw_decode(text[index:])
-        except json.JSONDecodeError:
-            continue
-        return value
-    return None
 
 
 def collect_speaker_weight_entries(value: Any) -> list[tuple[str, float]]:
@@ -205,10 +186,3 @@ def format_speaker_selection_debug(
         lines.append(f"- @{member.handle} / {member.character.name}: {weight:g} ({percent:.1f}%)")
     lines.append(f"選択: @{selected.handle} / {selected.character.name}")
     return "\n".join(lines)
-
-
-def _try_parse_json(text: str) -> Any | None:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
 from ..character.schemas import CharacterSheet
 from ..group_chat.schemas import GroupMember
+from .json_utils import try_parse_json, try_parse_json_fragment
 from .prompts.common import compact_character_summary
-from .speaker_selection import try_parse_json_fragment
 
 
 def parse_group_generation_relationship_drafts(
@@ -19,7 +18,7 @@ def parse_group_generation_relationship_drafts(
     text = (raw or "").strip()
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json(text)
+    parsed = try_parse_json(text)
     if parsed is None:
         return {}
 
@@ -245,10 +244,3 @@ def upsert_relationship_draft(state: dict[str, Any], relationship: dict[str, str
 def next_relationship_draft_id(state: dict[str, Any]) -> str:
     state["relationship_sequence"] = int(state.get("relationship_sequence", 0)) + 1
     return f"draft-{state['relationship_sequence']}"
-
-
-def _try_parse_json(text: str) -> Any | None:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
