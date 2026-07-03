@@ -36,9 +36,9 @@ from .common import (
     notify_on_client,
     notify_setup_llm_runtime_error,
     profile_options as build_profile_options,
-    render_group_user_menu_face,
     selected_persona,
 )
+from .rendering import render_group_user_menu_face
 from .dialogs_adaptation import (
     adapt_character_to_world,
     adapt_user_persona_to_world,
