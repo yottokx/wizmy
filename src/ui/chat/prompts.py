@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ...core.character.schemas import CharacterSheet
+from ...core.conversation.llm_io import (
+    build_debug_info as build_debug_info,
+    extract_reasoning_output as extract_reasoning_output,
+    extract_token_usage as extract_token_usage,
+    first_int as first_int,
+    format_llm_input as format_llm_input,
+    message_content_to_text as message_content_to_text,
+    sanitize_chat_title as sanitize_chat_title,
+)
 from ...core.conversation.prompts.common import character_summary as character_summary
 from ...core.conversation.sanitize import sanitize_character_reply as sanitize_character_reply
 from .commands import clean_short_llm_text
-from .models import ChatDebugInfo, ChatMessagePreview, ChatSessionSettings
+from .models import ChatMessagePreview, ChatSessionSettings
 
 
 def build_llm_messages(
@@ -323,103 +331,6 @@ def is_first_character_turn(messages: list[ChatMessagePreview]) -> bool:
     return not any(message.speaker in {"user", "character"} for message in messages)
 
 
-def format_llm_input(messages: list, settings: ChatSessionSettings | None = None) -> str:
-    parts: list[str] = []
-    for message in messages:
-        role = getattr(message, "type", message.__class__.__name__)
-        content = message_content_to_text(getattr(message, "content", message))
-        parts.append(f"--- {role} ---\n{content}")
-    return "\n\n".join(parts)
-
-
-def build_debug_info(llm_input: str, raw_output: str, response) -> ChatDebugInfo:
-    input_tokens, output_tokens, total_tokens = extract_token_usage(response)
-    return ChatDebugInfo(
-        llm_input=llm_input,
-        raw_output=raw_output,
-        reasoning_output=extract_reasoning_output(response),
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=total_tokens,
-    )
-
-
-def extract_token_usage(response) -> tuple[int | None, int | None, int | None]:
-    candidates: list[dict] = []
-    usage_metadata = getattr(response, "usage_metadata", None)
-    if isinstance(usage_metadata, dict):
-        candidates.append(usage_metadata)
-
-    response_metadata = getattr(response, "response_metadata", None)
-    if isinstance(response_metadata, dict):
-        for key in ("token_usage", "usage"):
-            value = response_metadata.get(key)
-            if isinstance(value, dict):
-                candidates.append(value)
-        candidates.append(response_metadata)
-
-    for usage in candidates:
-        input_tokens = first_int(
-            usage,
-            "input_tokens",
-            "prompt_tokens",
-            "prompt_eval_count",
-        )
-        output_tokens = first_int(
-            usage,
-            "output_tokens",
-            "completion_tokens",
-            "eval_count",
-        )
-        total_tokens = first_int(usage, "total_tokens")
-        if total_tokens is None and (input_tokens is not None or output_tokens is not None):
-            total_tokens = (input_tokens or 0) + (output_tokens or 0)
-        if input_tokens is not None or output_tokens is not None or total_tokens is not None:
-            return input_tokens, output_tokens, total_tokens
-    return None, None, None
-
-
-def extract_reasoning_output(response) -> str:
-    candidates: list[Any] = []
-    additional_kwargs = getattr(response, "additional_kwargs", None)
-    if isinstance(additional_kwargs, dict):
-        candidates.extend(
-            additional_kwargs.get(key)
-            for key in ("reasoning_content", "thinking")
-        )
-
-    response_metadata = getattr(response, "response_metadata", None)
-    if isinstance(response_metadata, dict):
-        message = response_metadata.get("message")
-        if isinstance(message, dict):
-            candidates.extend(
-                message.get(key)
-                for key in ("thinking", "reasoning_content")
-            )
-        candidates.extend(
-            response_metadata.get(key)
-            for key in ("thinking", "reasoning_content")
-        )
-
-    for candidate in candidates:
-        text = message_content_to_text(candidate).strip() if candidate else ""
-        if text:
-            return text
-    return ""
-
-
-def first_int(values: dict, *keys: str) -> int | None:
-    for key in keys:
-        value = values.get(key)
-        if isinstance(value, bool):
-            continue
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value)
-    return None
-
-
 def build_system_prompt(sheet: CharacterSheet, settings: ChatSessionSettings) -> str:
     character_sheet = sheet.raw_markdown or character_summary(sheet)
     return f"""あなたは「{sheet.name}」としてユーザーと会話します。
@@ -452,24 +363,6 @@ def character_prompt_context(sheet: CharacterSheet) -> str:
     return f"キャラクター概要:\n{summary}\n\n"
 
 
-def message_content_to_text(content) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-                if text:
-                    parts.append(str(text))
-            else:
-                parts.append(str(item))
-        return "\n".join(parts)
-    return str(content)
-
-
 def sanitize_narration(text: str) -> str:
     text = clean_short_llm_text(text)
     lines: list[str] = []
@@ -485,15 +378,3 @@ def sanitize_narration(text: str) -> str:
     return cleaned.strip("「」『』\"'")
 
 
-def sanitize_chat_title(text: str, *, max_chars: int = 28) -> str:
-    text = clean_short_llm_text(text)
-    text = re.sub(r"^#+\s*", "", text.strip())
-    if "\n" in text:
-        text = text.splitlines()[0].strip()
-    text = re.sub(r"^(?:タイトル|題名)\s*[:：]\s*", "", text).strip()
-    text = re.sub(r"^[「『\"']|[」』\"']$", "", text).strip()
-    text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"[。．.]+$", "", text).strip()
-    if len(text) > max_chars:
-        text = text[:max_chars].rstrip()
-    return text

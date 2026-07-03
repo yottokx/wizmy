@@ -40,25 +40,20 @@ from ...core.group_chat.schemas import (
 from ...core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE, GroupChatSessionRecord
 from ...core.conversation.history import (
     debug_from_dict,
-    format_group_history,
     group_message,
     group_participant_ids,
     group_system_event_message,
-    last_dialog_message,
     latest_group_message_preview,
     settings_with_participant,
     settings_without_participant,
 )
 from ...core.conversation.prompts.common import compact_character_summary
 from ...core.conversation.prompts.group import (
-    build_group_character_messages,
-    build_group_guest_messages,
     build_group_input_completion_messages,
     build_group_narration_messages,
     build_group_response_choice_messages,
     build_group_system_prompt,
     build_group_tailored_input_messages,
-    build_group_title_messages,
     format_group_relationship_section,
     group_input_mode_for_role,
     group_participant_labels,
@@ -72,15 +67,9 @@ from ...core.conversation.sanitize import (
     clean_relationship_enhancement,
     guest_display_name,
     guest_name_from_actor_text,
-    sanitize_group_character_reply,
-    sanitize_group_guest_reply,
     sanitize_group_narration,
 )
 from ...core.conversation.speaker_selection import (
-    choose_weighted_speaker,
-    format_speaker_selection_debug,
-    mentioned_member,
-    speaker_weights_from_llm_output,
     try_parse_json_fragment,
 )
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
@@ -5255,25 +5244,23 @@ event => {
 
         async def _runner(job) -> list[dict[str, Any]]:
             try:
-                self.messages = [dict(item) for item in prior_messages]
                 self.last_speaker_debug = None
-                speaker = await self.choose_next_speaker(llm, active)
-                speaker_debug = self.last_speaker_debug
-                generated = await self.build_character_message(
-                    llm,
-                    speaker,
-                    speaker_debug=speaker_debug,
-                    prior_messages=prior_messages,
+                result = await self.ctx.group_chat_turns.run_character_turn(
+                    group=self.group,
+                    settings=settings_snapshot,
+                    messages=prior_messages,
+                    llm=llm,
+                    active_members=active,
                 )
-                messages = prior_messages + [generated]
+                self.last_speaker_debug = result.speaker_debug
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
                     title=title,
                     title_is_auto=title_is_auto,
                     settings=settings_snapshot,
-                    messages=messages,
+                    messages=result.messages,
                 )
-                return messages
+                return result.messages
             except Exception:
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
@@ -6809,27 +6796,26 @@ event => {
         await self.save_current_session(refresh_history=False)
 
         async def _runner(job) -> list[dict[str, Any]]:
-            self.messages = [dict(message) for message in prior_messages]
             self.last_speaker_debug = None
             try:
-                selected_speaker = speaker or await self.choose_next_speaker(llm, active)
-                speaker_debug = self.last_speaker_debug
-                generated = await self.build_character_message(
-                    llm,
-                    selected_speaker,
-                    speaker_debug=speaker_debug,
-                    prior_messages=prior_messages,
+                result = await self.ctx.group_chat_turns.run_character_turn(
+                    group=self.group,
+                    settings=settings_snapshot,
+                    messages=prior_messages,
+                    llm=llm,
+                    active_members=active,
+                    speaker=speaker,
                     turn_instruction=turn_instruction,
                 )
-                messages = prior_messages + [generated]
+                self.last_speaker_debug = result.speaker_debug
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
                     title=title,
                     title_is_auto=title_is_auto,
                     settings=settings_snapshot,
-                    messages=messages,
+                    messages=result.messages,
                 )
-                return messages
+                return result.messages
             except Exception:
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
@@ -6923,15 +6909,16 @@ event => {
         async def _runner(job) -> list[dict[str, Any]]:
             base_messages = [dict(message) for message in prior_messages]
             try:
-                self.messages = base_messages
-                generated = await self.build_character_message(
-                    llm,
-                    speaker,
-                    prior_messages=base_messages,
-                    turn_instruction=turn_instruction,
+                result = await self.ctx.group_chat_turns.run_character_turn(
+                    group=self.group,
                     settings=generation_settings,
+                    messages=base_messages,
+                    llm=llm,
+                    active_members=[speaker],
+                    speaker=speaker,
+                    turn_instruction=turn_instruction,
                 )
-                messages = base_messages + [generated] + [
+                messages = result.messages + [
                     dict(message) for message in post_events
                 ]
                 await self._save_session_messages_snapshot(
@@ -6999,33 +6986,22 @@ event => {
 
         async def _runner(job) -> list[dict[str, Any]]:
             try:
-                llm_messages = build_group_guest_messages(
-                    self.group,
-                    settings_snapshot,
-                    prior_messages,
-                    name,
+                result = await self.ctx.group_chat_turns.run_guest_turn(
+                    group=self.group,
+                    settings=settings_snapshot,
+                    messages=prior_messages,
+                    llm=llm,
+                    guest_name=name,
                     turn_instruction=turn_instruction,
                 )
-                debug_input = format_llm_input(llm_messages)
-                response = await llm.ainvoke(llm_messages)
-                raw = message_content_to_text(getattr(response, "content", response))
-                reply = sanitize_group_guest_reply(raw, name)
-                if not reply:
-                    reply = "……。"
-                messages = prior_messages + [group_message(
-                    "guest",
-                    reply,
-                    guest_name=name,
-                    debug=build_debug_info(debug_input, raw, response),
-                )]
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
                     title=title,
                     title_is_auto=title_is_auto,
                     settings=settings_snapshot,
-                    messages=messages,
+                    messages=result.messages,
                 )
-                return messages
+                return result.messages
             except Exception:
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
@@ -7053,65 +7029,26 @@ event => {
             await self.maybe_generate_auto_title(llm)
 
     async def choose_next_speaker(self, llm, active: list[GroupMember]) -> GroupMember:
-        last = last_dialog_message(self.messages)
-        if last is not None and last.get("role") == "user":
-            mentioned = mentioned_member(last.get("text", ""), active)
-            if mentioned is not None:
-                return mentioned
-            if len(active) == 1:
-                return active[0]
-            return await self.choose_speaker_with_llm(llm, active)
-
-        if last is not None and last.get("role") == "character":
-            previous_id = str(last.get("speaker_id", ""))
-            others = [member for member in active if member.id != previous_id]
-            if not others:
-                return next((member for member in active if member.id == previous_id), active[0])
-            if len(others) == 1:
-                return others[0]
-            return await self.choose_speaker_with_llm(llm, others)
-
-        if len(active) == 1:
-            return active[0]
-        return await self.choose_speaker_with_llm(llm, active)
+        result = await self.ctx.group_chat_turns.choose_next_speaker(
+            group=self.group,
+            settings=self.settings or {},
+            messages=self.messages,
+            llm=llm,
+            active_members=active,
+        )
+        self.last_speaker_debug = result.debug
+        return result.speaker
 
     async def choose_speaker_with_llm(self, llm, candidates: list[GroupMember]) -> GroupMember:
-        candidate_lines = "\n".join(
-            f"- @{member.handle}: {member.character.name} / {member.character.occupation or '役割未設定'}"
-            for member in candidates
+        result = await self.ctx.group_chat_turns.choose_speaker_with_llm(
+            group=self.group,
+            settings=self.settings or {},
+            messages=self.messages,
+            llm=llm,
+            candidates=candidates,
         )
-        relationship_section = format_group_relationship_section(self.group, self.settings or {})
-        llm_messages = [
-            SystemMessage(
-                content=(
-                    "あなたはグループチャットの次の発言者候補の発言可能性を見積もる進行役です。"
-                    "候補全員について、次に発言する自然さを0以上の比率で出してください。"
-                    "合計は100を目安にし、固定ローテーションを避けてください。"
-                    "出力はJSONのみ。形式は {\"weights\":[{\"handle\":\"...\",\"weight\":50}]} です。"
-                )
-            ),
-            HumanMessage(
-                content=(
-                    f"世界観:\n{self.group.world or '未設定'}\n\n"
-                    f"参加候補:\n{candidate_lines}\n\n"
-                    f"{relationship_section}"
-                    f"会話履歴:\n{format_group_history(self.messages)}\n\n"
-                    "候補ごとの発言可能性を比率で出力してください。"
-                    "明確に特定キャラへ向けた発言なら、そのキャラを高めにしてください。"
-                )
-            ),
-        ]
-        debug_input = format_llm_input(llm_messages)
-        response = await llm.ainvoke(llm_messages)
-        raw = message_content_to_text(getattr(response, "content", response))
-        weights = speaker_weights_from_llm_output(raw, candidates)
-        selected, normalized_weights, roll = choose_weighted_speaker(weights, candidates)
-        self.last_speaker_debug = build_debug_info(
-            debug_input,
-            format_speaker_selection_debug(raw, normalized_weights, selected, roll),
-            response,
-        )
-        return selected
+        self.last_speaker_debug = result.debug
+        return result.speaker
 
     async def build_character_message(
         self,
@@ -7123,25 +7060,14 @@ event => {
         turn_instruction: str = "",
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        llm_messages = build_group_character_messages(
-            self.group,
-            settings or self.settings or {},
-            self.messages if prior_messages is None else prior_messages,
-            speaker,
-            turn_instruction=turn_instruction,
-        )
-        debug_input = format_llm_input(llm_messages)
-        response = await llm.ainvoke(llm_messages)
-        raw = message_content_to_text(getattr(response, "content", response))
-        reply = sanitize_group_character_reply(raw, speaker)
-        if not reply:
-            reply = "……ごめん、今はうまく言葉にできなかった。"
-        return group_message(
-            "character",
-            reply,
-            member=speaker,
-            debug=build_debug_info(debug_input, raw, response),
+        return await self.ctx.group_chat_turns.build_character_message(
+            group=self.group,
+            settings=settings or self.settings or {},
+            messages=self.messages if prior_messages is None else prior_messages,
+            llm=llm,
+            speaker=speaker,
             speaker_debug=speaker_debug,
+            turn_instruction=turn_instruction,
         )
 
     async def maybe_generate_auto_title(self, llm) -> None:
@@ -7157,8 +7083,11 @@ event => {
             return
         self.title_generation_attempted = True
         try:
-            response = await llm.ainvoke(build_group_title_messages(self.group, self.messages))
-            title = sanitize_chat_title(message_content_to_text(getattr(response, "content", response)))
+            title = await self.ctx.group_chat_turns.generate_auto_title(
+                group=self.group,
+                messages=self.messages,
+                llm=llm,
+            )
         except Exception:
             return
         if not title:

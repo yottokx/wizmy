@@ -15,6 +15,7 @@ from .services.character import CharacterService
 from .services.character_generation import CharacterGenerationService
 from .services.danbooru_prompt import DanbooruPromptService
 from .services.group_chat import GroupChatService
+from .services.group_chat_turns import GroupChatTurnService
 from .services.image_generation import ImageGenerationService
 from .services.tts import TTSService
 from .storage.api_config_store import ApiConfigStore
@@ -35,6 +36,7 @@ class AppContext:
         self.ai_jobs = AIJobService()
         self.chats = ChatService(self._chat_repo)
         self.group_chats = GroupChatService(self._group_chat_repo, settings.data_dir)
+        self.group_chat_turns = GroupChatTurnService()
         self.characters = CharacterService(self._character_repo, settings.data_dir)
         self.generation = CharacterGenerationService(self.characters)
         self.danbooru_prompt = DanbooruPromptService(self.api_config, self.ai_jobs)
