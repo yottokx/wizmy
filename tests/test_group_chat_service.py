@@ -53,7 +53,7 @@ from src.ui.group_chat.dialogs_adaptation import (
 from src.ui.group_chat.dialogs_group import (
     world_source_options_for_characters as _world_source_options_for_characters,
 )
-from src.ui.pages.group_chat import _guest_prefix_completion
+from src.ui.group_chat.controller import _guest_prefix_completion
 
 
 class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):

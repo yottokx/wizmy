@@ -75,3 +75,11 @@ def default_persona_id(options: dict[str, str]) -> str:
 
 def selected_persona(ctx, persona_id: str):
     return ctx.api_config.get_user_persona(persona_id) if persona_id else None
+
+
+def group_user_persona_tts_id(persona_id: str) -> str:
+    return f"user-persona-{persona_id}"
+
+
+def group_member_tts_id(group_id: str, member_id: str) -> str:
+    return f"group-{group_id}-member-{member_id}"
