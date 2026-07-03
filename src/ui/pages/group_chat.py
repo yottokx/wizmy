@@ -98,17 +98,17 @@ from ..chat.commands import (
 from ..chat.media import cropped_background_style
 from ..chat.models import ChatDebugInfo, ChatThreadPreview
 from ..chat.style import CHAT_CSS
+from ..components.character_media import CharacterMediaActions, render_character_media_panel
 from ..components.character_picker import open_character_picker
+from ..components.generation_result import (
+    build_diff_html,
+    build_generation_log,
+    open_modify_approve_dialog,
+    render_sheet_result,
+    show_sheet_placeholder,
+)
 from ..components.progress_stream import ProgressPanel
 from ..layout import page_layout
-from .character_detail import CharacterMediaActions, render_character_media_panel
-from .generation import (
-    _build_diff_html,
-    _build_generation_log,
-    _open_modify_approve_dialog,
-    _render_sheet_result,
-    _show_sheet_placeholder,
-)
 from ..state import get_vault_password
 
 
@@ -1736,7 +1736,7 @@ async def group_generation_page(group_id: str) -> None:
                             ).props("flat round dense").classes("hidden").tooltip("シートをダウンロード")
                     save_status_label = ui.label("").classes("text-xs hidden text-primary")
                     result_area = ui.element("div").classes("w-full max-h-[640px] overflow-y-auto")
-                    _show_sheet_placeholder(result_area)
+                    show_sheet_placeholder(result_area)
 
         def _selected_related_members() -> list[GroupMember]:
             return [
@@ -1756,7 +1756,7 @@ async def group_generation_page(group_id: str) -> None:
             with base_content:
                 for member in members:
                     with ui.expansion(_group_generation_member_label(member), value=len(members) == 1).classes("w-full"):
-                        _render_sheet_result(ui.element("div"), _base_character_markdown(member.character))
+                        render_sheet_result(ui.element("div"), _base_character_markdown(member.character))
 
         def _on_tab_change(e) -> None:
             tab_name = str(e.args) if e.args else ""
@@ -1829,7 +1829,7 @@ async def group_generation_page(group_id: str) -> None:
             download_btn.classes("hidden")
             save_status_label.classes("hidden")
             progress_panel.reset()
-            _show_sheet_placeholder(result_area)
+            show_sheet_placeholder(result_area)
             _sync_job_controls(job)
 
         async def _open_group_modify_review_if_needed(job: GenerationJob, result) -> None:
@@ -1844,7 +1844,7 @@ async def group_generation_page(group_id: str) -> None:
 
             prompted_modify_review.add(job.id)
             sanitized = sanitize_group_generated_markdown(result.sheet_markdown)
-            diff_html = _build_diff_html(_base_character_markdown(base_member.character), sanitized)
+            diff_html = build_diff_html(_base_character_markdown(base_member.character), sanitized)
 
             async def _save_approved() -> None:
                 updated = _sheet_from_markdown_preserving(base_member.character, sanitized)
@@ -1866,7 +1866,7 @@ async def group_generation_page(group_id: str) -> None:
                 save_status_label.set_text(f"更新済み: {saved.character.name}")
                 save_status_label.classes(remove="hidden")
 
-            await _open_modify_approve_dialog(
+            await open_modify_approve_dialog(
                 base_member.character.name,
                 diff_html,
                 _save_approved,
@@ -1913,7 +1913,7 @@ async def group_generation_page(group_id: str) -> None:
                         ).props("outlined rows=3").classes("w-full")
 
                 with ui.expansion("生成シートを確認", icon="description", value=False).classes("w-full"):
-                    _render_sheet_result(ui.element("div"), sanitized)
+                    render_sheet_result(ui.element("div"), sanitized)
 
                 async def _save() -> None:
                     handle = str(handle_input.value or "").strip()
@@ -1974,7 +1974,7 @@ async def group_generation_page(group_id: str) -> None:
             if event.type == ProgressEventType.SHEET_READY:
                 sanitized = sanitize_group_generated_markdown(str(event.data or ""))
                 current_result["sheet"] = sanitized
-                _render_sheet_result(result_area, sanitized)
+                render_sheet_result(result_area, sanitized)
             elif event.type == ProgressEventType.DONE:
                 result = event.data
                 if result and result.success:
@@ -1983,7 +1983,7 @@ async def group_generation_page(group_id: str) -> None:
                     job.sheet_markdown = sanitized
                     current_result["gen_result"] = result
                     current_result["sheet"] = sanitized
-                    _render_sheet_result(result_area, sanitized)
+                    render_sheet_result(result_area, sanitized)
                     color = {"complete": "positive", "partial": "warning", "failed": "negative"}.get(
                         result.quality_status, "grey"
                     )
@@ -2126,7 +2126,7 @@ async def group_generation_page(group_id: str) -> None:
             if not result:
                 return
             mode_value = getattr(current_result.get("mode"), "value", "generate")
-            log_text = _build_generation_log(
+            log_text = build_generation_log(
                 result,
                 mode_value,
                 str(current_result.get("sheet") or ""),
