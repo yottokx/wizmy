@@ -47,11 +47,13 @@ from src.core.group_chat.schemas import (
 )
 from src.services.group_chat import GroupChatService
 from src.storage.group_chat_repository import GroupChatRepository
-from src.ui.pages.group_chat import (
-    _group_relationship_enhancement_participants,
-    _guest_prefix_completion,
-    _world_source_options_for_characters,
+from src.ui.group_chat.dialogs_adaptation import (
+    group_relationship_enhancement_participants as _group_relationship_enhancement_participants,
 )
+from src.ui.group_chat.dialogs_group import (
+    world_source_options_for_characters as _world_source_options_for_characters,
+)
+from src.ui.pages.group_chat import _guest_prefix_completion
 
 
 class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
