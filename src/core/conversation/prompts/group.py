@@ -382,7 +382,7 @@ def active_group_participant_keys(group: GroupChatRecord, settings: dict[str, An
 def group_participant_labels(group: GroupChatRecord) -> dict[str, str]:
     labels: dict[str, str] = {}
     for member in group.members:
-        name = member.character.name
+        name = member.character.name or "参加者"
         handle = member.handle
         label = f"{name} (@{handle})" if handle else name
         labels[f"member:{member.id}"] = label
