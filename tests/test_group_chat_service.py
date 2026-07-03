@@ -23,10 +23,20 @@ from src.core.conversation.prompts.group import (
     format_group_participant_overview,
     format_group_relationship_section,
 )
+from src.core.conversation.relationship_drafts import (
+    limit_relationship_drafts,
+    parse_relationship_draft_response,
+    relationship_draft_participants,
+)
 from src.core.conversation.sanitize import (
     clean_relationship_enhancement,
     guest_display_name,
     guest_name_from_actor_text,
+)
+from src.core.conversation.world_adaptation import (
+    format_optional_instruction,
+    prepare_group_character_for_world,
+    prepare_group_user_world_settings,
 )
 from src.core.group_chat.schemas import (
     GroupChatRecord,
@@ -38,14 +48,8 @@ from src.services.group_chat import GroupChatService
 from src.storage.group_chat_repository import GroupChatRepository
 from src.ui.pages.group_chat import (
     _clean_generated_group_name,
-    _format_optional_instruction,
     _group_relationship_enhancement_participants,
     _guest_prefix_completion,
-    _limit_relationship_drafts,
-    _parse_relationship_draft_response,
-    _prepare_group_character_for_world,
-    _prepare_group_user_world_settings,
-    _relationship_draft_participants,
     _world_source_options_for_characters,
 )
 
@@ -80,7 +84,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             generation_meta=GenerationMeta(model_id="model-a"),
         )
 
-        updated, settings = _prepare_group_character_for_world(
+        updated, settings = prepare_group_character_for_world(
             original,
             world="新しいワールド",
             source_character_id="",
@@ -114,7 +118,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        updated, settings = _prepare_group_character_for_world(
+        updated, settings = prepare_group_character_for_world(
             original,
             world="引き継ぐワールド",
             source_character_id="character-source",
@@ -142,7 +146,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        updated, settings = _prepare_group_character_for_world(
+        updated, settings = prepare_group_character_for_world(
             original,
             world="新しいワールド",
             source_character_id="",
@@ -164,7 +168,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             description="元の説明",
         )
 
-        settings = _prepare_group_user_world_settings(
+        settings = prepare_group_user_world_settings(
             persona,
             world="新しいワールド",
             entry_type="visitor",
@@ -205,15 +209,15 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("調整済みの説明", group.user_persona.description)
 
     def test_optional_instruction_is_only_rendered_when_present(self) -> None:
-        self.assertEqual("", _format_optional_instruction(""))
-        self.assertEqual("追加指示:\n口調は変えない\n\n", _format_optional_instruction("  口調は変えない  "))
+        self.assertEqual("", format_optional_instruction(""))
+        self.assertEqual("追加指示:\n口調は変えない\n\n", format_optional_instruction("  口調は変えない  "))
 
     def test_clean_generated_group_name_removes_label_and_json(self) -> None:
         self.assertEqual("薄明図書館の盟友", _clean_generated_group_name("グループ名: 薄明図書館の盟友"))
         self.assertEqual("星屑街の夜会", _clean_generated_group_name('{"name":"星屑街の夜会"}'))
 
     def test_relationship_draft_participants_use_updated_descriptions(self) -> None:
-        participants = _relationship_draft_participants(
+        participants = relationship_draft_participants(
             [
                 CharacterSheet(
                     id="character-a",
@@ -240,7 +244,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             {"key": "user", "id": "persona-1", "name": "ユーザー"},
         ]
 
-        drafts = _parse_relationship_draft_response(
+        drafts = parse_relationship_draft_response(
             '{"relationships":[{"participant_a_key":"アリス","participant_b_key":"ユーザー","description":"協力者"}]}',
             participants,
         )
@@ -276,7 +280,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             {"id": "", "participant_a_key": "character:x", "participant_b_key": "character:c", "description": "不明"},
         ]
 
-        limited = _limit_relationship_drafts(drafts, valid_keys, max_per_participant=2)
+        limited = limit_relationship_drafts(drafts, valid_keys, max_per_participant=2)
 
         self.assertEqual(
             [

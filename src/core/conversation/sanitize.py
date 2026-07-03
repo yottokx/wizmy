@@ -119,12 +119,12 @@ def clean_arrival_reason_response(raw: str) -> str:
 
 
 def clean_relationship_enhancement(raw: str) -> str:
-    text = _clean_group_situation_enhancement(raw)
+    text = clean_group_situation_enhancement(raw)
     text = re.sub(r"^(?:関係性|関係|補完結果)\s*[:：]\s*", "", text.strip())
     return text.strip(" \t\r\n\"'「」『』")
 
 
-def _clean_group_situation_enhancement(raw: str) -> str:
+def clean_group_situation_enhancement(raw: str) -> str:
     text = (raw or "").strip()
     text = re.sub(r"^```(?:\w+)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text).strip()

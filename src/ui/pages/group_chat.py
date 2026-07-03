@@ -23,6 +23,12 @@ from ...core.character.schemas import (
     CharacterSheet,
     GenerationMeta,
 )
+from ...core.character.markdown import (
+    base_character_markdown as _base_character_markdown,
+    parse_markdown_to_sheet,
+    remove_markdown_section as _remove_markdown_section,
+    sheet_from_markdown_preserving as _sheet_from_markdown_preserving,
+)
 from ...core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS
 from ...core.character_generation.schemas import (
     GenerationBaseSheet,
@@ -49,52 +55,44 @@ from ...core.conversation.history import (
 )
 from ...core.conversation.prompts.common import compact_character_summary
 from ...core.conversation.prompts.group import (
-    build_group_input_completion_messages,
-    build_group_narration_messages,
-    build_group_response_choice_messages,
     build_group_system_prompt,
-    build_group_tailored_input_messages,
-    format_group_relationship_section,
     group_input_mode_for_role,
     group_participant_labels,
     group_user_persona_context,
 )
+from ...core.conversation.relationship_drafts import (
+    merge_relationship_drafts as _merge_relationship_drafts,
+    next_relationship_draft_id as _next_relationship_draft_id,
+    relationship_draft_participants as _relationship_draft_participants,
+    upsert_relationship_draft as _upsert_relationship_draft,
+)
 from ...core.conversation.sanitize import (
-    clean_arrival_reason_response,
     clean_character_markdown_response,
     clean_guest_name,
-    clean_persona_description_response,
-    clean_relationship_enhancement,
     guest_display_name,
     guest_name_from_actor_text,
-    sanitize_group_narration,
 )
-from ...core.conversation.speaker_selection import (
-    try_parse_json_fragment,
+from ...core.conversation.world_adaptation import (
+    prepare_group_character_for_world as _prepare_group_character_for_world,
+    prepare_group_user_world_settings as _prepare_group_user_world_settings,
 )
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
 from ...services.character_generation import (
     GenerationJob,
     GenerationJobStatus,
-    parse_markdown_to_sheet,
 )
 from ...services.llm_runtime import API_KEY_LOCKED, ENDPOINT_NOT_FOUND, LLMRuntimeError, MODEL_ID_MISSING, PROFILE_NOT_FOUND, build_configured_llm
 from ...services.tts import TTSServiceError
 from ..chat import components as chat_components
 from ..chat.commands import (
-    clean_short_llm_text,
     command_suggestions,
-    merge_completion,
     parse_command_input,
-    parse_response_choices,
     resolve_chat_command,
 )
 from ..chat.media import cropped_background_style
 from ..chat.models import ChatDebugInfo, ChatThreadPreview
 from ..chat.prompts import (
-    build_debug_info,
-    format_llm_input,
     message_content_to_text,
     sanitize_chat_title,
 )
@@ -1513,44 +1511,6 @@ def _default_generated_handle(sheet: CharacterSheet, group: GroupChatRecord) -> 
     return _unique_handle(_sanitize_handle(candidate, fallback), used)
 
 
-def _parse_group_generation_relationship_drafts(
-    raw: str,
-    base_members: list[GroupMember],
-) -> dict[str, str]:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
-    parsed = _try_parse_json(text)
-    if parsed is None:
-        return {}
-
-    result: dict[str, str] = {}
-    member_by_id = {member.id: member for member in base_members}
-    member_by_name = {member.character.name: member for member in base_members}
-    member_by_handle = {member.handle: member for member in base_members}
-
-    candidates = parsed.get("relationships") if isinstance(parsed, dict) else parsed
-    if not isinstance(candidates, list):
-        return {}
-    for item in candidates:
-        if not isinstance(item, dict):
-            continue
-        key = str(
-            item.get("member_id")
-            or item.get("id")
-            or item.get("handle")
-            or item.get("name")
-            or ""
-        ).strip()
-        description = str(item.get("description") or item.get("relationship") or "").strip()
-        if not key or not description:
-            continue
-        member = member_by_id.get(key) or member_by_handle.get(key) or member_by_name.get(key)
-        if member is not None:
-            result[member.id] = description
-    return result
-
-
 async def _generate_group_generation_relationship_drafts(
     ctx,
     profile_id: str,
@@ -1564,56 +1524,24 @@ async def _generate_group_generation_relationship_drafts(
     }
     if not base_members:
         return {}
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
+    try:
+        result = await ctx.group_chat_assist.generate_group_generation_relationship_drafts(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            group=group,
+            generated_sheet=generated_sheet,
+            base_members=base_members,
+        )
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
         return fallback
-
-    payload = {
-        "world": group.world,
-        "generated": {
-            "name": generated_sheet.name,
-            "summary": compact_character_summary(generated_sheet),
-        },
-        "bases": [
-            {
-                "member_id": member.id,
-                "handle": member.handle,
-                "name": member.character.name,
-                "summary": compact_character_summary(member.character),
-            }
-            for member in base_members
-        ],
-    }
-
-    async def _runner() -> str:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはグループチャット用の関係性設定を作る編集者です。"
-                "出力はJSONのみです。"
-            )),
-            HumanMessage(content=(
-                "新規生成キャラクターと各ベースメンバーの関係性説明を作ってください。\n"
-                "制約: それぞれ80〜160文字程度、会話で使いやすい具体性、"
-                "シート本文ではなくグループ関係性として保存する前提。\n"
-                "形式: {\"relationships\":[{\"member_id\":\"...\",\"description\":\"...\"}]}。\n\n"
-                f"{json.dumps(payload, ensure_ascii=False)}"
-            )),
-        ])
-        return message_content_to_text(getattr(response, "content", response))
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="関連キャラ関係性生成",
-        scope=f"group_generation:{group.id}:relationships",
-        metadata={"group_id": group.id, "base_count": len(base_members)},
-        runner=lambda _: _runner(),
-    )
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{group.id}/generation"})
-    finished = await ctx.ai_jobs.wait(job.id)
-    if finished.status != AIJobStatus.SUCCEEDED:
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return fallback
+    if result.status != AIJobStatus.SUCCEEDED:
         ui.notify("関係性の自動生成に失敗しました。手入力で保存できます。", type="warning")
         return fallback
-    parsed = _parse_group_generation_relationship_drafts(str(finished.result or ""), base_members)
+    parsed = dict(result.value or {})
     return {member.id: parsed.get(member.id) or fallback[member.id] for member in base_members}
 
 
@@ -3280,103 +3208,6 @@ def _world_source_options_for_characters(characters: list[CharacterSheet]) -> di
     return options
 
 
-def _prepare_group_character_for_world(
-    sheet: CharacterSheet,
-    *,
-    world: str,
-    source_character_id: str,
-    entry_type: str,
-    arrival_reason: str,
-    adaptation_note: str,
-) -> tuple[CharacterSheet, dict[str, str]]:
-    if sheet.id == source_character_id:
-        markdown = _remove_markdown_section(_base_character_markdown(sheet), "世界観・舞台")
-        markdown = _remove_markdown_section(markdown, "この世界に来た理由")
-        return _sheet_from_markdown_preserving(sheet, markdown), {
-            "world_entry_type": "world_source",
-            "arrival_reason": "",
-            "world_adaptation_note": adaptation_note.strip(),
-        }
-
-    resolved_type = entry_type if entry_type in {"native", "visitor"} else "native"
-    markdown = _base_character_markdown(sheet)
-    if resolved_type == "native":
-        markdown = _remove_markdown_section(markdown, "世界観・舞台")
-        markdown = _remove_markdown_section(markdown, "この世界に来た理由")
-        note = adaptation_note.strip() or "確定ワールドの住人として設定"
-        updated = _sheet_from_markdown_preserving(sheet, markdown)
-        return updated, {
-            "world_entry_type": "native",
-            "arrival_reason": "",
-            "world_adaptation_note": note,
-        }
-
-    reason = arrival_reason.strip()
-    markdown = _replace_markdown_section(markdown, "この世界に来た理由", reason)
-    updated = _sheet_from_markdown_preserving(sheet, markdown)
-    return updated, {
-        "world_entry_type": "visitor",
-        "arrival_reason": reason,
-        "world_adaptation_note": adaptation_note.strip(),
-    }
-
-
-def _prepare_group_user_world_settings(
-    persona,
-    *,
-    world: str,
-    entry_type: str,
-    arrival_reason: str,
-    adaptation_note: str,
-    description_override: str = "",
-) -> dict[str, str]:
-    resolved_type = entry_type if entry_type in {"native", "visitor"} else "native"
-    description = (description_override or str(getattr(persona, "description", "") or "")).strip()
-    return {
-        "description": description,
-        "world_entry_type": resolved_type,
-        "arrival_reason": arrival_reason.strip() if resolved_type == "visitor" else "",
-        "world_adaptation_note": adaptation_note.strip(),
-    }
-
-
-def _base_character_markdown(sheet: CharacterSheet) -> str:
-    markdown = (sheet.raw_markdown or "").strip()
-    if markdown:
-        return markdown
-    return f"# {sheet.name or '名称未設定'}"
-
-
-def _replace_markdown_section(markdown: str, header: str, body: str) -> str:
-    text = (markdown or "").strip()
-    section = f"## {header}\n{body.strip()}".rstrip()
-    pattern = re.compile(
-        rf"(^##\s*{re.escape(header)}\s*\n)(.*?)(?=\n##\s+|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    if pattern.search(text):
-        return pattern.sub(section, text, count=1).strip()
-    return f"{text}\n\n{section}".strip()
-
-
-def _remove_markdown_section(markdown: str, header: str) -> str:
-    pattern = re.compile(
-        rf"\n*##\s*{re.escape(header)}\s*\n.*?(?=\n##\s+|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    return pattern.sub("", markdown or "", count=1).strip()
-
-
-def _sheet_from_markdown_preserving(original: CharacterSheet, markdown: str) -> CharacterSheet:
-    updated = parse_markdown_to_sheet(markdown.strip(), original.id)
-    updated.media = original.media.model_copy(deep=True)
-    updated.tags = list(original.tags)
-    updated.is_favorite = original.is_favorite
-    updated.generation_meta = original.generation_meta.model_copy(deep=True)
-    updated.created_at = original.created_at
-    return updated
-
-
 def _notify_on_client(page_client, message: str, **kwargs) -> None:
     try:
         if page_client is not None and not getattr(page_client, "_deleted", False):
@@ -3388,11 +3219,26 @@ def _notify_on_client(page_client, message: str, **kwargs) -> None:
         return
 
 
-def _format_optional_instruction(instruction: str) -> str:
-    text = (instruction or "").strip()
-    if not text:
-        return ""
-    return f"追加指示:\n{text}\n\n"
+def _notify_setup_llm_runtime_error(err: LLMRuntimeError) -> None:
+    if err.kind == PROFILE_NOT_FOUND:
+        ui.notify("補完用LLMプロファイルを選択してください", type="warning")
+    elif err.kind == MODEL_ID_MISSING:
+        ui.notify("補完用LLMプロファイルのモデルIDが未設定です", type="negative")
+    elif err.kind == ENDPOINT_NOT_FOUND:
+        ui.notify("補完用LLMプロファイルのエンドポイントが見つかりません", type="negative")
+    elif err.kind == API_KEY_LOCKED:
+        ui.notify("APIキーボルトをロック解除してください", type="warning", timeout=8000)
+
+
+def _notify_group_chat_llm_runtime_error(err: LLMRuntimeError) -> None:
+    if err.kind == PROFILE_NOT_FOUND:
+        ui.notify("LLMプロファイルを選択してください", type="warning")
+    elif err.kind == MODEL_ID_MISSING:
+        ui.notify("LLMプロファイルのモデルIDが未設定です", type="negative")
+    elif err.kind == ENDPOINT_NOT_FOUND:
+        ui.notify("LLMプロファイルのエンドポイントが見つかりません", type="negative")
+    elif err.kind == API_KEY_LOCKED:
+        ui.notify("APIキーがロックされています。設定画面で解除してください。", type="warning")
 
 
 async def _adapt_character_to_world(
@@ -3408,57 +3254,35 @@ async def _adapt_character_to_world(
     if not world.strip():
         ui.notify("先にワールドを確定してください", type="warning")
         return
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
-        return
 
     original_markdown = _base_character_markdown(sheet)
-
-    async def _runner() -> str:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはキャラクターシートを別ワールド向けに調整する編集者です。"
-                "出力は更新後のMarkdown全文だけにしてください。"
-            )),
-            HumanMessage(content=(
-                "次のキャラクターが、確定ワールドに元々存在していた人物として自然に成立するように、"
-                "キャラクターシートを最小限改変してください。\n"
-                "グループ全体のワールドは別途保存されるため、世界観・舞台セクションは削除してください。\n"
-                "元の世界観情報も、確定ワールドの本文も、キャラクターシート内には残さないでください。\n"
-                "人物の名前、魅力、口調、主要な性格はできるだけ維持してください。\n"
-                "Markdownの見出し構造は可能な限り維持し、解説や差分説明は出力しないでください。\n\n"
-                f"確定ワールド:\n{world.strip()}\n\n"
-                f"{_format_optional_instruction(additional_instruction)}"
-                f"現在のキャラクターシートMarkdown:\n{original_markdown}"
-            )),
-        ])
-        return clean_character_markdown_response(
-            message_content_to_text(getattr(response, "content", response))
+    try:
+        result = await ctx.group_chat_assist.adapt_character_to_world(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            sheet=sheet,
+            world=world,
+            additional_instruction=additional_instruction,
+            on_job_started=on_job_started,
         )
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="キャラクターシート調整",
-        scope="group_setup:world_adapt",
-        metadata={"character_id": sheet.id},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
-    if finished.status == AIJobStatus.CANCELLED:
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
+        return
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return
+    if result.status == AIJobStatus.CANCELLED:
         _notify_on_client(page_client, "キャラクターシート調整を停止しました", type="info")
         return
-    if finished.status != AIJobStatus.SUCCEEDED:
+    if result.status != AIJobStatus.SUCCEEDED:
         _notify_on_client(
             page_client,
-            f"キャラクターシート調整に失敗しました: {finished.error_message}",
+            f"キャラクターシート調整に失敗しました: {result.error_message}",
             type="negative",
             timeout=10000,
         )
         return
-    updated_markdown = _remove_markdown_section(str(finished.result or "").strip(), "世界観・舞台")
+    updated_markdown = str(result.value or "").strip()
     if not updated_markdown:
         _notify_on_client(page_client, "キャラクターシートを調整できませんでした", type="warning")
         return
@@ -3517,57 +3341,36 @@ async def _adapt_user_persona_to_world(
     if not world.strip():
         ui.notify("先にワールドを確定してください", type="warning")
         return
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
-        return
 
     current_description = (description or "").strip()
-
-    async def _runner() -> str:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはユーザーペルソナ設定をグループチャット用に調整する編集者です。"
-                "出力は更新後の説明文だけにしてください。"
-            )),
-            HumanMessage(content=(
-                "次のユーザーペルソナが、確定ワールドに元々存在していた人物として自然に成立するように、"
-                "説明文を最小限改変してください。\n"
-                "ユーザーペルソナはキャラクターシート化しません。見出し、箇条書き、解説、差分説明は出力しないでください。\n"
-                "名前、口調、主要な人格や役割はできるだけ維持してください。\n"
-                "元の世界観情報がある場合は、確定ワールドの住人として矛盾しない内容に置き換えてください。\n\n"
-                f"表示名: {display_name}\n"
-                f"確定ワールド:\n{world.strip()}\n\n"
-                f"{_format_optional_instruction(additional_instruction)}"
-                f"現在のユーザーペルソナ説明:\n{current_description or '未設定'}"
-            )),
-        ])
-        return clean_persona_description_response(
-            message_content_to_text(getattr(response, "content", response))
+    try:
+        result = await ctx.group_chat_assist.adapt_user_persona_to_world(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            display_name=display_name,
+            description=description,
+            world=world,
+            additional_instruction=additional_instruction,
+            on_job_started=on_job_started,
         )
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="ユーザーペルソナ調整",
-        scope="group_setup:user_world_adapt",
-        metadata={"display_name": display_name},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
-    if finished.status == AIJobStatus.CANCELLED:
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
+        return
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return
+    if result.status == AIJobStatus.CANCELLED:
         _notify_on_client(page_client, "ユーザーペルソナ調整を停止しました", type="info")
         return
-    if finished.status != AIJobStatus.SUCCEEDED:
+    if result.status != AIJobStatus.SUCCEEDED:
         _notify_on_client(
             page_client,
-            f"ユーザーペルソナ調整に失敗しました: {finished.error_message}",
+            f"ユーザーペルソナ調整に失敗しました: {result.error_message}",
             type="negative",
             timeout=10000,
         )
         return
-    updated_description = str(finished.result or "").strip()
+    updated_description = str(result.value or "").strip()
     if not updated_description:
         _notify_on_client(page_client, "ユーザーペルソナを調整できませんでした", type="warning")
         return
@@ -3660,52 +3463,33 @@ async def _generate_arrival_reason(
     if not world.strip():
         ui.notify("先にワールドを確定してください", type="warning")
         return ""
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
-        return ""
-
-    async def _runner() -> str:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはグループチャット用の来訪理由を作る編集者です。"
-                "出力は理由本文だけにしてください。"
-            )),
-            HumanMessage(content=(
-                "参加者が次のワールドに来た理由を、短く自然に補完してください。\n"
-                "1〜3文で、会話に使いやすい具体性にしてください。"
-                "見出し、箇条書き、引用符、解説は出力しないでください。\n\n"
-                f"参加者: {display_name}\n"
-                f"参加者概要:\n{summary or '未設定'}\n\n"
-                f"ワールド:\n{world.strip()}"
-            )),
-        ])
-        return clean_arrival_reason_response(
-            message_content_to_text(getattr(response, "content", response))
+    try:
+        result = await ctx.group_chat_assist.generate_arrival_reason(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            display_name=display_name,
+            world=world,
+            summary=summary,
+            on_job_started=on_job_started,
         )
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="来訪理由補完",
-        scope="group_setup:arrival_reason",
-        metadata={"display_name": display_name},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
-    if finished.status == AIJobStatus.CANCELLED:
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
+        return ""
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return ""
+    if result.status == AIJobStatus.CANCELLED:
         _notify_on_client(page_client, "来訪理由補完を停止しました", type="info")
         return ""
-    if finished.status != AIJobStatus.SUCCEEDED:
+    if result.status != AIJobStatus.SUCCEEDED:
         _notify_on_client(
             page_client,
-            f"来訪理由補完に失敗しました: {finished.error_message}",
+            f"来訪理由補完に失敗しました: {result.error_message}",
             type="negative",
             timeout=10000,
         )
         return ""
-    reason = str(finished.result or "").strip()
+    reason = str(result.value or "").strip()
     if not reason:
         _notify_on_client(page_client, "来訪理由を補完できませんでした", type="warning")
         return ""
@@ -3834,55 +3618,35 @@ async def _enhance_relationship_description(
     if first_key == second_key:
         ui.notify("異なる2人を選択してください", type="warning")
         return ""
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
+    try:
+        result = await ctx.group_chat_assist.enhance_relationship_description(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            world=world,
+            participants=participants,
+            first_key=first_key,
+            second_key=second_key,
+            current_description=current,
+            on_job_started=on_job_started,
+        )
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
         return ""
-
-    participant_map = {str(item.get("key") or ""): item for item in participants}
-    first = participant_map.get(first_key, {"key": first_key, "name": first_key})
-    second = participant_map.get(second_key, {"key": second_key, "name": second_key})
-
-    async def _runner() -> str:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはグループチャット用の関係性設定を整える編集者です。"
-                "出力は補完後の関係性本文だけにしてください。"
-                "箇条書き、解説、前置き、タイトルは禁止です。"
-            )),
-            HumanMessage(content=(
-                "既存の入力内容を核にして、矛盾を増やさず具体性だけ補ってください。"
-                "会話中に使いやすい短めの関係性説明にしてください。\n\n"
-                f"ワールド:\n{world or '未設定'}\n\n"
-                f"参加者1:\n{json.dumps(first, ensure_ascii=False)}\n\n"
-                f"参加者2:\n{json.dumps(second, ensure_ascii=False)}\n\n"
-                f"現在の関係性:\n{current}"
-            )),
-        ])
-        return message_content_to_text(getattr(response, "content", response))
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="関係性補完",
-        scope="group_setup:relationship_enhance",
-        metadata={"participant_a_key": first_key, "participant_b_key": second_key},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
-    if finished.status == AIJobStatus.CANCELLED:
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return ""
+    if result.status == AIJobStatus.CANCELLED:
         _notify_on_client(page_client, "関係性補完を停止しました", type="info")
         return ""
-    if finished.status != AIJobStatus.SUCCEEDED:
+    if result.status != AIJobStatus.SUCCEEDED:
         _notify_on_client(
             page_client,
-            f"関係性補完に失敗しました: {finished.error_message}",
+            f"関係性補完に失敗しました: {result.error_message}",
             type="negative",
             timeout=10000,
         )
         return ""
-    enhanced = clean_relationship_enhancement(str(finished.result or ""))
+    enhanced = str(result.value or "").strip()
     if not enhanced:
         _notify_on_client(page_client, "関係性を補完できませんでした", type="warning")
         return ""
@@ -3912,66 +3676,38 @@ async def _generate_relationship_drafts(
     page_client=None,
     on_job_started: Callable[[str], None] | None = None,
 ) -> list[dict[str, str]]:
-    llm = _configured_llm(ctx, profile_id)
-    if llm is None:
-        return []
-
     participants = _relationship_draft_participants(characters, persona, state)
     if len(participants) < 2:
         ui.notify("関係性を自動設定できる参加者が足りません", type="warning")
         return []
-    valid_keys = {item["key"] for item in participants}
-
-    async def _runner() -> list[dict[str, str]]:
-        response = await llm.ainvoke([
-            SystemMessage(content=(
-                "あなたはグループチャット用の参加者関係性を設計する編集者です。"
-                "出力はJSONのみです。"
-            )),
-            HumanMessage(content=(
-                "参加キャラクターとユーザーペルソナの関係性を設定してください。\n"
-                "各参加者につき最大2人までとの関係にしてください。\n"
-                "全員を無理に総当たりにせず、会話が動きやすい重要な関係だけを作ってください。\n"
-                "重複ペアと自分自身との関係は禁止です。\n"
-                "participant_a_key / participant_b_key には入力参加者の key をそのまま使ってください。\n"
-                "出力形式: {\"relationships\":[{\"participant_a_key\":\"character:...\","
-                "\"participant_b_key\":\"user\",\"description\":\"...\"}]}\n\n"
-                f"ワールド:\n{world or '未設定'}\n\n"
-                f"参加者:\n{json.dumps(participants, ensure_ascii=False)}"
-            )),
-        ])
-        raw = message_content_to_text(getattr(response, "content", response))
-        parsed = _parse_relationship_draft_response(raw, participants)
-        return _limit_relationship_drafts(
-            parsed,
-            valid_keys,
-            existing=state.get("relationships", []),
-            max_per_participant=2,
+    try:
+        result = await ctx.group_chat_assist.generate_relationship_drafts(
+            profile_id=profile_id,
+            vault_password=get_vault_password(),
+            characters=characters,
+            persona=persona,
+            world=world,
+            state=state,
+            on_job_started=on_job_started,
         )
-
-    job = ctx.ai_jobs.start_job(
-        kind=AIJobKind.LLM_ASSIST,
-        label="関係性自動設定",
-        scope="group_setup:relationships",
-        metadata={"participant_count": len(participants)},
-        runner=lambda _: _runner(),
-    )
-    if on_job_started is not None:
-        on_job_started(job.id)
-    ctx.ai_jobs.set_result_meta(job.id, {"result_url": "/groups"})
-    finished = await ctx.ai_jobs.wait(job.id)
-    if finished.status == AIJobStatus.CANCELLED:
+    except LLMRuntimeError as err:
+        _notify_setup_llm_runtime_error(err)
+        return []
+    except Exception as err:
+        ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
+        return []
+    if result.status == AIJobStatus.CANCELLED:
         _notify_on_client(page_client, "関係性自動設定を停止しました", type="info")
         return []
-    if finished.status != AIJobStatus.SUCCEEDED:
+    if result.status != AIJobStatus.SUCCEEDED:
         _notify_on_client(
             page_client,
-            f"関係性自動設定に失敗しました: {finished.error_message}",
+            f"関係性自動設定に失敗しました: {result.error_message}",
             type="negative",
             timeout=10000,
         )
         return []
-    generated = list(finished.result or [])
+    generated = list(result.value or [])
     if not generated:
         _notify_on_client(page_client, "関係性を自動設定できませんでした", type="warning")
         return []
@@ -3979,185 +3715,6 @@ async def _generate_relationship_drafts(
         item["id"] = _next_relationship_draft_id(state)
     _notify_on_client(page_client, "関係性を自動設定しました", type="positive")
     return generated
-
-
-def _relationship_draft_participants(
-    characters: list[CharacterSheet],
-    persona,
-    state: dict[str, Any],
-) -> list[dict[str, str]]:
-    participants = [
-        {
-            "key": f"character:{sheet.id}",
-            "id": sheet.id,
-            "name": sheet.name,
-            "summary": compact_character_summary(sheet),
-            "kind": "character",
-            "world_entry_type": state.get("entry_modes", {}).get(f"character:{sheet.id}", "native"),
-            "arrival_reason": state.get("arrival_reasons", {}).get(f"character:{sheet.id}", ""),
-            "adaptation_note": state.get("adaptation_notes", {}).get(f"character:{sheet.id}", ""),
-        }
-        for sheet in characters
-    ]
-    if persona is not None:
-        participants.append({
-            "key": "user",
-            "id": str(getattr(persona, "id", "") or "user"),
-            "name": str(getattr(persona, "display_name", "") or getattr(persona, "name", "") or "ユーザー"),
-            "summary": str(state.get("user_description_draft") or getattr(persona, "description", "") or ""),
-            "kind": "user_persona",
-            "world_entry_type": state.get("entry_modes", {}).get("user", "native"),
-            "arrival_reason": state.get("arrival_reasons", {}).get("user", ""),
-            "adaptation_note": state.get("adaptation_notes", {}).get("user", ""),
-        })
-    return participants
-
-
-def _parse_relationship_draft_response(
-    raw: str,
-    participants: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    parsed = try_parse_json_fragment(raw)
-    if parsed is None:
-        return []
-    items = parsed.get("relationships") if isinstance(parsed, dict) else parsed
-    if not isinstance(items, list):
-        return []
-
-    key_by_identifier: dict[str, str] = {}
-    for item in participants:
-        key = item["key"]
-        key_by_identifier[key] = key
-        key_by_identifier[item["id"]] = key
-        key_by_identifier[item["name"]] = key
-
-    drafts: list[dict[str, str]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        first = _relationship_key_from_item(
-            item,
-            key_by_identifier,
-            ("participant_a_key", "a_key", "character_a_key", "participant_a", "a", "character_a_id", "character_a", "from"),
-        )
-        second = _relationship_key_from_item(
-            item,
-            key_by_identifier,
-            ("participant_b_key", "b_key", "character_b_key", "participant_b", "b", "character_b_id", "character_b", "to"),
-        )
-        description = str(
-            item.get("description")
-            or item.get("relationship")
-            or item.get("relation")
-            or item.get("summary")
-            or ""
-        ).strip()
-        if first and second and description:
-            drafts.append({
-                "id": "",
-                "participant_a_key": first,
-                "participant_b_key": second,
-                "description": description,
-            })
-    return drafts
-
-
-def _relationship_key_from_item(
-    item: dict[str, Any],
-    key_by_identifier: dict[str, str],
-    candidate_keys: tuple[str, ...],
-) -> str:
-    for key in candidate_keys:
-        value = item.get(key)
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text in key_by_identifier:
-            return key_by_identifier[text]
-        if text.startswith("character:") and text in key_by_identifier:
-            return text
-    return ""
-
-
-def _limit_relationship_drafts(
-    drafts: list[dict[str, str]],
-    valid_keys: set[str],
-    *,
-    existing: list[dict[str, str]] | None = None,
-    max_per_participant: int = 2,
-) -> list[dict[str, str]]:
-    counts: dict[str, int] = {key: 0 for key in valid_keys}
-    seen_pairs: set[frozenset[str]] = set()
-    for item in existing or []:
-        first = str(item.get("participant_a_key") or "")
-        second = str(item.get("participant_b_key") or "")
-        if first not in valid_keys or second not in valid_keys or first == second:
-            continue
-        seen_pairs.add(frozenset({first, second}))
-        counts[first] = counts.get(first, 0) + 1
-        counts[second] = counts.get(second, 0) + 1
-
-    result: list[dict[str, str]] = []
-    for item in drafts:
-        first = str(item.get("participant_a_key") or "")
-        second = str(item.get("participant_b_key") or "")
-        description = str(item.get("description") or "").strip()
-        if first not in valid_keys or second not in valid_keys or first == second or not description:
-            continue
-        pair_key = frozenset({first, second})
-        if pair_key in seen_pairs:
-            continue
-        if counts.get(first, 0) >= max_per_participant or counts.get(second, 0) >= max_per_participant:
-            continue
-        seen_pairs.add(pair_key)
-        counts[first] = counts.get(first, 0) + 1
-        counts[second] = counts.get(second, 0) + 1
-        result.append({
-            "id": str(item.get("id") or ""),
-            "participant_a_key": first,
-            "participant_b_key": second,
-            "description": description,
-        })
-    return result
-
-
-def _merge_relationship_drafts(
-    state: dict[str, Any],
-    relationships: list[dict[str, str]],
-) -> None:
-    for relationship in relationships:
-        _upsert_relationship_draft(state, relationship)
-
-
-def _upsert_relationship_draft(state: dict[str, Any], relationship: dict[str, str]) -> None:
-    pair_key = frozenset({
-        relationship["participant_a_key"],
-        relationship["participant_b_key"],
-    })
-    relationship_id = str(relationship["id"])
-    next_items: list[dict[str, str]] = []
-    inserted = False
-    for item in state.get("relationships", []):
-        item_id = str(item.get("id") or "")
-        item_pair = frozenset({
-            str(item.get("participant_a_key") or ""),
-            str(item.get("participant_b_key") or ""),
-        })
-        if item_id == relationship_id:
-            next_items.append(relationship)
-            inserted = True
-        elif item_pair == pair_key:
-            continue
-        else:
-            next_items.append(item)
-    if not inserted:
-        next_items.append(relationship)
-    state["relationships"] = next_items
-
-
-def _next_relationship_draft_id(state: dict[str, Any]) -> str:
-    state["relationship_sequence"] = int(state.get("relationship_sequence", 0)) + 1
-    return f"draft-{state['relationship_sequence']}"
 
 
 def _render_section_head(icon: str, title: str) -> None:
@@ -5091,25 +4648,28 @@ event => {
         finally:
             self.set_sending(False)
 
-    async def _run_group_llm_assist_job(self, *, label: str, runner, failure_message: str):
-        job = self.ctx.ai_jobs.start_job(
-            kind=AIJobKind.LLM_ASSIST,
-            label=label,
-            scope=f"group_assist:{self.active_session_id or self.group.id}",
-            metadata={"group_id": self.group.id, "session_id": self.active_session_id or ""},
-            runner=lambda _: runner(),
-        )
-        if self.active_session_id:
-            self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+    def _group_assist_scope(self) -> str:
+        return f"group_assist:{self.active_session_id or self.group.id}"
+
+    def _group_assist_metadata(self) -> dict[str, str]:
+        return {"group_id": self.group.id, "session_id": self.active_session_id or ""}
+
+    def _group_assist_result_url(self) -> str:
+        return f"/groups/{self.group.id}" if self.active_session_id else ""
+
+    async def _await_group_llm_assist_result(self, result_awaitable, *, failure_message: str):
         self.set_sending(True)
         try:
-            finished = await self.ctx.ai_jobs.wait(job.id)
-            if finished.status == AIJobStatus.SUCCEEDED:
-                return finished.result
-            if finished.status == AIJobStatus.CANCELLED:
+            result = await result_awaitable
+            if result.status == AIJobStatus.SUCCEEDED:
+                return result.value
+            if result.status == AIJobStatus.CANCELLED:
                 ui.notify("生成を停止しました", type="info")
                 return None
-            ui.notify(f"{failure_message}: {finished.error_message}", type="negative", timeout=10000)
+            ui.notify(f"{failure_message}: {result.error_message}", type="negative", timeout=10000)
+            return None
+        except LLMRuntimeError as err:
+            _notify_group_chat_llm_runtime_error(err)
             return None
         finally:
             self.set_sending(False)
@@ -5637,8 +5197,13 @@ event => {
     async def generate_scene(self, *, instruction: str = "") -> None:
         if self.settings is None:
             return
-        llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
-        if llm is None:
+        try:
+            llm = self.ctx.group_chat_assist.build_llm(
+                str(self.settings.get("profile_id", "")),
+                get_vault_password(),
+            )
+        except LLMRuntimeError as err:
+            _notify_group_chat_llm_runtime_error(err)
             return
         if self.active_session_id is None:
             return
@@ -5653,23 +5218,14 @@ event => {
         await self.save_current_session(refresh_history=False)
 
         async def _runner(job) -> list[dict[str, Any]]:
-            llm_messages = build_group_narration_messages(
-                self.group,
-                settings_snapshot,
-                prior_messages,
+            generated = await self.ctx.group_chat_assist.generate_scene_message(
+                llm=llm,
+                group=self.group,
+                settings=settings_snapshot,
+                messages=prior_messages,
                 instruction=instruction,
             )
-            debug_input = format_llm_input(llm_messages)
-            response = await llm.ainvoke(llm_messages)
-            raw = message_content_to_text(getattr(response, "content", response))
-            narration = sanitize_group_narration(raw)
-            if not narration:
-                narration = "場面は静かに次の言葉を待っている。"
-            messages = prior_messages + [group_message(
-                "narration",
-                narration,
-                debug=build_debug_info(debug_input, raw, response),
-            )]
+            messages = prior_messages + [generated]
             await self._save_session_messages_snapshot(
                 session_id=session_id,
                 title=title,
@@ -5723,32 +5279,26 @@ event => {
         if not left_text.strip():
             ui.notify("補完する文を /fill の左側に入力してください", type="warning")
             return
-        llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
-        if llm is None:
-            return
-
-        async def _runner() -> str:
-            response = await llm.ainvoke(
-                build_group_input_completion_messages(
-                    self.group,
-                    self.settings,
-                    self.messages,
-                    left_text,
-                    input_mode=self.input_mode,
-                    speaker=self._manual_character_speaker(),
-                    guest_name=self.guest_input_name,
-                )
-            )
-            return message_content_to_text(getattr(response, "content", response))
-
-        raw = await self._run_group_llm_assist_job(
-            label="グループ入力補完",
-            runner=_runner,
+        completed = await self._await_group_llm_assist_result(
+            self.ctx.group_chat_assist.complete_input_text(
+                profile_id=str(self.settings.get("profile_id", "")),
+                vault_password=get_vault_password(),
+                group=self.group,
+                settings=self.settings,
+                messages=self.messages,
+                left_text=left_text,
+                input_mode=self.input_mode,
+                speaker=self._manual_character_speaker(),
+                guest_name=self.guest_input_name,
+                scope=self._group_assist_scope(),
+                metadata=self._group_assist_metadata(),
+                result_url=self._group_assist_result_url(),
+            ),
             failure_message="補完に失敗しました",
         )
-        if raw is None:
+        if completed is None:
             return
-        self.set_input_value(merge_completion(left_text, raw))
+        self.set_input_value(str(completed))
         ui.notify("続きを補完しました", type="positive")
         self.focus_chat_input_at_end()
 
@@ -5758,74 +5308,59 @@ event => {
         if not left_text.strip():
             ui.notify("書き換える文を /tailor の左側に入力してください", type="warning")
             return
-        llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
-        if llm is None:
-            return
-
-        async def _runner() -> str:
-            response = await llm.ainvoke(
-                build_group_tailored_input_messages(
-                    self.group,
-                    self.settings,
-                    self.messages,
-                    left_text,
-                    input_mode=self.input_mode,
-                    speaker=self._manual_character_speaker(),
-                    guest_name=self.guest_input_name,
-                )
-            )
-            return message_content_to_text(getattr(response, "content", response))
-
-        raw = await self._run_group_llm_assist_job(
-            label="グループ入力書き換え",
-            runner=_runner,
+        tailored = await self._await_group_llm_assist_result(
+            self.ctx.group_chat_assist.tailor_input_text(
+                profile_id=str(self.settings.get("profile_id", "")),
+                vault_password=get_vault_password(),
+                group=self.group,
+                settings=self.settings,
+                messages=self.messages,
+                left_text=left_text,
+                input_mode=self.input_mode,
+                speaker=self._manual_character_speaker(),
+                guest_name=self.guest_input_name,
+                scope=self._group_assist_scope(),
+                metadata=self._group_assist_metadata(),
+                result_url=self._group_assist_result_url(),
+            ),
             failure_message="書き換えに失敗しました",
         )
-        if raw is None:
+        if tailored is None:
             return
-        tailored = clean_short_llm_text(raw)
         if not tailored:
             ui.notify("書き換え結果が空でした", type="warning")
             return
-        self.set_input_value(tailored)
+        self.set_input_value(str(tailored))
         ui.notify("現在のロール向けに書き換えました", type="positive")
         self.focus_chat_input_at_end()
 
     async def show_response_choices(self, left_text: str) -> None:
         if self.settings is None:
             return
-        llm = _configured_group_chat_llm(self.ctx, str(self.settings.get("profile_id", "")))
-        if llm is None:
-            return
         input_mode = self.input_mode
         speaker = self._manual_character_speaker()
         guest_name = self.guest_input_name
 
-        async def _runner() -> list[str]:
-            response = await llm.ainvoke(
-                build_group_response_choice_messages(
-                    self.group,
-                    self.settings,
-                    self.messages,
-                    left_text,
-                    input_mode=input_mode,
-                    speaker=speaker,
-                    guest_name=guest_name,
-                )
-            )
-            raw = message_content_to_text(getattr(response, "content", response))
-            choices = parse_response_choices(raw)
-            if left_text.strip():
-                choices = [merge_completion(left_text, choice) for choice in choices]
-            return choices
-
-        choices = await self._run_group_llm_assist_job(
-            label="グループ応答候補生成",
-            runner=_runner,
+        choices = await self._await_group_llm_assist_result(
+            self.ctx.group_chat_assist.generate_response_choices(
+                profile_id=str(self.settings.get("profile_id", "")),
+                vault_password=get_vault_password(),
+                group=self.group,
+                settings=self.settings,
+                messages=self.messages,
+                left_text=left_text,
+                input_mode=input_mode,
+                speaker=speaker,
+                guest_name=guest_name,
+                scope=self._group_assist_scope(),
+                metadata=self._group_assist_metadata(),
+                result_url=self._group_assist_result_url(),
+            ),
             failure_message="選択肢生成に失敗しました",
         )
         if choices is None:
             return
+        choices = list(choices or [])
 
         if not choices:
             ui.notify("選択肢を生成できませんでした", type="warning")
@@ -7201,60 +6736,26 @@ event => {
         if not current:
             ui.notify("先にシチュエーションを入力してください", type="warning")
             return None
-        llm = _configured_group_chat_llm(self.ctx, profile_id)
-        if llm is None:
-            return None
-        active = [
-            member for member in self.group.members
-            if member.id in set(participant_ids)
-        ] or self.group.members
-        member_lines = "\n".join(
-            f"- @{member.handle} / {member.character.name}: {compact_character_summary(member.character)}"
-            for member in active
-        )
-        relationship_section = format_group_relationship_section(
-            self.group,
-            {"participant_ids": participant_ids},
-        )
-
-        async def _runner() -> str:
-            response = await llm.ainvoke([
-                SystemMessage(
-                    content=(
-                        "あなたはグループチャット開始時のシチュエーションを整える編集者です。"
-                        "出力は補強後のシチュエーション本文だけにしてください。"
-                        "箇条書き、解説、前置き、タイトルは禁止です。"
-                    )
-                ),
-                HumanMessage(
-                    content=(
-                        "既存の入力内容を、矛盾を増やさず具体性だけ補ってください。"
-                        "会話を始めやすい短めの場面説明にしてください。\n\n"
-                        f"グループ名: {self.group.name}\n"
-                        f"世界観:\n{self.group.world or '未設定'}\n\n"
-                        f"参加キャラクター:\n{member_lines or 'なし'}\n\n"
-                        f"{relationship_section}"
-                        f"現在のシチュエーション:\n{current}"
-                    )
-                ),
-            ])
-            return message_content_to_text(getattr(response, "content", response))
-
-        raw = await self._run_group_llm_assist_job(
-            label="グループシチュエーション補完",
-            runner=_runner,
+        enhanced = await self._await_group_llm_assist_result(
+            self.ctx.group_chat_assist.enhance_situation(
+                profile_id=profile_id,
+                vault_password=get_vault_password(),
+                group=self.group,
+                participant_ids=participant_ids,
+                current_situation=current,
+                scope=self._group_assist_scope(),
+                metadata=self._group_assist_metadata(),
+                result_url=self._group_assist_result_url(),
+            ),
             failure_message="シチュエーション補完に失敗しました",
         )
-        if raw is None:
+        if enhanced is None:
             return None
-        enhanced = _clean_group_situation_enhancement(
-            raw
-        )
         if not enhanced:
             ui.notify("シチュエーションを補完できませんでした", type="warning")
             return None
         ui.notify("シチュエーションを補完しました", type="positive")
-        return enhanced
+        return str(enhanced)
 
     async def start_chat_session(self, settings: dict[str, Any], *, title: str = "") -> None:
         title = title.strip()
@@ -8829,35 +8330,6 @@ def _clean_world_enhancement(
     ):
         return ""
     return cleaned
-
-
-def _clean_group_situation_enhancement(raw: str) -> str:
-    text = (raw or "").strip()
-    text = re.sub(r"^```(?:\w+)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text).strip()
-
-    parsed = _try_parse_json(text)
-    if parsed is not None:
-        text = _longest_json_string(parsed) or text
-
-    lines: list[str] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            lines.append("")
-            continue
-        line = _strip_possible_label_prefix(line)
-        if not line:
-            continue
-        if re.match(r"^[#>\[\]{}]+", line):
-            continue
-        line = re.sub(r"^[-*・]\s+", "", line).strip()
-        if line:
-            lines.append(line)
-
-    cleaned = "\n".join(lines).strip()
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip(" \t\r\n\"'「」『』")
 
 
 def _try_parse_json(text: str):

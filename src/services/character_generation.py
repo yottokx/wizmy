@@ -9,7 +9,6 @@ asyncio ラッパーとして機能する。
 from __future__ import annotations
 
 import asyncio
-import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -17,8 +16,8 @@ from datetime import datetime
 from enum import Enum
 from typing import AsyncIterator
 
-from ..core.character.markdown import extract_character_name_from_markdown
-from ..core.character.schemas import CharacterSheet, GenerationMeta, Relationship
+from ..core.character.markdown import parse_markdown_to_sheet
+from ..core.character.schemas import CharacterSheet, GenerationMeta
 from ..core.character_generation.agent import run_generation
 from ..core.character_generation.schemas import (
     GenerationMode,
@@ -77,63 +76,6 @@ class GenerationJob:
     @property
     def is_active(self) -> bool:
         return self.status not in _TERMINAL_STATUSES
-
-
-def parse_markdown_to_sheet(sheet_md: str, sheet_id: str) -> CharacterSheet:
-    """Markdown テキストから構造化 CharacterSheet を生成する（公開 API）。"""
-    return _parse_sheet_to_structured(sheet_md, sheet_id)
-
-
-def _parse_sheet_to_structured(sheet_md: str, sheet_id: str) -> CharacterSheet:
-    """
-    Markdown シートから構造化された CharacterSheet を生成する。
-    フィールドが取れない場合は空文字を設定する（パースエラーで失敗しない）。
-    """
-
-    def extract_section(md: str, header: str) -> str:
-        pattern = rf"##\s*{re.escape(header)}\s*\n(.*?)(?=\n##|\Z)"
-        m = re.search(pattern, md, re.DOTALL)
-        return m.group(1).strip() if m else ""
-
-    def extract_table_field(md: str, field_name: str) -> str:
-        pattern = rf"\|\s*{re.escape(field_name)}\s*\|\s*(.+?)\s*\|"
-        m = re.search(pattern, md)
-        return m.group(1).strip() if m else ""
-
-    def parse_relationships(section_text: str) -> list[Relationship]:
-        rels: list[Relationship] = []
-        for line in section_text.splitlines():
-            m = re.match(r"[-*]\s*\*{0,2}([^*\n:：]+?)\*{0,2}\s*[:：]\s*(.+)", line.strip())
-            if m:
-                rels.append(Relationship(name=m.group(1).strip(), description=m.group(2).strip()))
-        return rels
-
-    name = extract_character_name_from_markdown(sheet_md)
-
-    return CharacterSheet(
-        id=sheet_id,
-        name=name,
-        age=extract_table_field(sheet_md, "年齢"),
-        gender=extract_table_field(sheet_md, "性別"),
-        occupation=extract_table_field(sheet_md, "職業・役割"),
-        origin=extract_table_field(sheet_md, "出身・所属"),
-        world=extract_section(sheet_md, "世界観・舞台"),
-        appearance=extract_section(sheet_md, "外見"),
-        personality=extract_section(sheet_md, "性格・内面"),
-        motivation=extract_section(sheet_md, "動機・目標"),
-        weakness=extract_section(sheet_md, "弱点・コンプレックス"),
-        background=extract_section(sheet_md, "過去・背景"),
-        skills=extract_section(sheet_md, "スキル・能力"),
-        relationships=parse_relationships(extract_section(sheet_md, "人間関係")),
-        quirks=extract_section(sheet_md, "個性・クセ・口癖"),
-        story_hooks=extract_section(sheet_md, "物語のフック"),
-        self_intro=extract_section(sheet_md, "自己紹介台詞"),
-        sample_dialogues=extract_section(sheet_md, "サンプル台詞"),
-        voice_image=extract_section(sheet_md, "声のイメージ"),
-        raw_markdown=sheet_md,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-    )
 
 
 class CharacterGenerationService:
@@ -345,7 +287,7 @@ class CharacterGenerationService:
     ) -> CharacterSheet:
         """生成結果をキャラクターとして保存する。"""
         sheet_id = self._character_service.new_id()
-        sheet = _parse_sheet_to_structured(result.sheet_markdown, sheet_id)
+        sheet = parse_markdown_to_sheet(result.sheet_markdown, sheet_id)
         sheet.tags = tags or []
         sheet.generation_meta = GenerationMeta(
             llm_profile_name=profile.name,
