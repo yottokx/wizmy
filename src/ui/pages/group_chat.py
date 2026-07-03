@@ -83,7 +83,6 @@ from ...core.conversation.speaker_selection import (
     speaker_weights_from_llm_output,
     try_parse_json_fragment,
 )
-from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
 from ...services.character_generation import (
@@ -91,6 +90,7 @@ from ...services.character_generation import (
     GenerationJobStatus,
     parse_markdown_to_sheet,
 )
+from ...services.llm_runtime import API_KEY_LOCKED, ENDPOINT_NOT_FOUND, LLMRuntimeError, MODEL_ID_MISSING, PROFILE_NOT_FOUND, build_configured_llm
 from ...services.tts import TTSServiceError
 from ..chat import components as chat_components
 from ..chat.commands import (
@@ -7708,22 +7708,18 @@ def _participant_by_speaker_id(
 
 
 def _configured_group_chat_llm(ctx, profile_id: str):
-    profile = ctx.api_config.get_llm_profile(profile_id)
-    if profile is None:
-        ui.notify("LLMプロファイルを選択してください", type="warning")
+    try:
+        return build_configured_llm(ctx.api_config, profile_id, get_vault_password())
+    except LLMRuntimeError as err:
+        if err.kind == PROFILE_NOT_FOUND:
+            ui.notify("LLMプロファイルを選択してください", type="warning")
+        elif err.kind == MODEL_ID_MISSING:
+            ui.notify("LLMプロファイルのモデルIDが未設定です", type="negative")
+        elif err.kind == ENDPOINT_NOT_FOUND:
+            ui.notify("LLMプロファイルのエンドポイントが見つかりません", type="negative")
+        elif err.kind == API_KEY_LOCKED:
+            ui.notify("APIキーがロックされています。設定画面で解除してください。", type="warning")
         return None
-    if not profile.model_id:
-        ui.notify("LLMプロファイルのモデルIDが未設定です", type="negative")
-        return None
-    endpoint = ctx.api_config.get_endpoint(profile.endpoint_id)
-    if endpoint is None:
-        ui.notify("LLMプロファイルのエンドポイントが見つかりません", type="negative")
-        return None
-    api_key = ctx.api_config.get_api_key(profile.endpoint_id, get_vault_password())
-    if ctx.api_config.is_api_key_locked(profile.endpoint_id, api_key):
-        ui.notify("APIキーがロックされています。設定画面で解除してください。", type="warning")
-        return None
-    return create_llm(profile, endpoint, api_key)
 
 
 def _render_group_profile_panel(
@@ -9045,23 +9041,18 @@ def _validate_handles(
 
 
 def _configured_llm(ctx, profile_id: str):
-    profile = ctx.api_config.get_llm_profile(profile_id)
-    if profile is None:
-        ui.notify("補完用LLMプロファイルを選択してください", type="warning")
-        return None
-    if not profile.model_id:
-        ui.notify("補完用LLMプロファイルのモデルIDが未設定です", type="negative")
-        return None
-    endpoint = ctx.api_config.get_endpoint(profile.endpoint_id)
-    if endpoint is None:
-        ui.notify("補完用LLMプロファイルのエンドポイントが見つかりません", type="negative")
-        return None
-    api_key = ctx.api_config.get_api_key(profile.endpoint_id, get_vault_password())
-    if ctx.api_config.is_api_key_locked(profile.endpoint_id, api_key):
-        ui.notify("APIキーボルトをロック解除してください", type="warning", timeout=8000)
-        return None
     try:
-        return create_llm(profile, endpoint, api_key)
+        return build_configured_llm(ctx.api_config, profile_id, get_vault_password())
+    except LLMRuntimeError as err:
+        if err.kind == PROFILE_NOT_FOUND:
+            ui.notify("補完用LLMプロファイルを選択してください", type="warning")
+        elif err.kind == MODEL_ID_MISSING:
+            ui.notify("補完用LLMプロファイルのモデルIDが未設定です", type="negative")
+        elif err.kind == ENDPOINT_NOT_FOUND:
+            ui.notify("補完用LLMプロファイルのエンドポイントが見つかりません", type="negative")
+        elif err.kind == API_KEY_LOCKED:
+            ui.notify("APIキーボルトをロック解除してください", type="warning", timeout=8000)
+        return None
     except Exception as err:
         ui.notify(f"LLMの初期化に失敗しました: {err}", type="negative", timeout=10000)
         return None

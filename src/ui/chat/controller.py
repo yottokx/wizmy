@@ -21,8 +21,8 @@ from ...core.character.schemas import (
     CharacterSheet,
 )
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
-from ...core.llm.factory import create_llm
 from ...services.ai_jobs import AIJobKind, AIJobStatus
+from ...services.llm_runtime import API_KEY_LOCKED, ENDPOINT_NOT_FOUND, LLMRuntimeError, MODEL_ID_MISSING, PROFILE_NOT_FOUND, build_configured_llm
 from ...services.tts import TTSServiceError
 from ..components.character_picker import open_character_picker
 from ..state import get_vault_password
@@ -1931,28 +1931,22 @@ def validate_profile_for_start(ctx, profile_id: str) -> bool:
 
 
 def configured_llm_for_profile(ctx, profile_id: str):
-    profile = ctx.api_config.get_llm_profile(profile_id)
-    if profile is None:
-        ui.notify("LLMプロファイルが見つかりません", type="negative")
+    try:
+        return build_configured_llm(ctx.api_config, profile_id, get_vault_password())
+    except LLMRuntimeError as err:
+        if err.kind == PROFILE_NOT_FOUND:
+            ui.notify("LLMプロファイルが見つかりません", type="negative")
+        elif err.kind == MODEL_ID_MISSING:
+            ui.notify("モデルIDが未設定です。設定画面でLLMプロファイルのモデルを設定してください。", type="negative")
+        elif err.kind == ENDPOINT_NOT_FOUND:
+            ui.notify("エンドポイントが見つかりません", type="negative")
+        elif err.kind == API_KEY_LOCKED:
+            ui.notify(
+                "このエンドポイントにはAPIキーが設定されています。APIキーボルトをロック解除してください。",
+                type="warning",
+                timeout=8000,
+            )
         return None
-    if not profile.model_id:
-        ui.notify("モデルIDが未設定です。設定画面でLLMプロファイルのモデルを設定してください。", type="negative")
-        return None
-    endpoint = ctx.api_config.get_endpoint(profile.endpoint_id)
-    if endpoint is None:
-        ui.notify("エンドポイントが見つかりません", type="negative")
-        return None
-
-    vault_pw = get_vault_password()
-    api_key = ctx.api_config.get_api_key(profile.endpoint_id, vault_pw)
-    if ctx.api_config.is_api_key_locked(profile.endpoint_id, api_key):
-        ui.notify(
-            "このエンドポイントにはAPIキーが設定されています。APIキーボルトをロック解除してください。",
-            type="warning",
-            timeout=8000,
-        )
-        return None
-    return create_llm(profile, endpoint, api_key)
 
 
 def default_profile_id(ctx, profile_options: dict[str, str]) -> str:

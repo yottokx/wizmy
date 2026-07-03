@@ -43,12 +43,12 @@ from ...core.image_generation.schemas import (
     ImageGenerationProfile,
     image_generation_profile_values,
 )
-from ...core.llm.factory import create_llm
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobStatus
 from ...services.character_generation import parse_markdown_to_sheet
 from ...services.danbooru_prompt import DanbooruPromptServiceError
 from ...services.image_generation import ImageGenerationError
+from ...services.llm_runtime import API_KEY_LOCKED, ENDPOINT_NOT_FOUND, LLMRuntimeError, MODEL_ID_MISSING, PROFILE_NOT_FOUND, build_configured_llm
 from ...services.tts import TTSServiceError
 from ..layout import page_layout
 from ..state import get_vault_password
@@ -610,17 +610,18 @@ def _create_voice_caption_llm(ctx):
     profile = _select_voice_caption_llm_profile(ctx)
     if profile is None:
         raise RuntimeError("LLMプロファイルを設定してください。")
-    if not profile.model_id:
-        raise RuntimeError("LLMプロファイルのモデルIDが未設定です。")
-
-    endpoint = ctx.api_config.get_endpoint(profile.endpoint_id)
-    if endpoint is None:
-        raise RuntimeError("LLMプロファイルのエンドポイントが見つかりません。")
-
-    api_key = ctx.api_config.get_api_key(profile.endpoint_id, get_vault_password())
-    if ctx.api_config.is_api_key_locked(profile.endpoint_id, api_key):
-        raise RuntimeError("APIキーボルトをロック解除してください。")
-    return create_llm(profile, endpoint, api_key)
+    try:
+        return build_configured_llm(ctx.api_config, profile.id, get_vault_password())
+    except LLMRuntimeError as err:
+        if err.kind == PROFILE_NOT_FOUND:
+            raise RuntimeError("LLMプロファイルを設定してください。") from err
+        if err.kind == MODEL_ID_MISSING:
+            raise RuntimeError("LLMプロファイルのモデルIDが未設定です。") from err
+        if err.kind == ENDPOINT_NOT_FOUND:
+            raise RuntimeError("LLMプロファイルのエンドポイントが見つかりません。") from err
+        if err.kind == API_KEY_LOCKED:
+            raise RuntimeError("APIキーボルトをロック解除してください。") from err
+        raise
 
 
 async def _generate_voice_caption_from_sheet(sheet: CharacterSheet, ctx) -> str:
