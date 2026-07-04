@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ...core.conversation.schemas import ChatDebugInfo, ChatMessagePreview, time_label
+from ...core.conversation.schemas import (
+    ChatDebugInfo,
+    ChatMessagePreview,
+    ChatSessionSettings,
+    time_label,
+)
 
 __all__ = [
     "CHAT_COMMANDS",
@@ -27,19 +32,6 @@ class ChatThreadPreview:
     preview: str
     time_label: str
     active: bool = False
-
-
-@dataclass(frozen=True)
-class ChatSessionSettings:
-    profile_id: str
-    chat_mode_id: str
-    chat_mode_name: str
-    chat_premise: str
-    situation: str
-    user_persona_id: str
-    user_persona_name: str
-    user_persona_description: str
-    user_persona_source: str = "persona"
 
 
 @dataclass(frozen=True)

@@ -1,13 +1,105 @@
-"""会話履歴の整形とグループチャットメッセージ変換。"""
+"""会話履歴の整形とチャットメッセージ変換。"""
 
 from __future__ import annotations
 
+from dataclasses import asdict
+from datetime import datetime, timedelta
 import re
 from typing import Any
 
 from ..group_chat.schemas import GroupMember, GroupUserPersona
 from .sanitize import clean_guest_name, guest_display_name
-from .schemas import ChatDebugInfo, time_label
+from .schemas import ChatDebugInfo, ChatMessagePreview, ChatSessionSettings, time_label
+from .solo import chat_user_persona_source
+
+
+def chat_settings_to_dict(settings: ChatSessionSettings) -> dict[str, Any]:
+    return asdict(settings)
+
+
+def chat_settings_from_dict(data: dict[str, Any]) -> ChatSessionSettings:
+    if not isinstance(data, dict):
+        data = {}
+    return ChatSessionSettings(
+        profile_id=str(data.get("profile_id", "")),
+        chat_mode_id=str(data.get("chat_mode_id", "")),
+        chat_mode_name=str(data.get("chat_mode_name", "")),
+        chat_premise=str(data.get("chat_premise", "")),
+        situation=str(data.get("situation", "")),
+        user_persona_id=str(data.get("user_persona_id", "")),
+        user_persona_name=str(data.get("user_persona_name", "ユーザー")),
+        user_persona_description=str(data.get("user_persona_description", "")),
+        user_persona_source=chat_user_persona_source(str(data.get("user_persona_source", ""))),
+    )
+
+
+def chat_message_to_dict(message: ChatMessagePreview) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "speaker": message.speaker,
+        "text": message.text,
+        "time_label": message.time_label,
+    }
+    if message.debug is not None:
+        result["debug"] = asdict(message.debug)
+    return result
+
+
+def chat_message_from_dict(data: dict[str, Any]) -> ChatMessagePreview:
+    if not isinstance(data, dict):
+        data = {}
+    debug_data = data.get("debug")
+    debug = None
+    if isinstance(debug_data, dict):
+        debug = ChatDebugInfo(
+            llm_input=str(debug_data.get("llm_input", "")),
+            raw_output=str(debug_data.get("raw_output", "")),
+            reasoning_output=str(debug_data.get("reasoning_output", "")),
+            input_tokens=_chat_optional_int(debug_data.get("input_tokens")),
+            output_tokens=_chat_optional_int(debug_data.get("output_tokens")),
+            total_tokens=_chat_optional_int(debug_data.get("total_tokens")),
+        )
+    return ChatMessagePreview(
+        speaker=str(data.get("speaker", "user")),
+        text=str(data.get("text", "")),
+        time_label=str(data.get("time_label", "")) or time_label(),
+        debug=debug,
+    )
+
+
+def _chat_optional_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.isdecimal():
+        return int(value)
+    return None
+
+
+def latest_message_preview(messages: list[dict[str, Any]], *, limit: int = 56) -> str:
+    if not messages:
+        return "まだ発言がありません"
+    latest = messages[-1]
+    text = str(latest.get("text", "")) if isinstance(latest, dict) else ""
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return "まだ発言がありません"
+    if len(text) > limit:
+        return f"{text[:limit].rstrip()}..."
+    return text
+
+
+def session_time_label(updated_at: datetime) -> str:
+    now = datetime.now()
+    if updated_at.date() == now.date():
+        return updated_at.strftime("%H:%M")
+    if updated_at.date() == (now - timedelta(days=1)).date():
+        return "昨日"
+    if updated_at.year == now.year:
+        return f"{updated_at.month}/{updated_at.day}"
+    return updated_at.strftime("%Y/%m/%d")
 
 
 def group_participant_ids(settings: dict[str, Any]) -> list[str]:

@@ -24,5 +24,18 @@ class ChatMessagePreview:
     debug: ChatDebugInfo | None = None
 
 
+@dataclass(frozen=True)
+class ChatSessionSettings:
+    profile_id: str
+    chat_mode_id: str
+    chat_mode_name: str
+    chat_premise: str
+    situation: str
+    user_persona_id: str
+    user_persona_name: str
+    user_persona_description: str
+    user_persona_source: str = "persona"
+
+
 def time_label() -> str:
     return datetime.now().strftime("%H:%M")

@@ -12,13 +12,17 @@ import pytest
 
 from src.core.chat.sessions import ChatSessionRecord
 from src.core.conversation import history as history_module
-from src.core.conversation.history import group_message, group_system_event_message
-from src.core.conversation.schemas import ChatDebugInfo, ChatMessagePreview
+from src.core.conversation.history import (
+    chat_message_from_dict,
+    chat_message_to_dict,
+    chat_settings_to_dict,
+    group_message,
+    group_system_event_message,
+)
+from src.core.conversation.schemas import ChatDebugInfo, ChatMessagePreview, ChatSessionSettings
 from src.core.group_chat.sessions import GroupChatSessionRecord
 from src.storage.chat_repository import ChatRepository
 from src.storage.group_chat_repository import GroupChatRepository
-from src.ui.chat.controller import chat_message_to_dict, chat_settings_to_dict
-from src.ui.chat.models import ChatSessionSettings
 
 from tests.group_chat_test_helpers import make_group_chat, make_group_settings
 
@@ -247,6 +251,38 @@ async def test_group_chat_session_roundtrip_json_matches_golden(
     expected = _load_golden("group_chat_session_roundtrip.json")
     assert {"settings": loaded.settings, "messages": loaded.messages} == expected
     assert await _stored_session_json(db_path, "group_chat_sessions", session.id) == expected
+
+
+def test_chat_message_from_dict_keeps_current_debug_token_fallbacks() -> None:
+    message = chat_message_from_dict(
+        {
+            "speaker": "character",
+            "text": "復元された発言",
+            "time_label": "21:04",
+            "debug": {
+                "llm_input": "入力",
+                "raw_output": "出力",
+                "reasoning_output": "理由",
+                "input_tokens": True,
+                "output_tokens": "42",
+                "total_tokens": "-1",
+            },
+        }
+    )
+
+    assert message == ChatMessagePreview(
+        speaker="character",
+        text="復元された発言",
+        time_label="21:04",
+        debug=ChatDebugInfo(
+            llm_input="入力",
+            raw_output="出力",
+            reasoning_output="理由",
+            input_tokens=None,
+            output_tokens=42,
+            total_tokens=None,
+        ),
+    )
 
 
 async def test_chat_repository_loads_legacy_json_with_missing_fields_and_fallback(tmp_path: Path) -> None:

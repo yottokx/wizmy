@@ -2,6 +2,9 @@ import asyncio
 
 from src.core.chat.schemas import ChatMode, UserPersona
 from src.core.character.schemas import CharacterSheet, FaceRect
+from src.core.conversation.history import chat_settings_from_dict, chat_settings_to_dict
+from src.core.conversation.schemas import ChatSessionSettings
+from src.core.conversation.solo import render_mode_for_sheet
 from src.services.api_config import ApiConfigService
 from src.storage.api_config_store import ApiConfigStore
 from src.ui.chat.components import (
@@ -9,8 +12,6 @@ from src.ui.chat.components import (
     USER_PERSONA_SOURCE_PERSONA,
     user_persona_from_character_sheet,
 )
-from src.ui.chat.controller import chat_settings_from_dict, chat_settings_to_dict, render_mode_for_sheet
-from src.ui.chat.models import ChatSessionSettings
 
 
 def test_user_persona_display_name_falls_back_to_name() -> None:

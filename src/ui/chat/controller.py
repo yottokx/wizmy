@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict
-from datetime import datetime, timedelta
-from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from nicegui import app, ui
 
 from ...core.chat.schemas import ChatMode, UserPersona
 from ...core.chat.sessions import ChatSessionRecord, DEFAULT_CHAT_TITLE
-from ...core.chat.templates import TemplateError, render_chat_mode
 from ...core.character.schemas import (
     CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
     CHARACTER_TTS_API_GEN_SERVER,
@@ -25,6 +21,14 @@ from ...core.conversation.llm_io import (
     format_llm_input,
     message_content_to_text,
     sanitize_chat_title,
+)
+from ...core.conversation.history import (
+    chat_message_from_dict,
+    chat_message_to_dict,
+    chat_settings_from_dict,
+    chat_settings_to_dict,
+    latest_message_preview,
+    session_time_label,
 )
 from ...core.conversation.prompts.common import character_summary
 from ...core.conversation.prompts.solo import (
@@ -39,6 +43,13 @@ from ...core.conversation.prompts.solo import (
     sanitize_narration,
 )
 from ...core.conversation.sanitize import sanitize_character_reply
+from ...core.conversation.schemas import ChatMessagePreview, ChatSessionSettings, time_label
+from ...core.conversation.solo import (
+    input_mode_for_speaker,
+    message_target_label,
+    render_mode_for_sheet,
+    user_persona_tts_id,
+)
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
 from ...services.llm_runtime import API_KEY_LOCKED, ENDPOINT_NOT_FOUND, LLMRuntimeError, MODEL_ID_MISSING, PROFILE_NOT_FOUND, build_configured_llm
@@ -54,13 +65,9 @@ from .commands import (
     resolve_chat_command,
 )
 from .models import (
-    ChatDebugInfo,
-    ChatMessagePreview,
     ChatRefs,
-    ChatSessionSettings,
     ChatState,
     ChatThreadPreview,
-    time_label,
 )
 
 
@@ -1787,125 +1794,6 @@ setTimeout(() => {
         dlg.open()
 
 
-def chat_settings_to_dict(settings: ChatSessionSettings) -> dict[str, Any]:
-    return asdict(settings)
-
-
-def chat_settings_from_dict(data: dict[str, Any]) -> ChatSessionSettings:
-    if not isinstance(data, dict):
-        data = {}
-    return ChatSessionSettings(
-        profile_id=str(data.get("profile_id", "")),
-        chat_mode_id=str(data.get("chat_mode_id", "")),
-        chat_mode_name=str(data.get("chat_mode_name", "")),
-        chat_premise=str(data.get("chat_premise", "")),
-        situation=str(data.get("situation", "")),
-        user_persona_id=str(data.get("user_persona_id", "")),
-        user_persona_name=str(data.get("user_persona_name", "ユーザー")),
-        user_persona_description=str(data.get("user_persona_description", "")),
-        user_persona_source=chat_user_persona_source(str(data.get("user_persona_source", ""))),
-    )
-
-
-def chat_user_persona_source(value: str) -> str:
-    if value == components.USER_PERSONA_SOURCE_CHARACTER:
-        return components.USER_PERSONA_SOURCE_CHARACTER
-    return components.USER_PERSONA_SOURCE_PERSONA
-
-
-def input_mode_for_speaker(speaker: str) -> str:
-    if speaker == "character":
-        return "character"
-    if speaker == "narration":
-        return "narration"
-    if speaker == "memo":
-        return "memo"
-    return "user"
-
-
-def message_target_label(speaker: str) -> str:
-    if speaker == "character":
-        return "キャラクターの台詞"
-    if speaker == "narration":
-        return "地の文"
-    if speaker == "memo":
-        return "コメント"
-    return "発言"
-
-
-def user_persona_tts_id(persona_id: str) -> str:
-    return f"user-persona-{persona_id}"
-
-
-def chat_message_to_dict(message: ChatMessagePreview) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "speaker": message.speaker,
-        "text": message.text,
-        "time_label": message.time_label,
-    }
-    if message.debug is not None:
-        result["debug"] = asdict(message.debug)
-    return result
-
-
-def chat_message_from_dict(data: dict[str, Any]) -> ChatMessagePreview:
-    if not isinstance(data, dict):
-        data = {}
-    debug_data = data.get("debug")
-    debug = None
-    if isinstance(debug_data, dict):
-        debug = ChatDebugInfo(
-            llm_input=str(debug_data.get("llm_input", "")),
-            raw_output=str(debug_data.get("raw_output", "")),
-            reasoning_output=str(debug_data.get("reasoning_output", "")),
-            input_tokens=optional_int(debug_data.get("input_tokens")),
-            output_tokens=optional_int(debug_data.get("output_tokens")),
-            total_tokens=optional_int(debug_data.get("total_tokens")),
-        )
-    return ChatMessagePreview(
-        speaker=str(data.get("speaker", "user")),
-        text=str(data.get("text", "")),
-        time_label=str(data.get("time_label", "")) or time_label(),
-        debug=debug,
-    )
-
-
-def optional_int(value: Any) -> int | None:
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str) and value.isdecimal():
-        return int(value)
-    return None
-
-
-def latest_message_preview(messages: list[dict[str, Any]], *, limit: int = 56) -> str:
-    if not messages:
-        return "まだ発言がありません"
-    latest = messages[-1]
-    text = str(latest.get("text", "")) if isinstance(latest, dict) else ""
-    text = re.sub(r"\s+", " ", text).strip()
-    if not text:
-        return "まだ発言がありません"
-    if len(text) > limit:
-        return f"{text[:limit].rstrip()}..."
-    return text
-
-
-def session_time_label(updated_at: datetime) -> str:
-    now = datetime.now()
-    if updated_at.date() == now.date():
-        return updated_at.strftime("%H:%M")
-    if updated_at.date() == (now - timedelta(days=1)).date():
-        return "昨日"
-    if updated_at.year == now.year:
-        return f"{updated_at.month}/{updated_at.day}"
-    return updated_at.strftime("%Y/%m/%d")
-
-
 def profile_options_for_context(ctx) -> dict[str, str]:
     profiles = ctx.api_config.get_llm_profiles()
     endpoints = {ep.id: ep for ep in ctx.api_config.get_endpoints()}
@@ -1974,15 +1862,3 @@ def default_user_persona_id(persona_options: dict[str, str]) -> str:
     if not persona_options:
         return ""
     return next(iter(persona_options))
-
-
-def render_mode_for_sheet(
-    mode: ChatMode,
-    sheet: CharacterSheet,
-    persona: UserPersona,
-) -> tuple[str, str]:
-    return render_chat_mode(
-        mode,
-        character_name=sheet.name or "キャラクター",
-        user_persona_name=persona.name or "ユーザー",
-    )

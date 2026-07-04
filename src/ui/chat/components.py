@@ -11,6 +11,7 @@ from nicegui import ui
 from ...core.chat.schemas import ChatMode, UserPersona
 from ...core.chat.templates import TemplateError
 from ...core.character.schemas import CharacterImageAsset, CharacterSheet, FaceRect
+from ...core.conversation.solo import USER_PERSONA_SOURCE_CHARACTER, USER_PERSONA_SOURCE_PERSONA
 from .commands import (
     command_suggestions,
     input_mode_icon,
@@ -28,8 +29,6 @@ from .models import (
 )
 
 
-USER_PERSONA_SOURCE_PERSONA = "persona"
-USER_PERSONA_SOURCE_CHARACTER = "character"
 _PERSONA_SELECT_PREFIX = "persona:"
 _CHARACTER_SELECT_PREFIX = "character:"
 
