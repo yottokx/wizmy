@@ -54,7 +54,7 @@ def open_new_group_dialog(
     refresh_groups: Callable[[], Awaitable[None]],
 ) -> None:
     profiles = ctx.api_config.get_llm_profiles()
-    personas = ctx.api_config.get_user_personas()
+    personas = ctx.user_personas.get_user_personas()
     profile_options = build_profile_options(ctx, profiles)
     persona_options = {persona.id: persona.display_name for persona in personas}
     page_client = ui.context.client

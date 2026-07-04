@@ -21,6 +21,7 @@ from .services.group_chat_assist import GroupChatAssistService
 from .services.group_chat_turns import GroupChatTurnService
 from .services.image_generation import ImageGenerationService
 from .services.tts import TTSService
+from .services.user_persona import UserPersonaService
 from .storage.api_config_store import ApiConfigStore
 from .storage.chat_repository import ChatRepository
 from .storage.character_repository import CharacterRepository
@@ -36,6 +37,7 @@ class AppContext:
         self._group_chat_repo = GroupChatRepository(settings.db_file)
 
         self.api_config = ApiConfigService(self._api_config_store, settings.data_dir)
+        self.user_personas = UserPersonaService(self._api_config_store, settings.data_dir)
         self.ai_jobs = AIJobService()
         self.chats = ChatService(self._chat_repo)
         self.chat_turns = ChatTurnService()

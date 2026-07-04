@@ -34,7 +34,7 @@ def participant_media_style(ctx, participant: dict[str, Any], *, rect_kind: str)
     if image is None:
         return ""
     if participant.get("kind") == "user":
-        image_path = ctx.api_config.media_path(image.path)
+        image_path = ctx.user_personas.media_path(image.path)
     else:
         image_path = ctx.group_chats.media_path(image.path)
     rect = image.bust_rect if rect_kind == "bust" else image.face_rect
@@ -577,7 +577,7 @@ def render_recent_group(group: GroupChatRecord) -> None:
 def render_face(ctx, media: CharacterMedia, source: str) -> None:
     image = media.primary_image()
     if source == "persona":
-        image_path = ctx.api_config.media_path(image.path) if image else None
+        image_path = ctx.user_personas.media_path(image.path) if image else None
     else:
         image_path = ctx.group_chats.media_path(image.path) if image else None
     style = cropped_background_style(image, image_path, image.face_rect, 1.0) if image and image_path else ""

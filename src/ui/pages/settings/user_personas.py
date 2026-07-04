@@ -60,19 +60,19 @@ async def build_user_personas_tab(ctx) -> None:
     async def reorder(e) -> None:
         args = e.args
         ordered = moved_order(
-            [persona.id for persona in ctx.api_config.get_user_personas()],
+            [persona.id for persona in ctx.user_personas.get_user_personas()],
             args["old_index"],
             args["new_index"],
         )
         if ordered is None:
             return
-        ctx.api_config.reorder_user_personas(ordered)
+        ctx.user_personas.reorder_user_personas(ordered)
         notify_order_saved()
 
     enable_drag_sort(personas_container, reorder)
 
     async def refresh() -> None:
-        personas = ctx.api_config.get_user_personas()
+        personas = ctx.user_personas.get_user_personas()
         personas_container.clear()
         with personas_container:
             if not personas:
@@ -116,7 +116,7 @@ def user_persona_card(persona: UserPersona, ctx, refresh_fn) -> None:
 
 def user_persona_media_summary(persona: UserPersona, ctx, refresh_fn) -> None:
     image = persona.media.primary_image()
-    image_path = ctx.api_config.media_path(image.path) if image else None
+    image_path = ctx.user_personas.media_path(image.path) if image else None
     voice = persona.media.primary_voice()
     has_tts = user_persona_has_tts_settings(persona)
 
@@ -212,9 +212,9 @@ def open_user_persona_dialog(persona: UserPersona | None, ctx, refresh_fn) -> No
                 values["media"] = persona.media
             updated = UserPersona(**values)
             if is_edit:
-                ctx.api_config.update_user_persona(updated)
+                ctx.user_personas.update_user_persona(updated)
             else:
-                ctx.api_config.create_user_persona(updated)
+                ctx.user_personas.create_user_persona(updated)
             ui.notify("保存しました", type="positive")
             dlg.close()
             await refresh_fn()
@@ -234,7 +234,7 @@ def confirm_delete_user_persona(persona: UserPersona, ctx, refresh_fn) -> None:
             ui.button("キャンセル", on_click=dlg.close).props("flat")
 
             async def _do() -> None:
-                ctx.api_config.delete_user_persona(persona.id)
+                ctx.user_personas.delete_user_persona(persona.id)
                 ui.notify("削除しました", type="positive")
                 dlg.close()
                 await refresh_fn()
@@ -254,7 +254,7 @@ def open_user_persona_media_dialog(persona: UserPersona, ctx, refresh_fn) -> Non
         container = ui.column().classes("w-full gap-4")
 
         async def _refresh(saved: UserPersona | None = None) -> None:
-            latest = saved or ctx.api_config.get_user_persona(state["persona"].id)
+            latest = saved or ctx.user_personas.get_user_persona(state["persona"].id)
             if latest is None:
                 dlg.close()
                 await refresh_fn()
@@ -289,7 +289,7 @@ def render_user_persona_image_section(persona: UserPersona, ctx, refresh_media) 
             ui.label("顔画像").classes("text-base font-semibold")
 
         image = persona.media.primary_image()
-        image_path = ctx.api_config.media_path(image.path) if image else None
+        image_path = ctx.user_personas.media_path(image.path) if image else None
         if image and image_path:
             ui.image(image_path).props("fit=cover").classes("w-full rounded-md").style(
                 "aspect-ratio: 1 / 1; background: var(--cs-surface-soft);"
@@ -308,7 +308,7 @@ def render_user_persona_image_section(persona: UserPersona, ctx, refresh_media) 
 
         async def _on_image_upload(e) -> bool:
             try:
-                saved = await ctx.api_config.save_user_persona_image(persona.id, e.file)
+                saved = await ctx.user_personas.save_user_persona_image(persona.id, e.file)
                 ui.notify("画像を保存しました", type="positive")
                 await refresh_media(saved)
                 return True
@@ -354,7 +354,7 @@ def open_user_persona_face_rect_dialog(
     refresh_media,
 ) -> None:
     async def _save(rect: FaceRect, image_width: int, image_height: int) -> None:
-        saved = ctx.api_config.update_user_persona_face_rect(
+        saved = ctx.user_personas.update_user_persona_face_rect(
             persona.id,
             rect,
             image_width=image_width,
@@ -556,7 +556,7 @@ def render_user_persona_voice_section(persona: UserPersona, ctx, refresh_media, 
             ui.label("音声").classes("text-base font-semibold")
 
         voice = persona.media.primary_voice()
-        voice_path = ctx.api_config.media_path(voice.path) if voice else None
+        voice_path = ctx.user_personas.media_path(voice.path) if voice else None
         if voice and voice_path:
             ui.audio(voice_path).classes("w-full")
             if voice.original_name:
@@ -570,7 +570,7 @@ def render_user_persona_voice_section(persona: UserPersona, ctx, refresh_media, 
 
         async def _on_voice_upload(e) -> bool:
             try:
-                saved = await ctx.api_config.save_user_persona_voice(persona.id, e.file)
+                saved = await ctx.user_personas.save_user_persona_voice(persona.id, e.file)
                 ui.notify("音声を保存しました", type="positive")
                 await refresh_media(saved)
                 return True
@@ -773,7 +773,7 @@ def open_user_persona_image_generation_dialog(persona: UserPersona, ctx, refresh
                 def _save_previews(images: list[object], job) -> dict[str, object]:
                     items: list[dict[str, object]] = []
                     for image in images:
-                        preview_path = ctx.api_config.save_user_persona_image_preview(
+                        preview_path = ctx.user_personas.save_user_persona_image_preview(
                             persona.id,
                             image.data,
                             filename=user_persona_generated_image_filename(
@@ -821,7 +821,7 @@ def open_user_persona_image_generation_dialog(persona: UserPersona, ctx, refresh
 
         async def _save_image(image: object, index: int) -> None:
             try:
-                saved = await ctx.api_config.save_user_persona_image_bytes(
+                saved = await ctx.user_personas.save_user_persona_image_bytes(
                     persona.id,
                     image.data,
                     filename=user_persona_generated_image_filename(image, index),
@@ -855,7 +855,7 @@ def open_user_persona_voice_design_dialog(persona: UserPersona, ctx, refresh_med
     controls: dict[str, object] = {}
     generated: list[dict[str, object]] = []
     current_voice = persona.media.primary_voice()
-    current_voice_path = ctx.api_config.media_path(current_voice.path) if current_voice else None
+    current_voice_path = ctx.user_personas.media_path(current_voice.path) if current_voice else None
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
         with ui.row().classes("w-full items-center justify-between gap-2"):
@@ -956,7 +956,7 @@ def open_user_persona_voice_design_dialog(persona: UserPersona, ctx, refresh_med
                 params = _read_params()
 
                 def _save_preview(audio: bytes, job) -> dict[str, str]:
-                    preview_path = ctx.api_config.save_user_persona_tts_preview(
+                    preview_path = ctx.user_personas.save_user_persona_tts_preview(
                         persona.id,
                         audio,
                         replace_existing=False,
@@ -1012,7 +1012,7 @@ def open_user_persona_voice_design_dialog(persona: UserPersona, ctx, refresh_med
                 ui.notify("先に音声を生成してください。", type="warning")
                 return
             try:
-                saved = await ctx.api_config.save_user_persona_voice_bytes(
+                saved = await ctx.user_personas.save_user_persona_voice_bytes(
                     persona.id,
                     audio,
                     filename=f"persona-voice-design-{index}.wav",
@@ -1029,7 +1029,7 @@ def open_user_persona_voice_design_dialog(persona: UserPersona, ctx, refresh_med
                         ),
                     }
                 )
-                saved = ctx.api_config.update_user_persona_tts_settings(persona.id, settings)
+                saved = ctx.user_personas.update_user_persona_tts_settings(persona.id, settings)
                 ui.notify("生成音声をペルソナ音声に保存しました", type="positive")
                 dlg.close()
                 await refresh_media(saved)
@@ -1177,7 +1177,7 @@ def render_user_persona_tts_controls(persona: UserPersona, ctx, voice, voice_pat
 
     async def _save_tts_settings(*, notify: bool = True) -> CharacterTTSSettings:
         settings = _current_tts_settings()
-        saved = ctx.api_config.update_user_persona_tts_settings(persona.id, settings)
+        saved = ctx.user_personas.update_user_persona_tts_settings(persona.id, settings)
         if notify:
             ui.notify("TTS設定を保存しました", type="positive")
             await refresh_media(saved)
@@ -1256,7 +1256,7 @@ def render_user_persona_tts_controls(persona: UserPersona, ctx, voice, voice_pat
         try:
 
             def _save_preview(audio: bytes, job) -> dict[str, str]:
-                preview_path = ctx.api_config.save_user_persona_tts_preview(persona.id, audio)
+                preview_path = ctx.user_personas.save_user_persona_tts_preview(persona.id, audio)
                 return {
                     "result_url": "/settings",
                     "preview_path": str(preview_path),

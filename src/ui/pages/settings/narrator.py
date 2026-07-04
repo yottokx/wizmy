@@ -50,9 +50,9 @@ def open_narrator_voice_design_dialog(ctx, refresh_fn) -> None:
     defaults = ctx.api_config.get_gen_server_config().defaults_for_mode(mode)
     controls: dict[str, object] = {}
     generated: list[dict[str, object]] = []
-    config = ctx.api_config.get_tts_config()
+    config = ctx.user_personas.get_tts_config()
     current_voice = config.narrator_voice
-    current_voice_path = ctx.api_config.media_path(current_voice.path) if current_voice else None
+    current_voice_path = ctx.user_personas.media_path(current_voice.path) if current_voice else None
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
         with ui.row().classes("w-full items-center justify-between gap-2"):
@@ -153,7 +153,7 @@ def open_narrator_voice_design_dialog(ctx, refresh_fn) -> None:
                 params = _read_params()
 
                 def _save_preview(audio: bytes, job) -> dict[str, str]:
-                    preview_path = ctx.api_config.save_narrator_tts_preview(
+                    preview_path = ctx.user_personas.save_narrator_tts_preview(
                         audio,
                         replace_existing=False,
                     )
@@ -208,12 +208,12 @@ def open_narrator_voice_design_dialog(ctx, refresh_fn) -> None:
                 ui.notify("先に音声を生成してください。", type="warning")
                 return
             try:
-                await ctx.api_config.save_narrator_voice_bytes(
+                await ctx.user_personas.save_narrator_voice_bytes(
                     audio,
                     filename=f"narrator-voice-design-{index}.wav",
                     content_type="audio/wav",
                 )
-                config = ctx.api_config.get_tts_config()
+                config = ctx.user_personas.get_tts_config()
                 config.narrator = config.narrator.model_copy(
                     update={
                         "api_type": CHARACTER_TTS_API_GEN_SERVER,
@@ -225,7 +225,7 @@ def open_narrator_voice_design_dialog(ctx, refresh_fn) -> None:
                         ),
                     }
                 )
-                ctx.api_config.save_tts_config(config)
+                ctx.user_personas.save_tts_config(config)
                 ui.notify("ナレーター音声を保存し、Voice Cloneに切り替えました", type="positive")
                 dlg.close()
                 refresh_fn()
@@ -269,8 +269,8 @@ def narrator_has_gen_server_voice_design(gen_server_config) -> bool:
 
 
 def narrator_tts_ready(ctx, settings: CharacterTTSSettings) -> bool:
-    config = ctx.api_config.get_tts_config()
-    voice_path = ctx.api_config.media_path(config.narrator_voice.path) if config.narrator_voice is not None else None
+    config = ctx.user_personas.get_tts_config()
+    voice_path = ctx.user_personas.media_path(config.narrator_voice.path) if config.narrator_voice is not None else None
     if settings.api_type == CHARACTER_TTS_API_GEN_SERVER:
         if settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
             return bool(
@@ -295,10 +295,10 @@ def render_narrator_tts_settings(ctx, refresh_fn) -> None:
     endpoints = ctx.tts.get_endpoints()
     gen_server_config = ctx.api_config.get_gen_server_config()
     has_gen_server = narrator_has_gen_server_voice_design(gen_server_config)
-    tts_config = ctx.api_config.get_tts_config()
+    tts_config = ctx.user_personas.get_tts_config()
     current_settings = tts_config.narrator
     narrator_voice = tts_config.narrator_voice
-    narrator_voice_path = ctx.api_config.media_path(narrator_voice.path) if narrator_voice else None
+    narrator_voice_path = ctx.user_personas.media_path(narrator_voice.path) if narrator_voice else None
     endpoint_by_id = {endpoint.id: endpoint for endpoint in endpoints}
 
     with ui.card().classes("w-full mb-4"):
@@ -461,9 +461,9 @@ def render_narrator_tts_settings(ctx, refresh_fn) -> None:
 
             async def _save_narrator_tts_settings(*, notify: bool = True) -> CharacterTTSSettings:
                 settings = _current_narrator_tts_settings()
-                config = ctx.api_config.get_tts_config()
+                config = ctx.user_personas.get_tts_config()
                 config.narrator = settings
-                ctx.api_config.save_tts_config(config)
+                ctx.user_personas.save_tts_config(config)
                 if notify:
                     ui.notify("ナレーターTTS設定を保存しました", type="positive")
                 return settings
@@ -492,16 +492,16 @@ def render_narrator_tts_settings(ctx, refresh_fn) -> None:
                 if not narrator_tts_ready(ctx, settings):
                     ui.notify("ナレーターTTS設定を確認してください", type="warning")
                     return
-                config = ctx.api_config.get_tts_config()
+                config = ctx.user_personas.get_tts_config()
                 voice = config.narrator_voice
-                voice_path = ctx.api_config.media_path(voice.path) if voice else None
+                voice_path = ctx.user_personas.media_path(voice.path) if voice else None
                 synth_btn.disable()
                 tts_status.set_text("生成中...")
                 preview_container.clear()
                 try:
 
                     def _save_preview(audio: bytes, job) -> dict[str, str]:
-                        preview_path = ctx.api_config.save_narrator_tts_preview(audio)
+                        preview_path = ctx.user_personas.save_narrator_tts_preview(audio)
                         return {
                             "result_url": "/settings",
                             "preview_path": str(preview_path),

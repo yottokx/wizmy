@@ -7,9 +7,9 @@ import pytest
 
 from src.core.chat.schemas import UserPersona
 from src.core.character.schemas import CharacterSheet, FaceRect
-from src.services.api_config import ApiConfigService
 from src.services.character import CharacterService
 from src.services.group_chat import GroupChatService
+from src.services.user_persona import UserPersonaService
 from src.storage.api_config_store import ApiConfigStore
 from src.storage.character_repository import CharacterRepository
 from src.storage.group_chat_repository import GroupChatRepository
@@ -330,9 +330,9 @@ async def test_group_member_media_paths_are_fixed(tmp_path: Path) -> None:
     assert not (data_dir / "groups" / group.id).exists()
 
 
-async def test_api_config_service_persona_and_narrator_media_paths_are_fixed(tmp_path: Path) -> None:
+async def test_user_persona_service_persona_and_narrator_media_paths_are_fixed(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
-    service = ApiConfigService(
+    service = UserPersonaService(
         ApiConfigStore(tmp_path / "config.json"),
         data_dir,
     )

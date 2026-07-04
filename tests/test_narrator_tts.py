@@ -10,7 +10,7 @@ from src.core.character.schemas import (
     CharacterTTSSettings,
 )
 from src.core.tts.schemas import TTSConfig
-from src.services.api_config import ApiConfigService
+from src.services.user_persona import UserPersonaService
 from src.storage.api_config_store import ApiConfigStore
 
 
@@ -25,7 +25,7 @@ class NarratorTTSTest(unittest.TestCase):
     def test_narrator_tts_settings_are_saved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            service = ApiConfigService(ApiConfigStore(root / "config.json"), root)
+            service = UserPersonaService(ApiConfigStore(root / "config.json"), root)
             config = service.get_tts_config()
             config.narrator = CharacterTTSSettings(
                 api_type=CHARACTER_TTS_API_GEN_SERVER,
@@ -48,7 +48,7 @@ class NarratorTTSTest(unittest.TestCase):
     def test_narrator_tts_playback_is_saved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            service = ApiConfigService(ApiConfigStore(root / "config.json"), root)
+            service = UserPersonaService(ApiConfigStore(root / "config.json"), root)
 
             path = service.save_narrator_tts_playback(b"audio-bytes")
 
@@ -59,7 +59,7 @@ class NarratorTTSTest(unittest.TestCase):
     def test_narrator_preview_save_ignores_locked_old_preview(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            service = ApiConfigService(ApiConfigStore(root / "config.json"), root)
+            service = UserPersonaService(ApiConfigStore(root / "config.json"), root)
             old_path = service.save_narrator_tts_preview(b"old-audio")
             original_unlink = Path.unlink
 
@@ -77,7 +77,7 @@ class NarratorTTSTest(unittest.TestCase):
     def test_narrator_voice_bytes_are_saved_and_reloaded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            service = ApiConfigService(ApiConfigStore(root / "config.json"), root)
+            service = UserPersonaService(ApiConfigStore(root / "config.json"), root)
 
             voice = asyncio.run(
                 service.save_narrator_voice_bytes(
@@ -90,7 +90,7 @@ class NarratorTTSTest(unittest.TestCase):
             self.assertTrue(voice.path.startswith("narrator/voices/"))
             self.assertEqual(service.media_path(voice.path).read_bytes(), b"voice-bytes")
 
-            reloaded = ApiConfigService(ApiConfigStore(root / "config.json"), root)
+            reloaded = UserPersonaService(ApiConfigStore(root / "config.json"), root)
             loaded_config = reloaded.get_tts_config()
             self.assertIsNotNone(loaded_config.narrator_voice)
             self.assertEqual(loaded_config.narrator_voice.path, voice.path)

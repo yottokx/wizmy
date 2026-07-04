@@ -695,13 +695,13 @@ class GroupChatPageController:
         ):
             return self.ctx.tts.has_voice_playback_api(settings.api_type, settings.endpoint_id)
         voice = persona.media.primary_voice()
-        voice_path = self.ctx.api_config.media_path(voice.path) if voice else None
+        voice_path = self.ctx.user_personas.media_path(voice.path) if voice else None
         return bool(
             voice and voice_path and self.ctx.tts.has_voice_playback_api(settings.api_type, settings.endpoint_id)
         )
 
     def _narrator_tts_configured(self, tts_settings=None) -> bool:
-        config = self.ctx.api_config.get_tts_config()
+        config = self.ctx.user_personas.get_tts_config()
         settings = tts_settings or config.narrator
         if settings.api_type == CHARACTER_TTS_API_GEN_SERVER:
             if settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
@@ -718,7 +718,7 @@ class GroupChatPageController:
         if endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
             return bool(settings.voice_id.strip()) and self.ctx.tts.supports_voice_registry(settings.endpoint_id)
         voice = config.narrator_voice
-        voice_path = self.ctx.api_config.media_path(voice.path) if voice else None
+        voice_path = self.ctx.user_personas.media_path(voice.path) if voice else None
         return voice is not None and voice_path is not None
 
     def _voice_design_ready(self, settings) -> bool:
@@ -731,19 +731,19 @@ class GroupChatPageController:
     def _tts_target_for_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
         role = str(message.get("role", ""))
         if role == "narration":
-            config = self.ctx.api_config.get_tts_config()
+            config = self.ctx.user_personas.get_tts_config()
             settings = config.narrator
             if not self._narrator_tts_configured(settings):
                 ui.notify("ナレーターTTS設定を確認してください", type="warning")
                 return None
             voice = config.narrator_voice
-            voice_path = self.ctx.api_config.media_path(voice.path) if voice else None
+            voice_path = self.ctx.user_personas.media_path(voice.path) if voice else None
             return {
                 "target_id": "narrator",
                 "settings": settings,
                 "voice": voice,
                 "voice_path": voice_path,
-                "playback_save": self.ctx.api_config.save_narrator_tts_playback,
+                "playback_save": self.ctx.user_personas.save_narrator_tts_playback,
             }
         if role == "character":
             member = self._member_by_id(str(message.get("speaker_id", "")))
@@ -771,7 +771,7 @@ class GroupChatPageController:
                 return None
             settings = persona.media.tts
             voice = persona.media.primary_voice()
-            voice_path = self.ctx.api_config.media_path(voice.path) if voice else None
+            voice_path = self.ctx.user_personas.media_path(voice.path) if voice else None
             if voice_path is None and not self._voice_design_ready(settings):
                 ui.notify("ユーザーペルソナのTTS設定を確認してください", type="warning")
                 return None
@@ -781,9 +781,11 @@ class GroupChatPageController:
                 "settings": settings,
                 "voice": voice,
                 "voice_path": voice_path,
-                "playback_save": lambda audio, target_id=persona_id: self.ctx.api_config.save_user_persona_tts_playback(
-                    target_id,
-                    audio,
+                "playback_save": lambda audio, target_id=persona_id: (
+                    self.ctx.user_personas.save_user_persona_tts_playback(
+                        target_id,
+                        audio,
+                    )
                 ),
             }
         return None

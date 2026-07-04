@@ -242,7 +242,7 @@ class ChatPageController:
             )
             self.user_tts_configured = self._user_media_tts_configured(character.media.tts)
             return
-        persona = self.ctx.api_config.get_user_persona(settings.user_persona_id)
+        persona = self.ctx.user_personas.get_user_persona(settings.user_persona_id)
         if persona is None:
             self.clear_user_persona_media()
             return
@@ -251,13 +251,13 @@ class ChatPageController:
         self.user_persona_character = None
         self.user_image = persona.media.primary_image()
         self.user_image_path = (
-            self.ctx.api_config.media_path(self.user_image.path)
+            self.ctx.user_personas.media_path(self.user_image.path)
             if self.user_image
             else None
         )
         self.user_voice = persona.media.primary_voice()
         self.user_voice_path = (
-            self.ctx.api_config.media_path(self.user_voice.path)
+            self.ctx.user_personas.media_path(self.user_voice.path)
             if self.user_voice
             else None
         )
@@ -280,10 +280,10 @@ class ChatPageController:
         )
 
     def _narrator_tts_configured(self, tts_settings=None) -> bool:
-        config = self.ctx.api_config.get_tts_config()
+        config = self.ctx.user_personas.get_tts_config()
         settings = tts_settings or config.narrator
         narrator_voice_path = (
-            self.ctx.api_config.media_path(config.narrator_voice.path)
+            self.ctx.user_personas.media_path(config.narrator_voice.path)
             if config.narrator_voice is not None
             else None
         )
@@ -665,15 +665,15 @@ class ChatPageController:
             return
 
         if message.speaker == "narration":
-            config = self.ctx.api_config.get_tts_config()
+            config = self.ctx.user_personas.get_tts_config()
             settings = config.narrator
             if not self._narrator_tts_configured(settings):
                 ui.notify("ナレーターTTS設定を確認してください", type="warning")
                 return
             target_id = "narrator"
             voice = config.narrator_voice
-            voice_path = self.ctx.api_config.media_path(voice.path) if voice else None
-            playback_save = self.ctx.api_config.save_narrator_tts_playback
+            voice_path = self.ctx.user_personas.media_path(voice.path) if voice else None
+            playback_save = self.ctx.user_personas.save_narrator_tts_playback
         elif message.speaker == "character":
             if not self.tts_configured or self.voice is None or self.voice_path is None:
                 ui.notify("TTS設定を確認してください", type="warning")
@@ -717,7 +717,7 @@ class ChatPageController:
                 settings = self.user_persona.media.tts
                 voice = self.user_voice
                 voice_path = self.user_voice_path
-                playback_save = lambda audio, persona_id=user_persona_id: self.ctx.api_config.save_user_persona_tts_playback(
+                playback_save = lambda audio, persona_id=user_persona_id: self.ctx.user_personas.save_user_persona_tts_playback(
                     persona_id,
                     audio,
                 )
@@ -1392,7 +1392,7 @@ setTimeout(() => {
         profile_options = profile_options_for_context(self.ctx)
         chat_modes = self.ctx.api_config.get_chat_modes()
         mode_options = {mode.id: mode.name for mode in chat_modes}
-        user_personas = self.ctx.api_config.get_user_personas()
+        user_personas = self.ctx.user_personas.get_user_personas()
         persona_options = {persona.id: persona.display_name for persona in user_personas}
         components.open_new_chat_dialog_for_sheet(
             sheet=self.sheet,
@@ -1403,7 +1403,7 @@ setTimeout(() => {
             persona_options=persona_options,
             default_persona_id=default_user_persona_id(persona_options),
             get_mode=lambda mode_id: self.ctx.api_config.get_chat_mode(mode_id),
-            get_persona=lambda persona_id: self.ctx.api_config.get_user_persona(persona_id),
+            get_persona=lambda persona_id: self.ctx.user_personas.get_user_persona(persona_id),
             pick_character_persona=lambda on_select: open_character_picker(
                 self.ctx,
                 on_select,
