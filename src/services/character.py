@@ -6,30 +6,26 @@
 
 from __future__ import annotations
 
-import mimetypes
-import shutil
-import uuid
 from pathlib import Path
 from typing import Any
 
 from ..core.character.schemas import (
-    CharacterImageAsset,
     CharacterSheet,
     CharacterTTSSettings,
-    CharacterVoiceAsset,
     FaceRect,
 )
 from ..storage.character_repository import CharacterRepository
+from .media import MediaFileService, MediaOwner
 
 
 class CharacterService:
-    _IMAGE_SUFFIXES = {".gif", ".jpeg", ".jpg", ".png", ".webp"}
-    _VOICE_SUFFIXES = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".webm"}
+    _IMAGE_SUFFIXES = MediaFileService.IMAGE_SUFFIXES
+    _VOICE_SUFFIXES = MediaFileService.VOICE_SUFFIXES
 
     def __init__(self, repository: CharacterRepository, data_dir: Path | None = None) -> None:
         self._repo = repository
         self._data_dir = data_dir or Path("data")
-        self._characters_dir = self._data_dir / "characters"
+        self._media_files = MediaFileService(self._data_dir)
 
     async def save(self, sheet: CharacterSheet) -> CharacterSheet:
         return await self._repo.save(sheet)
@@ -61,48 +57,14 @@ class CharacterService:
         return self._repo.new_id()
 
     def media_path(self, relative_path: str) -> Path | None:
-        if not relative_path:
-            return None
-        path = (self._data_dir / relative_path).resolve()
-        data_root = self._data_dir.resolve()
-        if not path.is_relative_to(data_root) or not path.is_file():
-            return None
-        return path
+        return self._media_files.media_path(relative_path)
 
     async def save_image(self, character_id: str, upload: Any) -> CharacterSheet:
         sheet = await self._require_sheet(character_id)
-        filename = getattr(upload, "name", "") or ""
-        content_type = getattr(upload, "content_type", "") or ""
-        if content_type and not content_type.startswith("image/"):
-            raise ValueError("画像ファイルを選択してください。")
-        if not content_type and Path(filename).suffix.lower() not in self._IMAGE_SUFFIXES:
-            raise ValueError("画像ファイルを選択してください。")
-
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
-        relative_path = Path("characters") / character_id / "images" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        await upload.save(target)
-
-        old_paths = [image.path for image in sheet.media.images]
-
-        image = CharacterImageAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
-            content_type=content_type,
+        return await self._media_files.save_image_upload(
+            self._media_owner(character_id, sheet),
+            upload,
         )
-        sheet.media.images = [image]
-        sheet.media.primary_image_id = image.id
-        try:
-            saved = await self.save(sheet)
-        except Exception:
-            self._delete_media_file(image.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return saved
 
     async def save_image_bytes(
         self,
@@ -114,73 +76,23 @@ class CharacterService:
         width: int = 0,
         height: int = 0,
     ) -> CharacterSheet:
-        if not image_bytes:
-            raise ValueError("画像データが空です。")
-        if content_type and not content_type.startswith("image/"):
-            raise ValueError("画像データを指定してください。")
-
+        self._media_files.validate_image_bytes(image_bytes, content_type)
         sheet = await self._require_sheet(character_id)
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
-        relative_path = Path("characters") / character_id / "images" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(image_bytes)
-
-        old_paths = [image.path for image in sheet.media.images]
-        image = CharacterImageAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
+        return await self._media_files.save_image_bytes(
+            self._media_owner(character_id, sheet),
+            image_bytes,
+            filename=filename,
             content_type=content_type,
-            width=max(0, int(width or 0)),
-            height=max(0, int(height or 0)),
+            width=width,
+            height=height,
         )
-        sheet.media.images = [image]
-        sheet.media.primary_image_id = image.id
-        try:
-            saved = await self.save(sheet)
-        except Exception:
-            self._delete_media_file(image.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return saved
 
     async def save_voice(self, character_id: str, upload: Any) -> CharacterSheet:
         sheet = await self._require_sheet(character_id)
-        filename = getattr(upload, "name", "") or ""
-        content_type = getattr(upload, "content_type", "") or ""
-        if content_type and not content_type.startswith("audio/"):
-            raise ValueError("音声ファイルを選択してください。")
-        if not content_type and Path(filename).suffix.lower() not in self._VOICE_SUFFIXES:
-            raise ValueError("音声ファイルを選択してください。")
-
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._VOICE_SUFFIXES, ".wav")
-        relative_path = Path("characters") / character_id / "voices" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        await upload.save(target)
-
-        old_paths = [voice.path for voice in sheet.media.voices]
-
-        voice = CharacterVoiceAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
-            content_type=content_type,
+        return await self._media_files.save_voice_upload(
+            self._media_owner(character_id, sheet),
+            upload,
         )
-        sheet.media.voices = [voice]
-        sheet.media.primary_voice_id = voice.id
-        try:
-            saved = await self.save(sheet)
-        except Exception:
-            self._delete_media_file(voice.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return saved
 
     async def save_voice_bytes(
         self,
@@ -190,33 +102,14 @@ class CharacterService:
         filename: str = "voice-design.wav",
         content_type: str = "audio/wav",
     ) -> CharacterSheet:
-        if not audio_bytes:
-            raise ValueError("音声データが空です。")
+        self._media_files.validate_non_empty(audio_bytes, "音声データが空です。")
         sheet = await self._require_sheet(character_id)
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._VOICE_SUFFIXES, ".wav")
-        relative_path = Path("characters") / character_id / "voices" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(audio_bytes)
-
-        old_paths = [voice.path for voice in sheet.media.voices]
-        voice = CharacterVoiceAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
+        return await self._media_files.save_voice_bytes(
+            self._media_owner(character_id, sheet),
+            audio_bytes,
+            filename=filename,
             content_type=content_type,
         )
-        sheet.media.voices = [voice]
-        sheet.media.primary_voice_id = voice.id
-        try:
-            saved = await self.save(sheet)
-        except Exception:
-            self._delete_media_file(voice.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return saved
 
     async def update_tts_settings(
         self,
@@ -234,22 +127,13 @@ class CharacterService:
         *,
         replace_existing: bool = True,
     ) -> Path:
-        if not audio_bytes:
-            raise ValueError("音声データが空です。")
-
-        preview_dir = (self._characters_dir / character_id / "tts").resolve()
-        character_root = (self._characters_dir / character_id).resolve()
-        if not preview_dir.is_relative_to(character_root):
-            raise ValueError("保存先が不正です。")
-
-        preview_dir.mkdir(parents=True, exist_ok=True)
-        if replace_existing:
-            for old_file in preview_dir.glob("preview-*.wav"):
-                old_file.unlink(missing_ok=True)
-
-        preview_path = preview_dir / f"preview-{uuid.uuid4().hex}.wav"
-        preview_path.write_bytes(audio_bytes)
-        return preview_path
+        return self._media_files.save_tts_preview(
+            self._character_media_root(character_id),
+            audio_bytes,
+            replace_existing=replace_existing,
+            empty_error_message="音声データが空です。",
+            replace_glob="preview-*.wav",
+        )
 
     def save_image_preview(
         self,
@@ -260,40 +144,21 @@ class CharacterService:
         content_type: str = "image/png",
         replace_existing: bool = True,
     ) -> Path:
-        if not image_bytes:
-            raise ValueError("画像データが空です。")
-
-        preview_dir = (self._characters_dir / character_id / "images" / "previews").resolve()
-        character_root = (self._characters_dir / character_id).resolve()
-        if not preview_dir.is_relative_to(character_root):
-            raise ValueError("保存先が不正です。")
-
-        preview_dir.mkdir(parents=True, exist_ok=True)
-        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
-        if replace_existing:
-            for old_file in preview_dir.glob("preview-*"):
-                old_file.unlink(missing_ok=True)
-
-        preview_path = preview_dir / f"preview-{uuid.uuid4().hex}{suffix}"
-        preview_path.write_bytes(image_bytes)
-        return preview_path
+        return self._media_files.save_image_preview(
+            self._character_media_root(character_id),
+            image_bytes,
+            filename=filename,
+            content_type=content_type,
+            replace_existing=replace_existing,
+        )
 
     def save_tts_playback(self, character_id: str, audio_bytes: bytes) -> Path:
-        if not audio_bytes:
-            raise ValueError("音声データが空です。")
-
-        playback_dir = (self._characters_dir / character_id / "tts").resolve()
-        character_root = (self._characters_dir / character_id).resolve()
-        if not playback_dir.is_relative_to(character_root):
-            raise ValueError("保存先が不正です。")
-
-        playback_dir.mkdir(parents=True, exist_ok=True)
-        for old_file in playback_dir.glob("playback-*.wav"):
-            old_file.unlink(missing_ok=True)
-
-        playback_path = playback_dir / f"playback-{uuid.uuid4().hex}.wav"
-        playback_path.write_bytes(audio_bytes)
-        return playback_path
+        return self._media_files.save_tts_playback(
+            self._character_media_root(character_id),
+            audio_bytes,
+            empty_error_message="音声データが空です。",
+            replace_glob="playback-*.wav",
+        )
 
     async def update_face_rect(
         self,
@@ -304,17 +169,14 @@ class CharacterService:
         image_height: int = 0,
     ) -> CharacterSheet:
         sheet = await self._require_sheet(character_id)
-        image = sheet.media.primary_image()
-        if image is None:
-            raise ValueError("顔範囲を設定する画像がありません。")
-
-        image.face_rect = self._clamp_rect(rect)
-        if image_width > 0:
-            image.width = image_width
-        if image_height > 0:
-            image.height = image_height
-        sheet.media.primary_image_id = image.id
-        return await self.save(sheet)
+        return await self._media_files.update_primary_image_rect(
+            self._media_owner(character_id, sheet),
+            rect,
+            rect_attribute="face_rect",
+            missing_image_message="顔範囲を設定する画像がありません。",
+            image_width=image_width,
+            image_height=image_height,
+        )
 
     async def update_bust_rect(
         self,
@@ -325,17 +187,14 @@ class CharacterService:
         image_height: int = 0,
     ) -> CharacterSheet:
         sheet = await self._require_sheet(character_id)
-        image = sheet.media.primary_image()
-        if image is None:
-            raise ValueError("バストショット範囲を設定する画像がありません。")
-
-        image.bust_rect = self._clamp_rect(rect)
-        if image_width > 0:
-            image.width = image_width
-        if image_height > 0:
-            image.height = image_height
-        sheet.media.primary_image_id = image.id
-        return await self.save(sheet)
+        return await self._media_files.update_primary_image_rect(
+            self._media_owner(character_id, sheet),
+            rect,
+            rect_attribute="bust_rect",
+            missing_image_message="バストショット範囲を設定する画像がありません。",
+            image_width=image_width,
+            image_height=image_height,
+        )
 
     async def get_all_tags(self) -> list[str]:
         """全キャラクターに使用されているタグの一覧を返す（重複なし）。"""
@@ -351,38 +210,16 @@ class CharacterService:
             raise ValueError("キャラクターが見つかりません。")
         return sheet
 
+    def _media_owner(self, character_id: str, sheet: CharacterSheet) -> MediaOwner[CharacterSheet]:
+        return MediaOwner(
+            relative_root=self._character_media_root(character_id),
+            media=sheet.media,
+            save=lambda: self.save(sheet),
+        )
+
+    @staticmethod
+    def _character_media_root(character_id: str) -> Path:
+        return Path("characters") / character_id
+
     def _delete_character_files(self, character_id: str) -> None:
-        root = self._characters_dir.resolve()
-        target = (self._characters_dir / character_id).resolve()
-        if target.is_relative_to(root):
-            shutil.rmtree(target, ignore_errors=True)
-
-    def _delete_media_file(self, relative_path: str) -> None:
-        path = self.media_path(relative_path)
-        if path is not None:
-            path.unlink(missing_ok=True)
-
-    @staticmethod
-    def _safe_suffix(
-        filename: str,
-        content_type: str,
-        allowed: set[str],
-        fallback: str,
-    ) -> str:
-        suffix = Path(filename or "").suffix.lower()
-        if suffix in allowed:
-            return suffix
-        guessed = (mimetypes.guess_extension(content_type) or "").lower()
-        if guessed == ".jpe":
-            guessed = ".jpg"
-        if guessed in allowed:
-            return guessed
-        return fallback
-
-    @staticmethod
-    def _clamp_rect(rect: FaceRect) -> FaceRect:
-        width = min(max(rect.width, 0.01), 1.0)
-        height = min(max(rect.height, 0.01), 1.0)
-        x = min(max(rect.x, 0.0), 1.0 - width)
-        y = min(max(rect.y, 0.0), 1.0 - height)
-        return FaceRect(x=x, y=y, width=width, height=height)
+        self._media_files.delete_owner_files(self._character_media_root(character_id))
