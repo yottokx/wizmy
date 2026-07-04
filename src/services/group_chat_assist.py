@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -48,63 +47,24 @@ from ..core.conversation.sanitize import (
 )
 from ..core.conversation.world_adaptation import format_optional_instruction
 from ..core.group_chat.schemas import GroupChatRecord, GroupMember
-from .ai_jobs import AIJobKind, AIJobService, AIJobStatus
+from .ai_jobs import AIJobService, AIJobStatus
 from .api_config import ApiConfigService
+from .llm_assist import AssistJobResult, LLMAssistService
 from .llm_runtime import build_configured_llm
 
-
-@dataclass(frozen=True)
-class GroupChatAssistJobResult:
-    """補助 LLM ジョブの完了状態と結果。"""
-
-    job_id: str
-    status: AIJobStatus
-    value: Any = None
-    error_message: str = ""
-
-    @property
-    def succeeded(self) -> bool:
-        return self.status == AIJobStatus.SUCCEEDED
+# 後方互換のための別名(旧名で import している箇所を保持する)。
+GroupChatAssistJobResult = AssistJobResult
 
 
-class GroupChatAssistService:
+class GroupChatAssistService(LLMAssistService):
     """グループチャット補助機能の LLM 呼び出しを UI 非依存で実行する。"""
 
     def __init__(self, api_config: ApiConfigService, ai_jobs: AIJobService) -> None:
+        super().__init__(ai_jobs)
         self._api_config = api_config
-        self._ai_jobs = ai_jobs
 
     def build_llm(self, profile_id: str, vault_password: str | None) -> Any:
         return build_configured_llm(self._api_config, profile_id, vault_password)
-
-    async def run_assist_job(
-        self,
-        *,
-        label: str,
-        scope: str,
-        metadata: dict[str, Any],
-        runner,
-        result_url: str = "",
-        on_job_started=None,
-    ) -> GroupChatAssistJobResult:
-        job = self._ai_jobs.start_job(
-            kind=AIJobKind.LLM_ASSIST,
-            label=label,
-            scope=scope,
-            metadata=metadata,
-            runner=lambda _: runner(),
-        )
-        if result_url:
-            self._ai_jobs.set_result_meta(job.id, {"result_url": result_url})
-        if on_job_started is not None:
-            on_job_started(job.id)
-        finished = await self._ai_jobs.wait(job.id)
-        return GroupChatAssistJobResult(
-            job_id=job.id,
-            status=finished.status,
-            value=finished.result,
-            error_message=finished.error_message,
-        )
 
     async def generate_group_generation_relationship_drafts(
         self,

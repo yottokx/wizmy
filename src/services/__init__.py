@@ -6,6 +6,7 @@ from .character import CharacterService
 from .character_generation import CharacterGenerationService
 from .group_chat_assist import GroupChatAssistJobResult, GroupChatAssistService
 from .group_chat_turns import GroupChatTurnService
+from .llm_assist import AssistJobResult, LLMAssistService
 from .llm_runtime import LLMRuntimeError, build_configured_llm
 from .tts import TTSService
 
@@ -15,6 +16,7 @@ __all__ = [
     "AIJobRecord",
     "AIJobService",
     "AIJobStatus",
+    "AssistJobResult",
     "ChatAssistJobResult",
     "ChatAssistService",
     "ChatTurnService",
@@ -23,6 +25,7 @@ __all__ = [
     "GroupChatAssistJobResult",
     "GroupChatAssistService",
     "GroupChatTurnService",
+    "LLMAssistService",
     "LLMRuntimeError",
     "build_configured_llm",
     "TTSService",

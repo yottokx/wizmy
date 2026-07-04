@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -20,54 +19,14 @@ from ..core.conversation.prompts.solo import (
 from ..core.conversation.sanitize import clean_short_llm_text
 from ..core.conversation.schemas import ChatMessagePreview, ChatSessionSettings
 from ..core.conversation.solo import clean_situation_enhancement
-from .ai_jobs import AIJobKind, AIJobService, AIJobStatus
+from .llm_assist import AssistJobResult, LLMAssistService
+
+# 後方互換のための別名(旧名で import している箇所を保持する)。
+ChatAssistJobResult = AssistJobResult
 
 
-@dataclass(frozen=True)
-class ChatAssistJobResult:
-    """補助 LLM ジョブの完了状態と結果。"""
-
-    job_id: str
-    status: AIJobStatus
-    value: Any = None
-    error_message: str = ""
-
-    @property
-    def succeeded(self) -> bool:
-        return self.status == AIJobStatus.SUCCEEDED
-
-
-class ChatAssistService:
+class ChatAssistService(LLMAssistService):
     """1:1チャット補助機能の LLM 呼び出しを UI 非依存で実行する。"""
-
-    def __init__(self, ai_jobs: AIJobService) -> None:
-        self._ai_jobs = ai_jobs
-
-    async def run_assist_job(
-        self,
-        *,
-        label: str,
-        scope: str,
-        metadata: dict[str, Any],
-        runner,
-        result_url: str = "",
-    ) -> ChatAssistJobResult:
-        job = self._ai_jobs.start_job(
-            kind=AIJobKind.LLM_ASSIST,
-            label=label,
-            scope=scope,
-            metadata=metadata,
-            runner=lambda _: runner(),
-        )
-        if result_url:
-            self._ai_jobs.set_result_meta(job.id, {"result_url": result_url})
-        finished = await self._ai_jobs.wait(job.id)
-        return ChatAssistJobResult(
-            job_id=job.id,
-            status=finished.status,
-            value=finished.result,
-            error_message=finished.error_message,
-        )
 
     async def complete_input_text(
         self,
