@@ -1,5 +1,6 @@
 from .api_config import ApiConfigService
 from .ai_jobs import AIJobKind, AIJobRecord, AIJobService, AIJobStatus
+from .chat_turns import ChatTurnService
 from .character import CharacterService
 from .character_generation import CharacterGenerationService
 from .group_chat_assist import GroupChatAssistJobResult, GroupChatAssistService
@@ -13,6 +14,7 @@ __all__ = [
     "AIJobRecord",
     "AIJobService",
     "AIJobStatus",
+    "ChatTurnService",
     "CharacterService",
     "CharacterGenerationService",
     "GroupChatAssistJobResult",

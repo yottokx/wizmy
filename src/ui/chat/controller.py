@@ -16,12 +16,7 @@ from ...core.character.schemas import (
     CHARACTER_TTS_API_TTS,
     CharacterSheet,
 )
-from ...core.conversation.llm_io import (
-    build_debug_info,
-    format_llm_input,
-    message_content_to_text,
-    sanitize_chat_title,
-)
+from ...core.conversation.llm_io import message_content_to_text
 from ...core.conversation.history import (
     chat_message_from_dict,
     chat_message_to_dict,
@@ -32,17 +27,11 @@ from ...core.conversation.history import (
 )
 from ...core.conversation.prompts.common import character_summary
 from ...core.conversation.prompts.solo import (
-    build_chat_title_messages,
-    build_llm_messages,
-    build_narration_llm_messages,
     build_response_choice_messages,
     build_system_prompt,
     build_tailored_input_messages,
     build_user_completion_messages,
-    is_first_character_turn,
-    sanitize_narration,
 )
-from ...core.conversation.sanitize import sanitize_character_reply
 from ...core.conversation.schemas import ChatMessagePreview, ChatSessionSettings, time_label
 from ...core.conversation.solo import (
     input_mode_for_speaker,
@@ -645,64 +634,6 @@ class ChatPageController:
     def configured_llm(self, settings: ChatSessionSettings):
         return configured_llm_for_profile(self.ctx, settings.profile_id)
 
-    async def build_character_message(
-        self,
-        llm,
-        settings: ChatSessionSettings,
-        prior_messages: list[ChatMessagePreview],
-        *,
-        first_turn: bool = False,
-        turn_instruction: str = "",
-        empty_reply: str = "……ごめん、うまく言葉にできなかった。",
-    ) -> ChatMessagePreview:
-        llm_messages = build_llm_messages(
-            self.sheet,
-            settings,
-            prior_messages,
-            first_turn=first_turn,
-            turn_instruction=turn_instruction,
-        )
-        debug_input = format_llm_input(llm_messages, settings)
-        response = await llm.ainvoke(llm_messages)
-        raw_output = message_content_to_text(getattr(response, "content", response))
-        reply = sanitize_character_reply(raw_output, self.sheet.name)
-        if not reply:
-            reply = empty_reply
-        return ChatMessagePreview(
-            "character",
-            reply,
-            time_label(),
-            build_debug_info(debug_input, raw_output, response),
-        )
-
-    async def build_narration_message(
-        self,
-        llm,
-        settings: ChatSessionSettings,
-        prior_messages: list[ChatMessagePreview],
-        *,
-        instruction: str = "",
-        empty_reply: str = "場面は静かに次の言葉を待っている。",
-    ) -> ChatMessagePreview:
-        llm_messages = build_narration_llm_messages(
-            self.sheet,
-            settings,
-            prior_messages,
-            instruction=instruction,
-        )
-        debug_input = format_llm_input(llm_messages, settings)
-        response = await llm.ainvoke(llm_messages)
-        raw_output = message_content_to_text(getattr(response, "content", response))
-        narration = sanitize_narration(raw_output)
-        if not narration:
-            narration = empty_reply
-        return ChatMessagePreview(
-            "narration",
-            narration,
-            time_label(),
-            build_debug_info(debug_input, raw_output, response),
-        )
-
     async def maybe_generate_auto_title(self, llm, settings: ChatSessionSettings) -> None:
         if self.active_session_id is None or not self.active_title_is_auto:
             return
@@ -714,11 +645,11 @@ class ChatPageController:
 
         self.title_generation_attempted = True
         try:
-            response = await llm.ainvoke(
-                build_chat_title_messages(self.sheet, settings, self.state.messages)
-            )
-            title = sanitize_chat_title(
-                message_content_to_text(getattr(response, "content", response))
+            title = await self.ctx.chat_turns.generate_auto_title(
+                sheet=self.sheet,
+                settings=settings,
+                messages=self.state.messages,
+                llm=llm,
             )
         except Exception:
             return
@@ -961,23 +892,22 @@ class ChatPageController:
 
         async def _runner(job) -> list[ChatMessagePreview]:
             try:
-                generated = await self.build_character_message(
-                    llm,
-                    settings,
-                    prior_messages,
-                    first_turn=is_first_character_turn(prior_messages),
+                result = await self.ctx.chat_turns.run_character_turn(
+                    sheet=self.sheet,
+                    settings=settings,
+                    messages=prior_messages,
+                    llm=llm,
                     turn_instruction=turn_instruction,
                     empty_reply=empty_reply,
                 )
-                messages = prior_messages + [generated]
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
                     title=title,
                     title_is_auto=title_is_auto,
                     settings=settings,
-                    messages=messages,
+                    messages=result.messages,
                 )
-                return messages
+                return result.messages
             except Exception:
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
@@ -1034,21 +964,21 @@ class ChatPageController:
 
         async def _runner(job) -> list[ChatMessagePreview]:
             try:
-                generated = await self.build_narration_message(
-                    llm,
-                    settings,
-                    prior_messages,
+                result = await self.ctx.chat_turns.run_narration_turn(
+                    sheet=self.sheet,
+                    settings=settings,
+                    messages=prior_messages,
+                    llm=llm,
                     instruction=instruction,
                 )
-                messages = prior_messages + [generated]
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
                     title=title,
                     title_is_auto=title_is_auto,
                     settings=settings,
-                    messages=messages,
+                    messages=result.messages,
                 )
-                return messages
+                return result.messages
             except Exception:
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
@@ -1707,7 +1637,6 @@ setTimeout(() => {
 
         original_messages = list(self.state.messages)
         prior_messages = self.state.messages[:index]
-        first_turn = is_first_character_turn(prior_messages)
         was_latest = index == len(original_messages) - 1
         self.state.messages = prior_messages + [
             ChatMessagePreview("character", "…", time_label())
@@ -1720,22 +1649,22 @@ setTimeout(() => {
 
         async def _runner(job) -> list[ChatMessagePreview]:
             try:
-                generated = await self.build_character_message(
-                    llm,
-                    settings,
-                    prior_messages,
-                    first_turn=first_turn,
-                    empty_reply="こんにちは。少し話そう。" if first_turn else "……ごめん、うまく言葉にできなかった。",
+                result = await self.ctx.chat_turns.run_character_turn(
+                    sheet=self.sheet,
+                    settings=settings,
+                    messages=prior_messages,
+                    llm=llm,
+                    empty_reply="……ごめん、うまく言葉にできなかった。",
+                    first_turn_empty_reply="こんにちは。少し話そう。",
                 )
-                messages = prior_messages + [generated]
                 await self._save_session_messages_snapshot(
                     session_id=session_id,
                     title=title,
                     title_is_auto=title_is_auto,
                     settings=settings,
-                    messages=messages,
+                    messages=result.messages,
                 )
-                return messages
+                return result.messages
             except Exception:
                 await self._save_session_messages_snapshot(
                     session_id=session_id,

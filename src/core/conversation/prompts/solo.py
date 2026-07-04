@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Protocol
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -13,21 +14,31 @@ from .common import character_summary
 
 
 class SoloChatSettings(Protocol):
-    chat_mode_name: str
-    chat_premise: str
-    user_persona_name: str
-    user_persona_description: str
+    @property
+    def chat_mode_name(self) -> str: ...
+
+    @property
+    def chat_premise(self) -> str: ...
+
+    @property
+    def user_persona_name(self) -> str: ...
+
+    @property
+    def user_persona_description(self) -> str: ...
 
 
 class SoloChatMessagePreview(Protocol):
-    speaker: str
-    text: str
+    @property
+    def speaker(self) -> str: ...
+
+    @property
+    def text(self) -> str: ...
 
 
 def build_llm_messages(
     sheet: CharacterSheet,
     settings: SoloChatSettings,
-    messages: list[SoloChatMessagePreview],
+    messages: Sequence[SoloChatMessagePreview],
     *,
     first_turn: bool = False,
     turn_instruction: str = "",
@@ -66,7 +77,7 @@ def build_llm_messages(
 def build_narration_llm_messages(
     sheet: CharacterSheet,
     settings: SoloChatSettings,
-    messages: list[SoloChatMessagePreview],
+    messages: Sequence[SoloChatMessagePreview],
     *,
     instruction: str = "",
 ) -> list:
@@ -97,7 +108,7 @@ def build_narration_llm_messages(
 def build_user_completion_messages(
     sheet: CharacterSheet,
     settings: SoloChatSettings,
-    messages: list[SoloChatMessagePreview],
+    messages: Sequence[SoloChatMessagePreview],
     left_text: str,
     *,
     input_mode: str = "user",
@@ -124,7 +135,7 @@ def build_user_completion_messages(
 def build_response_choice_messages(
     sheet: CharacterSheet,
     settings: SoloChatSettings,
-    messages: list[SoloChatMessagePreview],
+    messages: Sequence[SoloChatMessagePreview],
     left_text: str,
     *,
     input_mode: str = "user",
@@ -153,7 +164,7 @@ def build_response_choice_messages(
 def build_tailored_input_messages(
     sheet: CharacterSheet,
     settings: SoloChatSettings,
-    messages: list[SoloChatMessagePreview],
+    messages: Sequence[SoloChatMessagePreview],
     text: str,
     *,
     input_mode: str = "user",
@@ -183,7 +194,7 @@ def build_tailored_input_messages(
 def build_chat_title_messages(
     sheet: CharacterSheet,
     settings: SoloChatSettings,
-    messages: list[SoloChatMessagePreview],
+    messages: Sequence[SoloChatMessagePreview],
 ) -> list:
     return [
         SystemMessage(
@@ -305,7 +316,7 @@ def input_target_tailor_prompt(
     )
 
 
-def chat_history_for_prompt(messages: list[SoloChatMessagePreview]) -> str:
+def chat_history_for_prompt(messages: Sequence[SoloChatMessagePreview]) -> str:
     visible_messages = [message for message in messages if message.speaker in {"user", "character", "narration"}]
     if not visible_messages:
         return "（まだ会話はありません）"
@@ -323,7 +334,7 @@ def chat_history_for_prompt(messages: list[SoloChatMessagePreview]) -> str:
     return "\n".join(lines)
 
 
-def is_first_character_turn(messages: list[SoloChatMessagePreview]) -> bool:
+def is_first_character_turn(messages: Sequence[SoloChatMessagePreview]) -> bool:
     return not any(message.speaker in {"user", "character"} for message in messages)
 
 
