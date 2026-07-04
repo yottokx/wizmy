@@ -11,6 +11,7 @@ from .config import AppSettings
 from .services.api_config import ApiConfigService
 from .services.ai_jobs import AIJobService
 from .services.chat import ChatService
+from .services.chat_assist import ChatAssistService
 from .services.chat_turns import ChatTurnService
 from .services.character import CharacterService
 from .services.character_generation import CharacterGenerationService
@@ -38,6 +39,7 @@ class AppContext:
         self.ai_jobs = AIJobService()
         self.chats = ChatService(self._chat_repo)
         self.chat_turns = ChatTurnService()
+        self.chat_assist = ChatAssistService(self.ai_jobs)
         self.group_chats = GroupChatService(self._group_chat_repo, settings.data_dir)
         self.group_chat_assist = GroupChatAssistService(self.api_config, self.ai_jobs)
         self.group_chat_turns = GroupChatTurnService()

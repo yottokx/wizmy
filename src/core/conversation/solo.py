@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ..chat.schemas import ChatMode, UserPersona
 from ..chat.templates import render_chat_mode
 from ..character.schemas import CharacterSheet
@@ -51,3 +53,10 @@ def render_mode_for_sheet(
         character_name=sheet.name or "キャラクター",
         user_persona_name=persona.name or "ユーザー",
     )
+
+
+def clean_situation_enhancement(raw: str) -> str:
+    text = raw.strip()
+    text = re.sub(r"^```(?:\w+)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+    return text

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import re
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from nicegui import app, ui
 
 from ...core.chat.schemas import ChatMode, UserPersona
@@ -16,7 +14,6 @@ from ...core.character.schemas import (
     CHARACTER_TTS_API_TTS,
     CharacterSheet,
 )
-from ...core.conversation.llm_io import message_content_to_text
 from ...core.conversation.history import (
     chat_message_from_dict,
     chat_message_to_dict,
@@ -25,13 +22,7 @@ from ...core.conversation.history import (
     latest_message_preview,
     session_time_label,
 )
-from ...core.conversation.prompts.common import character_summary
-from ...core.conversation.prompts.solo import (
-    build_response_choice_messages,
-    build_system_prompt,
-    build_tailored_input_messages,
-    build_user_completion_messages,
-)
+from ...core.conversation.prompts.solo import build_system_prompt
 from ...core.conversation.schemas import ChatMessagePreview, ChatSessionSettings, time_label
 from ...core.conversation.solo import (
     input_mode_for_speaker,
@@ -47,10 +38,7 @@ from ..components.character_picker import open_character_picker
 from ..state import get_vault_password
 from . import components
 from .commands import (
-    clean_short_llm_text,
-    merge_completion,
     parse_command_input,
-    parse_response_choices,
     resolve_chat_command,
 )
 from .models import (
@@ -494,24 +482,25 @@ class ChatPageController:
         finally:
             self.set_sending(False)
 
-    async def _run_llm_assist_job(self, *, label: str, runner, failure_message: str):
-        job = self.ctx.ai_jobs.start_job(
-            kind=AIJobKind.LLM_ASSIST,
-            label=label,
-            scope=f"assist:{self.active_session_id or self.sheet.id}",
-            metadata={"character_id": self.sheet.id, "session_id": self.active_session_id or ""},
-            runner=lambda _: runner(),
-        )
-        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/characters/{self.sheet.id}/chat"})
+    def _solo_assist_scope(self) -> str:
+        return f"assist:{self.active_session_id or self.sheet.id}"
+
+    def _solo_assist_metadata(self) -> dict[str, str]:
+        return {"character_id": self.sheet.id, "session_id": self.active_session_id or ""}
+
+    def _solo_assist_result_url(self) -> str:
+        return f"/characters/{self.sheet.id}/chat"
+
+    async def _await_llm_assist_result(self, result_awaitable, *, failure_message: str):
         self.set_sending(True)
         try:
-            finished = await self.ctx.ai_jobs.wait(job.id)
-            if finished.status == AIJobStatus.SUCCEEDED:
-                return finished.result
-            if finished.status == AIJobStatus.CANCELLED:
+            result = await result_awaitable
+            if result.status == AIJobStatus.SUCCEEDED:
+                return result.value
+            if result.status == AIJobStatus.CANCELLED:
                 ui.notify("生成を停止しました", type="info")
                 return None
-            ui.notify(f"{failure_message}: {finished.error_message}", type="negative", timeout=10000)
+            ui.notify(f"{failure_message}: {result.error_message}", type="negative", timeout=10000)
             return None
         finally:
             self.set_sending(False)
@@ -1028,32 +1017,25 @@ class ChatPageController:
         if llm is None:
             return
 
-        focus_after_completion = False
-        async def _runner() -> str:
-            response = await llm.ainvoke(
-                build_user_completion_messages(
-                    self.sheet,
-                    settings,
-                    self.state.messages,
-                    left_text,
-                    input_mode=self.state.input_mode,
-                )
-            )
-            return message_content_to_text(getattr(response, "content", response))
-
-        raw_output = await self._run_llm_assist_job(
-            label="入力補完",
-            runner=_runner,
+        completed = await self._await_llm_assist_result(
+            self.ctx.chat_assist.complete_input_text(
+                llm=llm,
+                sheet=self.sheet,
+                settings=settings,
+                messages=self.state.messages,
+                left_text=left_text,
+                input_mode=self.state.input_mode,
+                scope=self._solo_assist_scope(),
+                metadata=self._solo_assist_metadata(),
+                result_url=self._solo_assist_result_url(),
+            ),
             failure_message="補完に失敗しました",
         )
-        if raw_output is None:
+        if completed is None:
             return
-        completed = merge_completion(left_text, raw_output)
-        self.set_input_value(completed)
-        focus_after_completion = True
+        self.set_input_value(str(completed))
         ui.notify("続きを補完しました", type="positive")
-        if focus_after_completion:
-            self.focus_chat_input_at_end()
+        self.focus_chat_input_at_end()
 
     async def tailor_input_text(self, settings: ChatSessionSettings, left_text: str) -> None:
         if not left_text.strip():
@@ -1063,35 +1045,28 @@ class ChatPageController:
         if llm is None:
             return
 
-        focus_after_tailor = False
-        async def _runner() -> str:
-            response = await llm.ainvoke(
-                build_tailored_input_messages(
-                    self.sheet,
-                    settings,
-                    self.state.messages,
-                    left_text,
-                    input_mode=self.state.input_mode,
-                )
-            )
-            return message_content_to_text(getattr(response, "content", response))
-
-        raw_output = await self._run_llm_assist_job(
-            label="入力書き換え",
-            runner=_runner,
+        tailored = await self._await_llm_assist_result(
+            self.ctx.chat_assist.tailor_input_text(
+                llm=llm,
+                sheet=self.sheet,
+                settings=settings,
+                messages=self.state.messages,
+                left_text=left_text,
+                input_mode=self.state.input_mode,
+                scope=self._solo_assist_scope(),
+                metadata=self._solo_assist_metadata(),
+                result_url=self._solo_assist_result_url(),
+            ),
             failure_message="書き換えに失敗しました",
         )
-        if raw_output is None:
+        if tailored is None:
             return
-        tailored = clean_short_llm_text(raw_output)
         if not tailored:
             ui.notify("書き換え結果が空でした", type="warning")
             return
-        self.set_input_value(tailored)
-        focus_after_tailor = True
+        self.set_input_value(str(tailored))
         ui.notify("現在のロール向けに書き換えました", type="positive")
-        if focus_after_tailor:
-            self.focus_chat_input_at_end()
+        self.focus_chat_input_at_end()
 
     async def show_response_choices(self, settings: ChatSessionSettings, left_text: str) -> None:
         llm = self.configured_llm(settings)
@@ -1099,29 +1074,23 @@ class ChatPageController:
             return
 
         input_mode = self.state.input_mode
-        async def _runner() -> list[str]:
-            response = await llm.ainvoke(
-                build_response_choice_messages(
-                    self.sheet,
-                    settings,
-                    self.state.messages,
-                    left_text,
-                    input_mode=input_mode,
-                )
-            )
-            raw_output = message_content_to_text(getattr(response, "content", response))
-            choices = parse_response_choices(raw_output)
-            if left_text.strip():
-                choices = [merge_completion(left_text, choice) for choice in choices]
-            return choices
-
-        choices = await self._run_llm_assist_job(
-            label="応答候補生成",
-            runner=_runner,
+        choices = await self._await_llm_assist_result(
+            self.ctx.chat_assist.generate_response_choices(
+                llm=llm,
+                sheet=self.sheet,
+                settings=settings,
+                messages=self.state.messages,
+                left_text=left_text,
+                input_mode=input_mode,
+                scope=self._solo_assist_scope(),
+                metadata=self._solo_assist_metadata(),
+                result_url=self._solo_assist_result_url(),
+            ),
             failure_message="選択肢生成に失敗しました",
         )
         if choices is None:
             return
+        choices = list(choices or [])
 
         if not choices:
             ui.notify("選択肢を生成できませんでした", type="warning")
@@ -1544,38 +1513,27 @@ setTimeout(() => {
         llm = configured_llm_for_profile(self.ctx, profile_id)
         if llm is None:
             return None
-        async def _runner() -> str:
-            response = await llm.ainvoke([
-                SystemMessage(content="あなたはキャラクターチャット開始時のシチュエーションを整える編集者です。"),
-                HumanMessage(content=(
-                    "次のチャット開始シチュエーションを、矛盾を増やさず具体性だけ補ってください。\n"
-                    "出力は補強後のシチュエーション本文だけにしてください。箇条書き、解説、前置きは禁止です。\n\n"
-                    f"キャラクター名: {self.sheet.name or 'キャラクター'}\n"
-                    f"チャットモード: {mode.name}\n"
-                    f"前提: {premise}\n"
-                    f"ユーザーペルソナ名: {persona.name}\n"
-                    f"ユーザーペルソナ設定:\n{persona.description.strip()}\n\n"
-                    f"現在のシチュエーション:\n{current_situation}\n\n"
-                    f"キャラクター概要:\n{character_summary(self.sheet)}"
-                )),
-            ])
-            return message_content_to_text(getattr(response, "content", response))
-
-        raw = await self._run_llm_assist_job(
-            label="シチュエーション補完",
-            runner=_runner,
+        enhanced = await self._await_llm_assist_result(
+            self.ctx.chat_assist.enhance_situation(
+                llm=llm,
+                sheet=self.sheet,
+                mode=mode,
+                persona=persona,
+                premise=premise,
+                current_situation=current_situation,
+                scope=self._solo_assist_scope(),
+                metadata=self._solo_assist_metadata(),
+                result_url=self._solo_assist_result_url(),
+            ),
             failure_message="シチュエーション補完に失敗しました",
         )
-        if raw is None:
+        if enhanced is None:
             return None
-        enhanced = raw.strip()
-        enhanced = re.sub(r"^```(?:\w+)?\s*", "", enhanced)
-        enhanced = re.sub(r"\s*```$", "", enhanced).strip()
         if not enhanced:
             ui.notify("シチュエーションを補完できませんでした", type="warning")
             return None
         ui.notify("シチュエーションを補完しました", type="positive")
-        return enhanced
+        return str(enhanced)
 
     def open_system_prompt_dialog(self) -> None:
         settings = self.state.settings
