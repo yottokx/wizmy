@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from .api_config import _build_user_personas_tab
 from .chat_modes import build_chat_modes_tab
 from .endpoints import build_endpoints_tab
 from .presets import build_options_tab, build_presets_tab
 from .profiles import build_profiles_tab
+from .user_personas import build_user_personas_tab
 
 
 async def build_llm_settings_tab(ctx) -> None:
@@ -45,4 +45,4 @@ async def build_chat_settings_tab(ctx) -> None:
         with ui.tab_panel(tab_chat_modes):
             await build_chat_modes_tab(ctx)
         with ui.tab_panel(tab_personas):
-            await _build_user_personas_tab(ctx)
+            await build_user_personas_tab(ctx)

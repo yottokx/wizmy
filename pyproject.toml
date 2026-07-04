@@ -73,7 +73,6 @@ ignore = [
 "src/ui/pages/character_detail.py" = ["F841"]
 "src/ui/pages/characters.py" = ["F841"]
 "src/ui/pages/group_chat.py" = ["F841"]
-"src/ui/pages/settings/api_config.py" = ["F401"]
 
 [tool.ruff.format]
 quote-style = "preserve"
@@ -132,7 +131,6 @@ exclude = [
     "src/ui/pages/generation.py",
     "src/ui/pages/group_chat.py",
     "src/ui/pages/group_chat_mock.py",
-    "src/ui/pages/settings/api_config.py",
     "src/ui/server_noise.py",
     "src/ui/state.py",
     "tests/test_ai_jobs.py",

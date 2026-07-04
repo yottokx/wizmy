@@ -687,9 +687,9 @@ def build_tts_endpoints_tab(ctx) -> None:
     def refresh_narrator() -> None:
         narrator_container.clear()
         with narrator_container:
-            from .api_config import _render_narrator_tts_settings
+            from .narrator import render_narrator_tts_settings
 
-            _render_narrator_tts_settings(ctx, refresh_narrator)
+            render_narrator_tts_settings(ctx, refresh_narrator)
 
     def refresh() -> None:
         refresh_narrator()
