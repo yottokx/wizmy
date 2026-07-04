@@ -22,12 +22,12 @@ from src.core.gen_server.schemas import (
     clean_gen_server_mode_defaults,
     default_gen_server_mode_defaults,
 )
+from src.core.tts_clients.wizmy_gen_server import WizmyGenServerVoiceDesignClient
 from src.services.api_config import ApiConfigService
 from src.services.ai_jobs import AIJobKind, AIJobService, AIJobStatus
 from src.services.tts import (
     TTSService,
     TTSServiceError,
-    WizmyGenServerVoiceDesignClient,
 )
 from src.storage.api_config_store import ApiConfigStore
 
@@ -92,7 +92,10 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
                     })
                     return b"audio"
 
-            with patch("src.services.tts.WizmyGenServerVoiceDesignClient", FakeDesignClient):
+            with patch(
+                "src.core.tts_clients.wizmy_gen_server.WizmyGenServerVoiceDesignClient",
+                FakeDesignClient,
+            ):
                 audio = await service.synthesize(
                     "char-1",
                     voice_path,
@@ -138,7 +141,10 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
                     })
                     return b"audio"
 
-            with patch("src.services.tts.WizmyGenServerVoiceCloneClient", FakeCloneClient):
+            with patch(
+                "src.core.tts_clients.wizmy_gen_server.WizmyGenServerVoiceCloneClient",
+                FakeCloneClient,
+            ):
                 audio = await service.synthesize(
                     "char-1",
                     voice_path,

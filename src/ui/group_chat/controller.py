@@ -1,4 +1,3 @@
-# ruff: noqa: F841
 """グループチャット詳細画面のコントローラ。"""
 
 from __future__ import annotations
@@ -52,7 +51,6 @@ from .common import (
     notify_group_chat_llm_runtime_error as _notify_group_chat_llm_runtime_error,
 )
 from .dialogs_controller import (
-    _guest_prefix_completion as _guest_prefix_completion,
     confirm_delete_chat_session,
     confirm_delete_current_chat,
     confirm_or_regenerate_character_message,
@@ -1297,7 +1295,7 @@ setTimeout(() => {
             return
 
         prior_messages = [dict(message) for message in self.messages]
-        placeholder_index = len(self.messages)
+        placeholder_index = len(self.messages)  # noqa: F841
         self.last_speaker_debug = None
         display_speaker = speaker or active[0]
         self.messages.append(group_message("character", "…", member=display_speaker))

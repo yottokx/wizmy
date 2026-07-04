@@ -24,14 +24,10 @@ from ..core.tts.schemas import (
     TTS_PROVIDER_IRODORI_SERVER,
     TTSEndpoint,
 )
-from ..core.tts_clients import (
-    DEFAULT_CHUNK_MIN_CHARS,
-    IrodoriGradioClient,
-    IrodoriTTSServerClient,
-    TTSServiceError,
-    WizmyGenServerVoiceCloneClient,
-    WizmyGenServerVoiceDesignClient,
-)
+from ..core.tts_clients import irodori as _irodori_clients
+from ..core.tts_clients import wizmy_gen_server as _wizmy_gen_server_clients
+from ..core.tts_clients.audio import DEFAULT_CHUNK_MIN_CHARS as _DEFAULT_CHUNK_MIN_CHARS
+from ..core.tts_clients.audio import TTSServiceError
 from .api_config import ApiConfigService
 from .ai_jobs import AIJobKind, AIJobRecord, AIJobService
 
@@ -59,15 +55,21 @@ class TTSService:
 
     def _voice_clone_client(self, endpoint: GenServerEndpoint):
         try:
-            return WizmyGenServerVoiceCloneClient(endpoint, self._ai_jobs)
+            return _wizmy_gen_server_clients.WizmyGenServerVoiceCloneClient(
+                endpoint,
+                self._ai_jobs,
+            )
         except TypeError:
-            return WizmyGenServerVoiceCloneClient(endpoint)
+            return _wizmy_gen_server_clients.WizmyGenServerVoiceCloneClient(endpoint)
 
     def _voice_design_client(self, endpoint: GenServerEndpoint):
         try:
-            return WizmyGenServerVoiceDesignClient(endpoint, self._ai_jobs)
+            return _wizmy_gen_server_clients.WizmyGenServerVoiceDesignClient(
+                endpoint,
+                self._ai_jobs,
+            )
         except TypeError:
-            return WizmyGenServerVoiceDesignClient(endpoint)
+            return _wizmy_gen_server_clients.WizmyGenServerVoiceDesignClient(endpoint)
 
     def _has_gen_server_voice_endpoint(self) -> bool:
         return (
@@ -83,7 +85,7 @@ class TTSService:
         config = self._api_config.get_gen_server_config()
         return (
             bool(config.voice_chunking_enabled),
-            max(1, int(config.voice_chunk_min_chars or DEFAULT_CHUNK_MIN_CHARS)),
+            max(1, int(config.voice_chunk_min_chars or _DEFAULT_CHUNK_MIN_CHARS)),
         )
 
     def resolve_endpoint(self, endpoint_id: str = "") -> TTSEndpoint:
@@ -262,7 +264,7 @@ class TTSService:
         endpoint = self.resolve_endpoint(endpoint_id)
         if endpoint.provider != TTS_PROVIDER_IRODORI_SERVER:
             raise TTSServiceError("現在のTTS APIはボイス登録に対応していません。")
-        return await IrodoriTTSServerClient(endpoint).register_voice(
+        return await _irodori_clients.IrodoriTTSServerClient(endpoint).register_voice(
             self.voice_id_for_character(character_id, voice_id),
             voice_path,
             filename=filename,
@@ -279,7 +281,7 @@ class TTSService:
         endpoint = self.resolve_endpoint(endpoint_id)
         if endpoint.provider != TTS_PROVIDER_IRODORI_SERVER:
             raise TTSServiceError("現在のTTS APIはボイス削除に対応していません。")
-        return await IrodoriTTSServerClient(endpoint).delete_voice(
+        return await _irodori_clients.IrodoriTTSServerClient(endpoint).delete_voice(
             self.voice_id_for_character(character_id, voice_id)
         )
 
@@ -342,13 +344,13 @@ class TTSService:
 
         tts_endpoint = self.resolve_endpoint(self._resolve_tts_endpoint_id(endpoint_id))
         if tts_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
-            return await IrodoriTTSServerClient(tts_endpoint).synthesize(
+            return await _irodori_clients.IrodoriTTSServerClient(tts_endpoint).synthesize(
                 self.voice_id_for_character(character_id, voice_id),
                 text,
                 chunking_enabled=resolved_chunking_enabled,
                 chunk_min_chars=resolved_chunk_min_chars,
             )
-        return await IrodoriGradioClient(tts_endpoint).synthesize(
+        return await _irodori_clients.IrodoriGradioClient(tts_endpoint).synthesize(
             text,
             voice_path,
             filename=filename,
