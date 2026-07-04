@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
@@ -18,7 +18,12 @@ from ...core.group_chat.schemas import (
     GroupUserPersona,
 )
 from ..chat import components as chat_components
+from ..chat.commands import command_suggestions, parse_command_input
 from ..chat.media import cropped_background_style
+from .common import HANDLE_RE
+
+if TYPE_CHECKING:
+    from .controller import GroupChatPageController
 
 
 def participant_media_style(ctx, participant: dict[str, Any], *, rect_kind: str) -> str:
@@ -588,3 +593,762 @@ def time_label(value: datetime) -> str:
     if value.year == now.year:
         return f"{value.month}/{value.day}"
     return value.strftime("%Y/%m/%d")
+
+
+_GROUP_MENTION_REFRESH_JS = r"""
+event => {
+  const input = event.target;
+  const palette = document.querySelector('.cs-group-mention-palette');
+  const wrapper = input && typeof input.closest === 'function'
+    ? input.closest('.cs-chat-composer-input-wrap')
+    : null;
+  const value = input && typeof input.value === 'string' ? input.value : '';
+  if (wrapper) {
+    wrapper.classList.toggle('cs-chat-composer-input-has-text', value.length > 0);
+  }
+  if (!input || !palette) return;
+  const mentionState = target => {
+    const cursor = target.selectionStart ?? target.value.length;
+    const before = target.value.slice(0, cursor);
+    const at = before.lastIndexOf('@');
+    if (at < 0) return null;
+    const query = before.slice(at + 1);
+    if (!/^[A-Za-z0-9_]*$/.test(query)) return null;
+    const previous = at > 0 ? before[at - 1] : '';
+    if (/[A-Za-z0-9_@]/.test(previous)) return null;
+    return { start: at, end: cursor, query: query.toLowerCase() };
+  };
+  const state = mentionState(input);
+  const options = Array.from(palette.querySelectorAll('.cs-group-mention-option'));
+  const visible = [];
+  for (const option of options) {
+    const handle = (option.dataset.handle || '').toLowerCase();
+    const matched = !!state && (state.query === '' || handle.startsWith(state.query));
+    option.classList.toggle('cs-group-mention-option-hidden', !matched);
+    if (matched) visible.push(option);
+  }
+  if (!state || !visible.length) {
+    palette.classList.add('cs-group-mention-palette-hidden');
+    return;
+  }
+  palette.classList.remove('cs-group-mention-palette-hidden');
+  let active = visible.find(option => option.classList.contains('cs-group-mention-option-active'));
+  if (!active) active = visible[0];
+  for (const option of options) {
+    const isActive = option === active;
+    option.classList.toggle('cs-group-mention-option-active', isActive);
+    option.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  }
+}
+"""
+
+_GROUP_MENTION_INSERT_JS = r"""
+event => {
+  event.preventDefault();
+  const option = event.currentTarget;
+  const input = document.querySelector('.cs-chat-composer-input textarea');
+  const palette = document.querySelector('.cs-group-mention-palette');
+  if (!option || !input) return;
+  const mentionState = target => {
+    const cursor = target.selectionStart ?? target.value.length;
+    const before = target.value.slice(0, cursor);
+    const at = before.lastIndexOf('@');
+    if (at < 0) return null;
+    const query = before.slice(at + 1);
+    if (!/^[A-Za-z0-9_]*$/.test(query)) return null;
+    const previous = at > 0 ? before[at - 1] : '';
+    if (/[A-Za-z0-9_@]/.test(previous)) return null;
+    return { start: at, end: cursor };
+  };
+  const state = mentionState(input);
+  const handle = option.dataset.handle || '';
+  if (!state || !handle) return;
+  const replacement = `@${handle} `;
+  input.value = input.value.slice(0, state.start) + replacement + input.value.slice(state.end);
+  const cursor = state.start + replacement.length;
+  input.selectionStart = input.selectionEnd = cursor;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  if (palette) palette.classList.add('cs-group-mention-palette-hidden');
+  input.focus();
+}
+"""
+
+_GROUP_CHAT_INPUT_KEYDOWN_JS = r"""
+event => {
+  const target = event.target;
+  const mentionPalette = document.querySelector('.cs-group-mention-palette');
+  const commandPalette = document.querySelector('.cs-chat-command-palette');
+  const value = target && typeof target.value === 'string' ? target.value : '';
+  const mentionState = input => {
+    if (!input || typeof input.value !== 'string') return null;
+    const cursor = input.selectionStart ?? input.value.length;
+    const before = input.value.slice(0, cursor);
+    const at = before.lastIndexOf('@');
+    if (at < 0) return null;
+    const query = before.slice(at + 1);
+    if (!/^[A-Za-z0-9_]*$/.test(query)) return null;
+    const previous = at > 0 ? before[at - 1] : '';
+    if (/[A-Za-z0-9_@]/.test(previous)) return null;
+    return { start: at, end: cursor };
+  };
+  const mentionOptions = () => mentionPalette
+    ? Array.from(mentionPalette.querySelectorAll(
+        '.cs-group-mention-option:not(.cs-group-mention-option-hidden)'
+      ))
+    : [];
+  const commandMatch = value.match(/^([\s\S]*)\/([A-Za-z]*)$/);
+  const commandOptions = commandPalette
+    ? Array.from(commandPalette.querySelectorAll('.cs-chat-command-option'))
+    : [];
+  const activeIndex = options => Math.max(
+    0,
+    options.findIndex(option =>
+      option.classList.contains('cs-group-mention-option-active')
+      || option.classList.contains('cs-chat-command-option-active')
+    ),
+  );
+  const setActive = (options, index, activeClass) => {
+    options.forEach((option, optionIndex) => {
+      const active = optionIndex === index;
+      option.classList.toggle(activeClass, active);
+      option.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (active && typeof option.scrollIntoView === 'function') {
+        option.scrollIntoView({ block: 'nearest' });
+      }
+    });
+  };
+  const insertOption = option => {
+    const state = mentionState(target);
+    const handle = option && option.dataset ? option.dataset.handle : '';
+    if (!state || !handle || !target || typeof target.value !== 'string') return false;
+    const replacement = `@${handle} `;
+    target.value = target.value.slice(0, state.start) + replacement + target.value.slice(state.end);
+    const cursor = state.start + replacement.length;
+    target.selectionStart = target.selectionEnd = cursor;
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    if (mentionPalette) mentionPalette.classList.add('cs-group-mention-palette-hidden');
+    return true;
+  };
+
+  if (mentionPalette && !mentionPalette.classList.contains('cs-group-mention-palette-hidden')) {
+    const options = mentionOptions();
+    if (options.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      setActive(options, (activeIndex(options) + delta + options.length) % options.length, 'cs-group-mention-option-active');
+      return;
+    }
+    if (options.length && (event.key === 'Enter' || event.key === 'Tab') && !event.isComposing) {
+      event.preventDefault();
+      insertOption(options[activeIndex(options)] || options[0]);
+      return;
+    }
+    if (event.key === 'Escape') {
+      mentionPalette.classList.add('cs-group-mention-palette-hidden');
+      return;
+    }
+  }
+
+  if (
+    commandMatch
+    && commandPalette
+    && !commandPalette.classList.contains('cs-chat-command-palette-hidden')
+    && commandOptions.length
+  ) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      setActive(
+        commandOptions,
+        (activeIndex(commandOptions) + delta + commandOptions.length) % commandOptions.length,
+        'cs-chat-command-option-active',
+      );
+      return;
+    }
+    if (event.key === 'Enter' && !event.isComposing && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      const active = commandOptions[activeIndex(commandOptions)] || commandOptions[0];
+      const command = active && active.dataset ? active.dataset.command : '';
+      if (command) {
+        target.value = commandMatch[1] + '/' + command;
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      commandPalette.classList.add('cs-chat-command-palette-hidden');
+      emit(target && typeof target.value === 'string' ? target.value : '');
+      return;
+    }
+    if (event.key === 'Escape') {
+      commandPalette.classList.add('cs-chat-command-palette-hidden');
+      return;
+    }
+  }
+
+  if (event.key !== 'Enter' || event.isComposing || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  emit(target && typeof target.value === 'string' ? target.value : '');
+}
+"""
+
+
+def render_shell(controller: "GroupChatPageController") -> None:
+    with ui.element("div").classes("cs-chat-shell cs-group-chat-shell"):
+        ui.element("div").classes("cs-chat-mobile-backdrop").on("click", lambda: controller.set_mobile_sidebar(False))
+
+        with ui.element("aside").classes("cs-chat-mobile-sidebar cs-chat-panel"):
+            with (
+                ui.row()
+                .classes("items-center justify-between px-3 py-2")
+                .style("border-bottom: 1px solid var(--cs-border);")
+            ):
+                ui.label("グループ").classes("text-sm font-semibold")
+                ui.button(icon="close", on_click=lambda: controller.set_mobile_sidebar(False)).props("flat round dense")
+            with ui.element("div").classes("cs-chat-scroll"):
+                mobile_profile = ui.element("div")
+                controller.profile_containers.append((mobile_profile, True))
+                controller.render_history_section()
+
+        with ui.element("aside").classes("cs-chat-profile-pane cs-chat-panel"):
+            profile = ui.element("div")
+            controller.profile_containers.append((profile, False))
+
+        with ui.element("aside").classes("cs-chat-side-pane cs-chat-panel"):
+            with ui.element("div").classes("cs-chat-scroll"):
+                side_profile = ui.element("div")
+                controller.profile_containers.append((side_profile, True))
+                controller.render_history_section()
+
+        with ui.element("aside").classes("cs-chat-history-pane cs-chat-panel"):
+            controller.render_history_section()
+
+        with ui.element("section").classes("cs-chat-main cs-chat-panel"):
+            controller.render_chat_main()
+
+    controller.refresh_profiles()
+    controller.scroll_messages_to_bottom()
+    ui.timer(0.1, controller.restore_active_ai_job, once=True)
+
+
+def refresh_profiles(controller: "GroupChatPageController") -> None:
+    current = controller.current_participant()
+    for container, compact in controller.profile_containers:
+        container.clear()
+        with container:
+            render_group_profile_panel(
+                controller.ctx,
+                controller.group,
+                controller.participants,
+                current,
+                selected_key=controller.selected["key"],
+                active_tab=controller.selected["tab"],
+                select_profile=controller.select_profile,
+                select_tab=controller.select_tab,
+                on_group_updated=controller.apply_group_update,
+                compact=compact,
+            )
+
+
+def render_mention_options(controller: "GroupChatPageController") -> None:
+    for index, participant in enumerate(controller.mention_participants()):
+        handle = str(participant.get("handle") or "").strip()
+        if not HANDLE_RE.match(handle):
+            continue
+        name = str(participant.get("name") or "メンバー")
+        selected = "true" if index == 0 else "false"
+        with (
+            ui.element("button")
+            .props(f"type=button data-handle={handle} aria-selected={selected}")
+            .classes("cs-group-mention-option")
+            .on(
+                "mousedown",
+                js_handler=_GROUP_MENTION_INSERT_JS,
+            )
+        ):
+            render_participant_face(controller.ctx, participant)
+            with ui.element("div").classes("cs-group-mention-info"):
+                ui.label(name).classes("cs-group-mention-name")
+                ui.label(f"@{handle}").classes("cs-group-mention-handle")
+            kind = "User" if participant.get("kind") == "user" else "Char"
+            ui.label(kind).classes("cs-group-mention-kind")
+
+
+def refresh_mention_palette(controller: "GroupChatPageController") -> None:
+    if controller.mention_palette is None:
+        return
+    controller.mention_palette.clear()
+    with controller.mention_palette:
+        controller.render_mention_options()
+    controller.page_client.run_javascript(
+        "document.querySelector('.cs-group-mention-palette')?.classList.add('cs-group-mention-palette-hidden');"
+    )
+
+
+def refresh_command_palette(controller: "GroupChatPageController", value: str) -> None:
+    if controller.command_palette is None:
+        return
+    controller.command_palette.clear()
+    parsed = parse_command_input(value)
+    if parsed is None:
+        controller.command_palette.classes("cs-chat-command-palette-hidden")
+        return
+    _, query = parsed
+    suggestions = command_suggestions(query)
+    controller.command_palette.classes(remove="cs-chat-command-palette-hidden")
+    if not suggestions:
+        with controller.command_palette:
+            ui.label("該当するコマンドがありません").classes("text-xs text-grey-6")
+        return
+    with controller.command_palette:
+        for index, command in enumerate(suggestions):
+            classes = "cs-chat-command-option"
+            if index == 0:
+                classes += " cs-chat-command-option-active"
+            with (
+                ui.element("button")
+                .props(f"type=button data-command={command.name} aria-selected={'true' if index == 0 else 'false'}")
+                .classes(classes)
+                .on(
+                    "click",
+                    controller._command_click_handler(command.name),
+                )
+            ):
+                ui.label(f"/{command.name}").classes("cs-chat-command-name")
+                ui.label(command.description).classes("cs-chat-command-desc")
+
+
+def render_history_section(controller: "GroupChatPageController") -> None:
+    with ui.element("div").classes("cs-chat-history-section") as section:
+        controller.history_sections.append(section)
+        controller.render_history()
+
+
+def render_history(controller: "GroupChatPageController") -> None:
+    with ui.element("div").classes("cs-chat-history-head"):
+        ui.icon("history").style("color: var(--cs-accent);")
+        ui.label("チャット履歴").classes("cs-chat-history-title")
+        ui.space()
+        ui.button(icon="add", on_click=controller.open_new_chat_dialog).props("flat round dense").tooltip(
+            "新しいチャット"
+        )
+    with ui.element("div").classes("cs-chat-scroll"):
+        with ui.element("div").classes("cs-chat-thread-list"):
+            if not controller.threads:
+                ui.label("保存済みチャットはまだありません").classes("cs-chat-history-empty")
+                return
+            for thread in controller.threads:
+                classes = "cs-chat-thread"
+                if thread.active:
+                    classes += " cs-chat-thread-active"
+                with ui.element("div").classes(classes):
+                    with (
+                        ui.element("button")
+                        .props("type=button")
+                        .classes("cs-chat-thread-open")
+                        .on("click", controller._select_thread_handler(thread.id))
+                    ):
+                        with ui.element("div").classes("cs-chat-thread-title-row"):
+                            ui.label(thread.title).classes("cs-chat-thread-title")
+                            ui.label(thread.time_label).classes("cs-chat-thread-time")
+                        ui.label(thread.preview).classes("cs-chat-thread-preview")
+                    with ui.element("div").classes("cs-chat-thread-actions"):
+                        ui.button(
+                            icon="edit",
+                            on_click=lambda thread_id=thread.id: controller.open_rename_chat_dialog(thread_id),
+                        ).props("flat round dense size=sm").classes("cs-chat-thread-action").tooltip("タイトル変更")
+                        ui.button(
+                            icon="delete",
+                            on_click=lambda thread_id=thread.id: controller.confirm_delete_chat_session(thread_id),
+                        ).props("flat round dense size=sm color=negative").classes("cs-chat-thread-action").tooltip(
+                            "チャット削除"
+                        )
+
+
+def refresh_history(controller: "GroupChatPageController") -> None:
+    for section in list(controller.history_sections):
+        section.clear()
+        with section:
+            controller.render_history()
+
+
+def render_chat_main(controller: "GroupChatPageController") -> None:
+    with ui.element("div").classes("cs-chat-main-head"):
+        ui.button(icon="menu", on_click=lambda: controller.set_mobile_sidebar(True)).props("flat round dense").classes(
+            "cs-chat-mobile-toggle"
+        )
+        with ui.column().classes("gap-0 cs-chat-main-title"):
+            controller.title_label = ui.label(controller.chat_title()).classes("text-base font-bold")
+            controller.subtitle_label = ui.label(controller.chat_subtitle()).classes("text-xs text-grey-6")
+        chat_components.render_chat_header_menu(
+            open_new_chat_dialog=controller.open_new_chat_dialog,
+            open_system_prompt=controller.open_system_prompt_dialog,
+            open_rename_current_chat=controller.open_rename_current_chat_dialog,
+            confirm_delete_current_chat=controller.confirm_delete_current_chat,
+        )
+
+    with ui.element("div").classes("cs-chat-messages") as messages_container:
+        controller.messages_container = messages_container
+        controller.render_messages()
+
+    with ui.element("div").classes("cs-chat-composer-shell"):
+        with ui.element("div").classes("cs-chat-command-palette cs-chat-command-palette-hidden") as command_palette:
+            controller.command_palette = command_palette
+
+        with (
+            ui.element("div")
+            .classes("cs-group-mention-palette cs-group-mention-palette-hidden")
+            .props("role=listbox") as mention_palette
+        ):
+            controller.mention_palette = mention_palette
+            controller.render_mention_options()
+
+        swipe_action_menu = ui.element("div").classes("cs-chat-swipe-action-menu cs-chat-swipe-action-menu-hidden")
+
+        async def _apply_swipe_action(command: str) -> None:
+            current_text = str(controller.input_box.value or "") if controller.input_box is not None else ""
+            parsed = parse_command_input(current_text)
+            left_text = parsed[0] if parsed is not None else current_text
+            if controller.command_palette is not None:
+                controller.command_palette.clear()
+                controller.command_palette.classes("cs-chat-command-palette-hidden")
+            if controller.mention_palette is not None:
+                controller.mention_palette.classes("cs-group-mention-palette-hidden")
+            swipe_action_menu.classes("cs-chat-swipe-action-menu-hidden")
+            await controller.send_message(False, f"{left_text.rstrip()}/{command}")
+
+        def _swipe_action_click_handler(command: str):
+            async def _handler(_) -> None:
+                await _apply_swipe_action(command)
+
+            return _handler
+
+        with swipe_action_menu:
+            for command, label, icon in (
+                ("choices", "選択肢を生成", "format_list_bulleted"),
+                ("fill", "続きを補完", "auto_fix_high"),
+                ("tailor", "書き直す", "edit_note"),
+            ):
+                with (
+                    ui.element("button")
+                    .props(f"type=button data-swipe-command={command}")
+                    .classes("cs-chat-swipe-action-option")
+                    .on("click", _swipe_action_click_handler(command))
+                ):
+                    ui.icon(icon).classes("cs-chat-swipe-action-icon")
+                    ui.label(f"/{command}").classes("cs-chat-swipe-action-command")
+                    ui.label(label).classes("cs-chat-swipe-action-label")
+
+        with ui.element("div").classes("cs-chat-composer"):
+            controller.render_input_role_selector()
+            with ui.element("div").classes("cs-chat-composer-input-wrap"):
+                controller.input_box = (
+                    ui.textarea(placeholder="メッセージを入力")
+                    .props("outlined dense rows=1 autogrow")
+                    .classes("cs-chat-composer-input")
+                )
+                voice_input_btn = (
+                    ui.button(icon="mic")
+                    .props("round flat dense aria-label=音声入力")
+                    .classes("cs-chat-voice-input")
+                    .tooltip("音声入力")
+                )
+                voice_input_btn.on(
+                    "click",
+                    js_handler=chat_components.VOICE_INPUT_CLICK_JS,
+                )
+
+                async def _send_from_enter(e) -> None:
+                    if isinstance(e.args, list):
+                        value = str(e.args[0] or "") if e.args else ""
+                    else:
+                        value = str(e.args or "")
+                    await controller.send_message(False, value)
+
+                controller.input_box.on_value_change(lambda e: controller.refresh_command_palette(str(e.value or "")))
+                controller.input_box.on("input", js_handler=_GROUP_MENTION_REFRESH_JS)
+                controller.input_box.on("keyup", js_handler=_GROUP_MENTION_REFRESH_JS)
+                controller.input_box.on("click", js_handler=_GROUP_MENTION_REFRESH_JS)
+                controller.input_box.on("focus", js_handler=_GROUP_MENTION_REFRESH_JS)
+                controller.input_box.on(
+                    "touchstart",
+                    js_handler="""
+event => {
+  const touch = event.touches && event.touches[0];
+  if (!touch) return;
+  window.__csComposerSwipeStart = {
+x: touch.clientX,
+y: touch.clientY,
+time: Date.now(),
+  };
+}
+""",
+                )
+                controller.input_box.on(
+                    "touchend",
+                    js_handler="""
+event => {
+  const start = window.__csComposerSwipeStart;
+  const touch = event.changedTouches && event.changedTouches[0];
+  window.__csComposerSwipeStart = null;
+  if (!start || !touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  const elapsed = Date.now() - start.time;
+  const isSwipeUp = dy < -42 && Math.abs(dy) > Math.abs(dx) * 1.15 && elapsed < 900;
+  if (!isSwipeUp) return;
+  const menu = document.querySelector('.cs-chat-swipe-action-menu');
+  const commandPalette = document.querySelector('.cs-chat-command-palette');
+  const mentionPalette = document.querySelector('.cs-group-mention-palette');
+  if (!menu) return;
+  event.preventDefault();
+  if (commandPalette) commandPalette.classList.add('cs-chat-command-palette-hidden');
+  if (mentionPalette) mentionPalette.classList.add('cs-group-mention-palette-hidden');
+  menu.classList.remove('cs-chat-swipe-action-menu-hidden');
+  if (!window.__csSwipeActionDismiss) {
+window.__csSwipeActionDismiss = dismissEvent => {
+  const currentMenu = document.querySelector('.cs-chat-swipe-action-menu');
+  if (!currentMenu || currentMenu.classList.contains('cs-chat-swipe-action-menu-hidden')) return;
+  const target = dismissEvent.target;
+  if (target && typeof target.closest === 'function' && target.closest('.cs-chat-swipe-action-menu')) return;
+  currentMenu.classList.add('cs-chat-swipe-action-menu-hidden');
+};
+document.addEventListener('click', window.__csSwipeActionDismiss, true);
+document.addEventListener('touchstart', window.__csSwipeActionDismiss, true);
+  }
+}
+""",
+                )
+                controller.input_box.on(
+                    "blur",
+                    js_handler="""
+event => {
+  setTimeout(() => {
+document.querySelector('.cs-group-mention-palette')
+  ?.classList.add('cs-group-mention-palette-hidden');
+  }, 120);
+}
+""",
+                )
+                controller.input_box.on(
+                    "keydown",
+                    _send_from_enter,
+                    js_handler=_GROUP_CHAT_INPUT_KEYDOWN_JS,
+                )
+
+            async def _send_from_button(_) -> None:
+                await controller.send_message(True)
+
+            async def _guide_from_long_tap(e) -> None:
+                if isinstance(e.args, list):
+                    value = str(e.args[0] or "") if e.args else ""
+                else:
+                    value = str(e.args or "")
+                parsed = parse_command_input(value)
+                left_text = parsed[0] if parsed is not None else value
+                await controller.send_message(False, f"{left_text.rstrip()}/guide")
+
+            controller.send_button = ui.button(icon="send").props("round color=primary unelevated")
+            controller.send_button.on(
+                "click",
+                _send_from_button,
+                js_handler="""
+event => {
+  if (window.__csSendLongTapSuppressClick) {
+window.__csSendLongTapSuppressClick = false;
+event.preventDefault();
+event.stopPropagation();
+return;
+  }
+  emit();
+}
+""",
+            )
+            controller.send_button.on(
+                "touchstart",
+                _guide_from_long_tap,
+                js_handler="""
+event => {
+  const touch = event.touches && event.touches[0];
+  if (!touch) return;
+  clearTimeout(window.__csSendLongTapTimer);
+  window.__csSendLongTapStart = {
+x: touch.clientX,
+y: touch.clientY,
+  };
+  window.__csSendLongTapTriggered = false;
+  window.__csSendLongTapTimer = setTimeout(() => {
+window.__csSendLongTapTriggered = true;
+window.__csSendLongTapSuppressClick = true;
+setTimeout(() => {
+  window.__csSendLongTapSuppressClick = false;
+}, 1200);
+const input = document.querySelector('.cs-chat-composer-input textarea');
+emit(input && typeof input.value === 'string' ? input.value : '');
+  }, 650);
+}
+""",
+            )
+            controller.send_button.on(
+                "touchmove",
+                js_handler="""
+event => {
+  const start = window.__csSendLongTapStart;
+  const touch = event.touches && event.touches[0];
+  if (!start || !touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  if (Math.hypot(dx, dy) > 14) {
+clearTimeout(window.__csSendLongTapTimer);
+  }
+}
+""",
+            )
+            controller.send_button.on(
+                "touchend",
+                js_handler="""
+event => {
+  clearTimeout(window.__csSendLongTapTimer);
+  window.__csSendLongTapStart = null;
+  if (window.__csSendLongTapTriggered) {
+event.preventDefault();
+  }
+}
+""",
+            )
+            controller.send_button.on(
+                "touchcancel",
+                js_handler="""
+event => {
+  clearTimeout(window.__csSendLongTapTimer);
+  window.__csSendLongTapStart = null;
+  window.__csSendLongTapTriggered = false;
+}
+""",
+            )
+    controller.refresh_input_mode_indicator()
+
+
+def render_input_role_selector(controller: "GroupChatPageController") -> None:
+    with ui.button().props("flat dense unelevated aria-label=入力ロールを変更").classes("cs-chat-mode-icon"):
+        controller.input_mode_icon = ui.element("div").classes("cs-chat-mode-icon-display")
+        with controller.input_mode_icon:
+            ui.icon(group_input_mode_icon(controller.input_mode))
+        with ui.menu().classes("cs-chat-mode-menu"):
+            with (
+                ui.element("button")
+                .props("type=button")
+                .classes("cs-group-menu-option")
+                .on(
+                    "click",
+                    lambda _: controller.set_input_mode("user"),
+                )
+            ):
+                render_group_user_menu_face(controller.ctx, controller.group.user_persona)
+                ui.label("ユーザー").classes("cs-group-menu-option-label")
+                ui.element("span")
+            with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
+                render_group_role_icon("character")
+                ui.label("キャラクター").classes("cs-group-menu-option-label")
+                ui.icon("chevron_right").classes("text-grey-6")
+                with (
+                    ui.menu()
+                    .props('anchor="top end" self="top start"')
+                    .classes("cs-chat-mode-menu cs-group-character-submenu")
+                ):
+                    active = controller.active_members()
+                    if not active:
+                        ui.label("参加キャラがいません").classes("text-xs text-grey-6 px-3 py-2")
+                    for member in active:
+                        with (
+                            ui.element("button")
+                            .props("type=button")
+                            .classes("cs-group-menu-option")
+                            .on(
+                                "click",
+                                lambda _, member=member: controller.set_character_input_member(member),
+                            )
+                        ):
+                            render_group_member_menu_face(controller.ctx, member)
+                            ui.label(f"{member.character.name} / @{member.handle}").classes(
+                                "cs-group-menu-option-label"
+                            )
+                            ui.element("span")
+                    with (
+                        ui.element("button")
+                        .props("type=button")
+                        .classes("cs-group-menu-option")
+                        .on(
+                            "click",
+                            lambda _: controller.open_guest_input_mode_dialog(),
+                        )
+                    ):
+                        render_group_role_icon("guest")
+                        ui.label("ゲスト").classes("cs-group-menu-option-label")
+                        ui.element("span")
+            with (
+                ui.element("button")
+                .props("type=button")
+                .classes("cs-group-menu-option")
+                .on(
+                    "click",
+                    lambda _: controller.set_input_mode("narration"),
+                )
+            ):
+                render_group_role_icon("narration")
+                ui.label("ナラティブ").classes("cs-group-menu-option-label")
+                ui.element("span")
+            with (
+                ui.element("button")
+                .props("type=button")
+                .classes("cs-group-menu-option")
+                .on(
+                    "click",
+                    lambda _: controller.set_input_mode("memo"),
+                )
+            ):
+                render_group_role_icon("memo")
+                ui.label("コメント").classes("cs-group-menu-option-label")
+                ui.element("span")
+
+
+def refresh_input_mode_indicator(controller: "GroupChatPageController") -> None:
+    if controller.input_mode_icon is None:
+        return
+    controller.input_mode_icon.clear()
+    with controller.input_mode_icon:
+        ui.icon(group_input_mode_icon(controller.input_mode))
+
+
+def refresh_chat_header(controller: "GroupChatPageController") -> None:
+    if controller.title_label is not None:
+        controller.title_label.set_text(controller.chat_title())
+    if controller.subtitle_label is not None:
+        controller.subtitle_label.set_text(controller.chat_subtitle())
+
+
+def render_messages(controller: "GroupChatPageController") -> None:
+    if not controller.messages:
+        with ui.element("div").classes("cs-group-chat-empty"):
+            ui.label("チャットはまだありません")
+        return
+    for index, message in enumerate(controller.messages):
+        render_group_chat_message(
+            controller.ctx,
+            message,
+            controller.participants,
+            index=index,
+            rewind_message=controller.confirm_rewind_to_message,
+            rewrite_message=controller.open_rewrite_message_dialog,
+            regenerate_message=controller.confirm_or_regenerate_character_message,
+            play_tts_message=controller.play_tts_message,
+            tts_playable=controller.message_tts_playable(message),
+            tts_generating=controller.tts_generating_index == index,
+        )
+
+
+def refresh_messages(controller: "GroupChatPageController", *, scroll_to_bottom: bool = False) -> None:
+    if controller.messages_container is None:
+        return
+    controller.messages_container.clear()
+    with controller.messages_container:
+        controller.render_messages()
+    if scroll_to_bottom:
+        controller.scroll_messages_to_bottom()

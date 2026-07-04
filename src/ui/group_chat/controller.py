@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from nicegui import app, ui
@@ -23,13 +22,10 @@ from ...core.conversation.history import (
     settings_without_participant,
 )
 from ...core.conversation.prompts.group import (
-    build_group_system_prompt,
     group_input_mode_for_role,
 )
 from ...core.conversation.sanitize import (
     clean_guest_name,
-    guest_display_name,
-    guest_name_from_actor_text,
 )
 from ...core.group_chat.schemas import GroupChatRecord, GroupMember, GroupUserPersona
 from ...core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE, GroupChatSessionRecord
@@ -44,230 +40,51 @@ from ...services.llm_runtime import (
     build_configured_llm,
 )
 from ...services.tts import TTSServiceError
-from ..chat import components as chat_components
 from ..chat.commands import (
-    command_suggestions,
     parse_command_input,
     resolve_chat_command,
 )
 from ..chat.models import ChatDebugInfo, ChatThreadPreview
 from ..state import get_vault_password
 from .common import (
-    HANDLE_RE as _HANDLE_RE,
-    default_profile_id as _default_profile_id,
     group_member_tts_id as _group_member_tts_id,
     group_user_persona_tts_id as _group_user_persona_tts_id,
     notify_group_chat_llm_runtime_error as _notify_group_chat_llm_runtime_error,
-    profile_options as _profile_options,
+)
+from .dialogs_controller import (
+    _guest_prefix_completion as _guest_prefix_completion,
+    confirm_delete_chat_session,
+    confirm_delete_current_chat,
+    confirm_or_regenerate_character_message,
+    confirm_rewind_to_message,
+    open_guest_input_mode_dialog,
+    open_guide_next_turn_dialog,
+    open_imitate_character_dialog,
+    open_new_chat_dialog,
+    open_rename_chat_dialog,
+    open_rename_current_chat_dialog,
+    open_rewrite_message_dialog,
+    open_system_prompt_dialog,
 )
 from .rendering import (
-    group_input_mode_icon as _group_input_mode_icon,
     group_message_target_label as _group_message_target_label,
     group_participants as _group_participants,
-    render_face as _render_face,
-    render_group_chat_message as _render_group_chat_message,
-    render_group_member_menu_face as _render_group_member_menu_face,
-    render_group_profile_panel as _render_group_profile_panel,
-    render_group_role_icon as _render_group_role_icon,
-    render_group_user_menu_face as _render_group_user_menu_face,
-    render_participant_face as _render_participant_face,
+    refresh_chat_header,
+    refresh_command_palette,
+    refresh_history,
+    refresh_input_mode_indicator,
+    refresh_mention_palette,
+    refresh_messages,
+    refresh_profiles,
+    render_chat_main,
+    render_history,
+    render_history_section,
+    render_input_role_selector,
+    render_mention_options,
+    render_messages,
+    render_shell,
     time_label as _time_label,
 )
-
-
-_GROUP_MENTION_REFRESH_JS = r"""
-event => {
-  const input = event.target;
-  const palette = document.querySelector('.cs-group-mention-palette');
-  const wrapper = input && typeof input.closest === 'function'
-    ? input.closest('.cs-chat-composer-input-wrap')
-    : null;
-  const value = input && typeof input.value === 'string' ? input.value : '';
-  if (wrapper) {
-    wrapper.classList.toggle('cs-chat-composer-input-has-text', value.length > 0);
-  }
-  if (!input || !palette) return;
-  const mentionState = target => {
-    const cursor = target.selectionStart ?? target.value.length;
-    const before = target.value.slice(0, cursor);
-    const at = before.lastIndexOf('@');
-    if (at < 0) return null;
-    const query = before.slice(at + 1);
-    if (!/^[A-Za-z0-9_]*$/.test(query)) return null;
-    const previous = at > 0 ? before[at - 1] : '';
-    if (/[A-Za-z0-9_@]/.test(previous)) return null;
-    return { start: at, end: cursor, query: query.toLowerCase() };
-  };
-  const state = mentionState(input);
-  const options = Array.from(palette.querySelectorAll('.cs-group-mention-option'));
-  const visible = [];
-  for (const option of options) {
-    const handle = (option.dataset.handle || '').toLowerCase();
-    const matched = !!state && (state.query === '' || handle.startsWith(state.query));
-    option.classList.toggle('cs-group-mention-option-hidden', !matched);
-    if (matched) visible.push(option);
-  }
-  if (!state || !visible.length) {
-    palette.classList.add('cs-group-mention-palette-hidden');
-    return;
-  }
-  palette.classList.remove('cs-group-mention-palette-hidden');
-  let active = visible.find(option => option.classList.contains('cs-group-mention-option-active'));
-  if (!active) active = visible[0];
-  for (const option of options) {
-    const isActive = option === active;
-    option.classList.toggle('cs-group-mention-option-active', isActive);
-    option.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  }
-}
-"""
-
-_GROUP_MENTION_INSERT_JS = r"""
-event => {
-  event.preventDefault();
-  const option = event.currentTarget;
-  const input = document.querySelector('.cs-chat-composer-input textarea');
-  const palette = document.querySelector('.cs-group-mention-palette');
-  if (!option || !input) return;
-  const mentionState = target => {
-    const cursor = target.selectionStart ?? target.value.length;
-    const before = target.value.slice(0, cursor);
-    const at = before.lastIndexOf('@');
-    if (at < 0) return null;
-    const query = before.slice(at + 1);
-    if (!/^[A-Za-z0-9_]*$/.test(query)) return null;
-    const previous = at > 0 ? before[at - 1] : '';
-    if (/[A-Za-z0-9_@]/.test(previous)) return null;
-    return { start: at, end: cursor };
-  };
-  const state = mentionState(input);
-  const handle = option.dataset.handle || '';
-  if (!state || !handle) return;
-  const replacement = `@${handle} `;
-  input.value = input.value.slice(0, state.start) + replacement + input.value.slice(state.end);
-  const cursor = state.start + replacement.length;
-  input.selectionStart = input.selectionEnd = cursor;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  if (palette) palette.classList.add('cs-group-mention-palette-hidden');
-  input.focus();
-}
-"""
-
-_GROUP_CHAT_INPUT_KEYDOWN_JS = r"""
-event => {
-  const target = event.target;
-  const mentionPalette = document.querySelector('.cs-group-mention-palette');
-  const commandPalette = document.querySelector('.cs-chat-command-palette');
-  const value = target && typeof target.value === 'string' ? target.value : '';
-  const mentionState = input => {
-    if (!input || typeof input.value !== 'string') return null;
-    const cursor = input.selectionStart ?? input.value.length;
-    const before = input.value.slice(0, cursor);
-    const at = before.lastIndexOf('@');
-    if (at < 0) return null;
-    const query = before.slice(at + 1);
-    if (!/^[A-Za-z0-9_]*$/.test(query)) return null;
-    const previous = at > 0 ? before[at - 1] : '';
-    if (/[A-Za-z0-9_@]/.test(previous)) return null;
-    return { start: at, end: cursor };
-  };
-  const mentionOptions = () => mentionPalette
-    ? Array.from(mentionPalette.querySelectorAll(
-        '.cs-group-mention-option:not(.cs-group-mention-option-hidden)'
-      ))
-    : [];
-  const commandMatch = value.match(/^([\s\S]*)\/([A-Za-z]*)$/);
-  const commandOptions = commandPalette
-    ? Array.from(commandPalette.querySelectorAll('.cs-chat-command-option'))
-    : [];
-  const activeIndex = options => Math.max(
-    0,
-    options.findIndex(option =>
-      option.classList.contains('cs-group-mention-option-active')
-      || option.classList.contains('cs-chat-command-option-active')
-    ),
-  );
-  const setActive = (options, index, activeClass) => {
-    options.forEach((option, optionIndex) => {
-      const active = optionIndex === index;
-      option.classList.toggle(activeClass, active);
-      option.setAttribute('aria-selected', active ? 'true' : 'false');
-      if (active && typeof option.scrollIntoView === 'function') {
-        option.scrollIntoView({ block: 'nearest' });
-      }
-    });
-  };
-  const insertOption = option => {
-    const state = mentionState(target);
-    const handle = option && option.dataset ? option.dataset.handle : '';
-    if (!state || !handle || !target || typeof target.value !== 'string') return false;
-    const replacement = `@${handle} `;
-    target.value = target.value.slice(0, state.start) + replacement + target.value.slice(state.end);
-    const cursor = state.start + replacement.length;
-    target.selectionStart = target.selectionEnd = cursor;
-    target.dispatchEvent(new Event('input', { bubbles: true }));
-    if (mentionPalette) mentionPalette.classList.add('cs-group-mention-palette-hidden');
-    return true;
-  };
-
-  if (mentionPalette && !mentionPalette.classList.contains('cs-group-mention-palette-hidden')) {
-    const options = mentionOptions();
-    if (options.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      event.preventDefault();
-      const delta = event.key === 'ArrowDown' ? 1 : -1;
-      setActive(options, (activeIndex(options) + delta + options.length) % options.length, 'cs-group-mention-option-active');
-      return;
-    }
-    if (options.length && (event.key === 'Enter' || event.key === 'Tab') && !event.isComposing) {
-      event.preventDefault();
-      insertOption(options[activeIndex(options)] || options[0]);
-      return;
-    }
-    if (event.key === 'Escape') {
-      mentionPalette.classList.add('cs-group-mention-palette-hidden');
-      return;
-    }
-  }
-
-  if (
-    commandMatch
-    && commandPalette
-    && !commandPalette.classList.contains('cs-chat-command-palette-hidden')
-    && commandOptions.length
-  ) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      const delta = event.key === 'ArrowDown' ? 1 : -1;
-      setActive(
-        commandOptions,
-        (activeIndex(commandOptions) + delta + commandOptions.length) % commandOptions.length,
-        'cs-chat-command-option-active',
-      );
-      return;
-    }
-    if (event.key === 'Enter' && !event.isComposing && !event.shiftKey && !event.altKey) {
-      event.preventDefault();
-      const active = commandOptions[activeIndex(commandOptions)] || commandOptions[0];
-      const command = active && active.dataset ? active.dataset.command : '';
-      if (command) {
-        target.value = commandMatch[1] + '/' + command;
-        target.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      commandPalette.classList.add('cs-chat-command-palette-hidden');
-      emit(target && typeof target.value === 'string' ? target.value : '');
-      return;
-    }
-    if (event.key === 'Escape') {
-      commandPalette.classList.add('cs-chat-command-palette-hidden');
-      return;
-    }
-  }
-
-  if (event.key !== 'Enter' || event.isComposing || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  emit(target && typeof target.value === 'string' ? target.value : '');
-}
-"""
 
 
 class GroupChatPageController:
@@ -315,41 +132,7 @@ class GroupChatPageController:
         self.threads = [self.thread_preview(session) for session in sessions]
 
     def render_shell(self) -> None:
-        with ui.element("div").classes("cs-chat-shell cs-group-chat-shell"):
-            ui.element("div").classes("cs-chat-mobile-backdrop").on("click", lambda: self.set_mobile_sidebar(False))
-
-            with ui.element("aside").classes("cs-chat-mobile-sidebar cs-chat-panel"):
-                with (
-                    ui.row()
-                    .classes("items-center justify-between px-3 py-2")
-                    .style("border-bottom: 1px solid var(--cs-border);")
-                ):
-                    ui.label("グループ").classes("text-sm font-semibold")
-                    ui.button(icon="close", on_click=lambda: self.set_mobile_sidebar(False)).props("flat round dense")
-                with ui.element("div").classes("cs-chat-scroll"):
-                    mobile_profile = ui.element("div")
-                    self.profile_containers.append((mobile_profile, True))
-                    self.render_history_section()
-
-            with ui.element("aside").classes("cs-chat-profile-pane cs-chat-panel"):
-                profile = ui.element("div")
-                self.profile_containers.append((profile, False))
-
-            with ui.element("aside").classes("cs-chat-side-pane cs-chat-panel"):
-                with ui.element("div").classes("cs-chat-scroll"):
-                    side_profile = ui.element("div")
-                    self.profile_containers.append((side_profile, True))
-                    self.render_history_section()
-
-            with ui.element("aside").classes("cs-chat-history-pane cs-chat-panel"):
-                self.render_history_section()
-
-            with ui.element("section").classes("cs-chat-main cs-chat-panel"):
-                self.render_chat_main()
-
-        self.refresh_profiles()
-        self.scroll_messages_to_bottom()
-        ui.timer(0.1, self.restore_active_ai_job, once=True)
+        return render_shell(self)
 
     async def restore_active_ai_job(self) -> None:
         if self.active_session_id is None:
@@ -366,22 +149,7 @@ class GroupChatPageController:
         return self.participants[0] if self.participants else None
 
     def refresh_profiles(self) -> None:
-        current = self.current_participant()
-        for container, compact in self.profile_containers:
-            container.clear()
-            with container:
-                _render_group_profile_panel(
-                    self.ctx,
-                    self.group,
-                    self.participants,
-                    current,
-                    selected_key=self.selected["key"],
-                    active_tab=self.selected["tab"],
-                    select_profile=self.select_profile,
-                    select_tab=self.select_tab,
-                    on_group_updated=self.apply_group_update,
-                    compact=compact,
-                )
+        return refresh_profiles(self)
 
     def apply_group_update(self, group: GroupChatRecord) -> None:
         self.group = group
@@ -407,69 +175,13 @@ class GroupChatPageController:
         return participants
 
     def render_mention_options(self) -> None:
-        for index, participant in enumerate(self.mention_participants()):
-            handle = str(participant.get("handle") or "").strip()
-            if not _HANDLE_RE.match(handle):
-                continue
-            name = str(participant.get("name") or "メンバー")
-            selected = "true" if index == 0 else "false"
-            with (
-                ui.element("button")
-                .props(f"type=button data-handle={handle} aria-selected={selected}")
-                .classes("cs-group-mention-option")
-                .on(
-                    "mousedown",
-                    js_handler=_GROUP_MENTION_INSERT_JS,
-                )
-            ):
-                _render_participant_face(self.ctx, participant)
-                with ui.element("div").classes("cs-group-mention-info"):
-                    ui.label(name).classes("cs-group-mention-name")
-                    ui.label(f"@{handle}").classes("cs-group-mention-handle")
-                kind = "User" if participant.get("kind") == "user" else "Char"
-                ui.label(kind).classes("cs-group-mention-kind")
+        return render_mention_options(self)
 
     def refresh_mention_palette(self) -> None:
-        if self.mention_palette is None:
-            return
-        self.mention_palette.clear()
-        with self.mention_palette:
-            self.render_mention_options()
-        self.page_client.run_javascript(
-            "document.querySelector('.cs-group-mention-palette')?.classList.add('cs-group-mention-palette-hidden');"
-        )
+        return refresh_mention_palette(self)
 
     def refresh_command_palette(self, value: str) -> None:
-        if self.command_palette is None:
-            return
-        self.command_palette.clear()
-        parsed = parse_command_input(value)
-        if parsed is None:
-            self.command_palette.classes("cs-chat-command-palette-hidden")
-            return
-        _, query = parsed
-        suggestions = command_suggestions(query)
-        self.command_palette.classes(remove="cs-chat-command-palette-hidden")
-        if not suggestions:
-            with self.command_palette:
-                ui.label("該当するコマンドがありません").classes("text-xs text-grey-6")
-            return
-        with self.command_palette:
-            for index, command in enumerate(suggestions):
-                classes = "cs-chat-command-option"
-                if index == 0:
-                    classes += " cs-chat-command-option-active"
-                with (
-                    ui.element("button")
-                    .props(f"type=button data-command={command.name} aria-selected={'true' if index == 0 else 'false'}")
-                    .classes(classes)
-                    .on(
-                        "click",
-                        self._command_click_handler(command.name),
-                    )
-                ):
-                    ui.label(f"/{command.name}").classes("cs-chat-command-name")
-                    ui.label(command.description).classes("cs-chat-command-desc")
+        return refresh_command_palette(self, value)
 
     def _command_click_handler(self, command: str):
         async def _handler(_) -> None:
@@ -498,49 +210,10 @@ class GroupChatPageController:
         )
 
     def render_history_section(self) -> None:
-        with ui.element("div").classes("cs-chat-history-section") as section:
-            self.history_sections.append(section)
-            self.render_history()
+        return render_history_section(self)
 
     def render_history(self) -> None:
-        with ui.element("div").classes("cs-chat-history-head"):
-            ui.icon("history").style("color: var(--cs-accent);")
-            ui.label("チャット履歴").classes("cs-chat-history-title")
-            ui.space()
-            ui.button(icon="add", on_click=self.open_new_chat_dialog).props("flat round dense").tooltip(
-                "新しいチャット"
-            )
-        with ui.element("div").classes("cs-chat-scroll"):
-            with ui.element("div").classes("cs-chat-thread-list"):
-                if not self.threads:
-                    ui.label("保存済みチャットはまだありません").classes("cs-chat-history-empty")
-                    return
-                for thread in self.threads:
-                    classes = "cs-chat-thread"
-                    if thread.active:
-                        classes += " cs-chat-thread-active"
-                    with ui.element("div").classes(classes):
-                        with (
-                            ui.element("button")
-                            .props("type=button")
-                            .classes("cs-chat-thread-open")
-                            .on("click", self._select_thread_handler(thread.id))
-                        ):
-                            with ui.element("div").classes("cs-chat-thread-title-row"):
-                                ui.label(thread.title).classes("cs-chat-thread-title")
-                                ui.label(thread.time_label).classes("cs-chat-thread-time")
-                            ui.label(thread.preview).classes("cs-chat-thread-preview")
-                        with ui.element("div").classes("cs-chat-thread-actions"):
-                            ui.button(
-                                icon="edit",
-                                on_click=lambda thread_id=thread.id: self.open_rename_chat_dialog(thread_id),
-                            ).props("flat round dense size=sm").classes("cs-chat-thread-action").tooltip("タイトル変更")
-                            ui.button(
-                                icon="delete",
-                                on_click=lambda thread_id=thread.id: self.confirm_delete_chat_session(thread_id),
-                            ).props("flat round dense size=sm color=negative").classes("cs-chat-thread-action").tooltip(
-                                "チャット削除"
-                            )
+        return render_history(self)
 
     def _select_thread_handler(self, session_id: str):
         async def _handler(_) -> None:
@@ -549,348 +222,13 @@ class GroupChatPageController:
         return _handler
 
     def refresh_history(self) -> None:
-        for section in list(self.history_sections):
-            section.clear()
-            with section:
-                self.render_history()
+        return refresh_history(self)
 
     def render_chat_main(self) -> None:
-        with ui.element("div").classes("cs-chat-main-head"):
-            ui.button(icon="menu", on_click=lambda: self.set_mobile_sidebar(True)).props("flat round dense").classes(
-                "cs-chat-mobile-toggle"
-            )
-            with ui.column().classes("gap-0 cs-chat-main-title"):
-                self.title_label = ui.label(self.chat_title()).classes("text-base font-bold")
-                self.subtitle_label = ui.label(self.chat_subtitle()).classes("text-xs text-grey-6")
-            chat_components.render_chat_header_menu(
-                open_new_chat_dialog=self.open_new_chat_dialog,
-                open_system_prompt=self.open_system_prompt_dialog,
-                open_rename_current_chat=self.open_rename_current_chat_dialog,
-                confirm_delete_current_chat=self.confirm_delete_current_chat,
-            )
-
-        with ui.element("div").classes("cs-chat-messages") as messages_container:
-            self.messages_container = messages_container
-            self.render_messages()
-
-        with ui.element("div").classes("cs-chat-composer-shell"):
-            with ui.element("div").classes("cs-chat-command-palette cs-chat-command-palette-hidden") as command_palette:
-                self.command_palette = command_palette
-
-            with (
-                ui.element("div")
-                .classes("cs-group-mention-palette cs-group-mention-palette-hidden")
-                .props("role=listbox") as mention_palette
-            ):
-                self.mention_palette = mention_palette
-                self.render_mention_options()
-
-            swipe_action_menu = ui.element("div").classes("cs-chat-swipe-action-menu cs-chat-swipe-action-menu-hidden")
-
-            async def _apply_swipe_action(command: str) -> None:
-                current_text = str(self.input_box.value or "") if self.input_box is not None else ""
-                parsed = parse_command_input(current_text)
-                left_text = parsed[0] if parsed is not None else current_text
-                if self.command_palette is not None:
-                    self.command_palette.clear()
-                    self.command_palette.classes("cs-chat-command-palette-hidden")
-                if self.mention_palette is not None:
-                    self.mention_palette.classes("cs-group-mention-palette-hidden")
-                swipe_action_menu.classes("cs-chat-swipe-action-menu-hidden")
-                await self.send_message(False, f"{left_text.rstrip()}/{command}")
-
-            def _swipe_action_click_handler(command: str):
-                async def _handler(_) -> None:
-                    await _apply_swipe_action(command)
-
-                return _handler
-
-            with swipe_action_menu:
-                for command, label, icon in (
-                    ("choices", "選択肢を生成", "format_list_bulleted"),
-                    ("fill", "続きを補完", "auto_fix_high"),
-                    ("tailor", "書き直す", "edit_note"),
-                ):
-                    with (
-                        ui.element("button")
-                        .props(f"type=button data-swipe-command={command}")
-                        .classes("cs-chat-swipe-action-option")
-                        .on("click", _swipe_action_click_handler(command))
-                    ):
-                        ui.icon(icon).classes("cs-chat-swipe-action-icon")
-                        ui.label(f"/{command}").classes("cs-chat-swipe-action-command")
-                        ui.label(label).classes("cs-chat-swipe-action-label")
-
-            with ui.element("div").classes("cs-chat-composer"):
-                self.render_input_role_selector()
-                with ui.element("div").classes("cs-chat-composer-input-wrap"):
-                    self.input_box = (
-                        ui.textarea(placeholder="メッセージを入力")
-                        .props("outlined dense rows=1 autogrow")
-                        .classes("cs-chat-composer-input")
-                    )
-                    voice_input_btn = (
-                        ui.button(icon="mic")
-                        .props("round flat dense aria-label=音声入力")
-                        .classes("cs-chat-voice-input")
-                        .tooltip("音声入力")
-                    )
-                    voice_input_btn.on(
-                        "click",
-                        js_handler=chat_components.VOICE_INPUT_CLICK_JS,
-                    )
-
-                    async def _send_from_enter(e) -> None:
-                        if isinstance(e.args, list):
-                            value = str(e.args[0] or "") if e.args else ""
-                        else:
-                            value = str(e.args or "")
-                        await self.send_message(False, value)
-
-                    self.input_box.on_value_change(lambda e: self.refresh_command_palette(str(e.value or "")))
-                    self.input_box.on("input", js_handler=_GROUP_MENTION_REFRESH_JS)
-                    self.input_box.on("keyup", js_handler=_GROUP_MENTION_REFRESH_JS)
-                    self.input_box.on("click", js_handler=_GROUP_MENTION_REFRESH_JS)
-                    self.input_box.on("focus", js_handler=_GROUP_MENTION_REFRESH_JS)
-                    self.input_box.on(
-                        "touchstart",
-                        js_handler="""
-event => {
-  const touch = event.touches && event.touches[0];
-  if (!touch) return;
-  window.__csComposerSwipeStart = {
-    x: touch.clientX,
-    y: touch.clientY,
-    time: Date.now(),
-  };
-}
-""",
-                    )
-                    self.input_box.on(
-                        "touchend",
-                        js_handler="""
-event => {
-  const start = window.__csComposerSwipeStart;
-  const touch = event.changedTouches && event.changedTouches[0];
-  window.__csComposerSwipeStart = null;
-  if (!start || !touch) return;
-  const dx = touch.clientX - start.x;
-  const dy = touch.clientY - start.y;
-  const elapsed = Date.now() - start.time;
-  const isSwipeUp = dy < -42 && Math.abs(dy) > Math.abs(dx) * 1.15 && elapsed < 900;
-  if (!isSwipeUp) return;
-  const menu = document.querySelector('.cs-chat-swipe-action-menu');
-  const commandPalette = document.querySelector('.cs-chat-command-palette');
-  const mentionPalette = document.querySelector('.cs-group-mention-palette');
-  if (!menu) return;
-  event.preventDefault();
-  if (commandPalette) commandPalette.classList.add('cs-chat-command-palette-hidden');
-  if (mentionPalette) mentionPalette.classList.add('cs-group-mention-palette-hidden');
-  menu.classList.remove('cs-chat-swipe-action-menu-hidden');
-  if (!window.__csSwipeActionDismiss) {
-    window.__csSwipeActionDismiss = dismissEvent => {
-      const currentMenu = document.querySelector('.cs-chat-swipe-action-menu');
-      if (!currentMenu || currentMenu.classList.contains('cs-chat-swipe-action-menu-hidden')) return;
-      const target = dismissEvent.target;
-      if (target && typeof target.closest === 'function' && target.closest('.cs-chat-swipe-action-menu')) return;
-      currentMenu.classList.add('cs-chat-swipe-action-menu-hidden');
-    };
-    document.addEventListener('click', window.__csSwipeActionDismiss, true);
-    document.addEventListener('touchstart', window.__csSwipeActionDismiss, true);
-  }
-}
-""",
-                    )
-                    self.input_box.on(
-                        "blur",
-                        js_handler="""
-event => {
-  setTimeout(() => {
-    document.querySelector('.cs-group-mention-palette')
-      ?.classList.add('cs-group-mention-palette-hidden');
-  }, 120);
-}
-""",
-                    )
-                    self.input_box.on(
-                        "keydown",
-                        _send_from_enter,
-                        js_handler=_GROUP_CHAT_INPUT_KEYDOWN_JS,
-                    )
-
-                async def _send_from_button(_) -> None:
-                    await self.send_message(True)
-
-                async def _guide_from_long_tap(e) -> None:
-                    if isinstance(e.args, list):
-                        value = str(e.args[0] or "") if e.args else ""
-                    else:
-                        value = str(e.args or "")
-                    parsed = parse_command_input(value)
-                    left_text = parsed[0] if parsed is not None else value
-                    await self.send_message(False, f"{left_text.rstrip()}/guide")
-
-                self.send_button = ui.button(icon="send").props("round color=primary unelevated")
-                self.send_button.on(
-                    "click",
-                    _send_from_button,
-                    js_handler="""
-event => {
-  if (window.__csSendLongTapSuppressClick) {
-    window.__csSendLongTapSuppressClick = false;
-    event.preventDefault();
-    event.stopPropagation();
-    return;
-  }
-  emit();
-}
-""",
-                )
-                self.send_button.on(
-                    "touchstart",
-                    _guide_from_long_tap,
-                    js_handler="""
-event => {
-  const touch = event.touches && event.touches[0];
-  if (!touch) return;
-  clearTimeout(window.__csSendLongTapTimer);
-  window.__csSendLongTapStart = {
-    x: touch.clientX,
-    y: touch.clientY,
-  };
-  window.__csSendLongTapTriggered = false;
-  window.__csSendLongTapTimer = setTimeout(() => {
-    window.__csSendLongTapTriggered = true;
-    window.__csSendLongTapSuppressClick = true;
-    setTimeout(() => {
-      window.__csSendLongTapSuppressClick = false;
-    }, 1200);
-    const input = document.querySelector('.cs-chat-composer-input textarea');
-    emit(input && typeof input.value === 'string' ? input.value : '');
-  }, 650);
-}
-""",
-                )
-                self.send_button.on(
-                    "touchmove",
-                    js_handler="""
-event => {
-  const start = window.__csSendLongTapStart;
-  const touch = event.touches && event.touches[0];
-  if (!start || !touch) return;
-  const dx = touch.clientX - start.x;
-  const dy = touch.clientY - start.y;
-  if (Math.hypot(dx, dy) > 14) {
-    clearTimeout(window.__csSendLongTapTimer);
-  }
-}
-""",
-                )
-                self.send_button.on(
-                    "touchend",
-                    js_handler="""
-event => {
-  clearTimeout(window.__csSendLongTapTimer);
-  window.__csSendLongTapStart = null;
-  if (window.__csSendLongTapTriggered) {
-    event.preventDefault();
-  }
-}
-""",
-                )
-                self.send_button.on(
-                    "touchcancel",
-                    js_handler="""
-event => {
-  clearTimeout(window.__csSendLongTapTimer);
-  window.__csSendLongTapStart = null;
-  window.__csSendLongTapTriggered = false;
-}
-""",
-                )
-        self.refresh_input_mode_indicator()
+        return render_chat_main(self)
 
     def render_input_role_selector(self) -> None:
-        with ui.button().props("flat dense unelevated aria-label=入力ロールを変更").classes("cs-chat-mode-icon"):
-            self.input_mode_icon = ui.element("div").classes("cs-chat-mode-icon-display")
-            with self.input_mode_icon:
-                ui.icon(_group_input_mode_icon(self.input_mode))
-            with ui.menu().classes("cs-chat-mode-menu"):
-                with (
-                    ui.element("button")
-                    .props("type=button")
-                    .classes("cs-group-menu-option")
-                    .on(
-                        "click",
-                        lambda _: self.set_input_mode("user"),
-                    )
-                ):
-                    _render_group_user_menu_face(self.ctx, self.group.user_persona)
-                    ui.label("ユーザー").classes("cs-group-menu-option-label")
-                    ui.element("span")
-                with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
-                    _render_group_role_icon("character")
-                    ui.label("キャラクター").classes("cs-group-menu-option-label")
-                    ui.icon("chevron_right").classes("text-grey-6")
-                    with (
-                        ui.menu()
-                        .props('anchor="top end" self="top start"')
-                        .classes("cs-chat-mode-menu cs-group-character-submenu")
-                    ):
-                        active = self.active_members()
-                        if not active:
-                            ui.label("参加キャラがいません").classes("text-xs text-grey-6 px-3 py-2")
-                        for member in active:
-                            with (
-                                ui.element("button")
-                                .props("type=button")
-                                .classes("cs-group-menu-option")
-                                .on(
-                                    "click",
-                                    lambda _, member=member: self.set_character_input_member(member),
-                                )
-                            ):
-                                _render_group_member_menu_face(self.ctx, member)
-                                ui.label(f"{member.character.name} / @{member.handle}").classes(
-                                    "cs-group-menu-option-label"
-                                )
-                                ui.element("span")
-                        with (
-                            ui.element("button")
-                            .props("type=button")
-                            .classes("cs-group-menu-option")
-                            .on(
-                                "click",
-                                lambda _: self.open_guest_input_mode_dialog(),
-                            )
-                        ):
-                            _render_group_role_icon("guest")
-                            ui.label("ゲスト").classes("cs-group-menu-option-label")
-                            ui.element("span")
-                with (
-                    ui.element("button")
-                    .props("type=button")
-                    .classes("cs-group-menu-option")
-                    .on(
-                        "click",
-                        lambda _: self.set_input_mode("narration"),
-                    )
-                ):
-                    _render_group_role_icon("narration")
-                    ui.label("ナラティブ").classes("cs-group-menu-option-label")
-                    ui.element("span")
-                with (
-                    ui.element("button")
-                    .props("type=button")
-                    .classes("cs-group-menu-option")
-                    .on(
-                        "click",
-                        lambda _: self.set_input_mode("memo"),
-                    )
-                ):
-                    _render_group_role_icon("memo")
-                    ui.label("コメント").classes("cs-group-menu-option-label")
-                    ui.element("span")
+        return render_input_role_selector(self)
 
     def set_input_mode(self, mode: str) -> None:
         self.input_mode = mode if mode in {"user", "character", "guest", "narration", "memo"} else "user"
@@ -913,42 +251,10 @@ event => {
         self.refresh_input_mode_indicator()
 
     def open_guest_input_mode_dialog(self, left_text: str = "") -> None:
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
-            ui.label("ゲスト入力").classes("text-base font-semibold")
-            name_input = (
-                ui.input(
-                    label="ゲスト名",
-                    value=self.guest_input_name,
-                    placeholder="例: 酒場のマスター",
-                )
-                .props("outlined dense clearable")
-                .classes("w-full")
-            )
-
-            def _apply() -> None:
-                name = clean_guest_name(str(name_input.value or ""))
-                if not name:
-                    ui.notify("ゲスト名を入力してください", type="warning")
-                    return
-                self.set_guest_input_mode(name)
-                if left_text:
-                    self.set_input_value(left_text.rstrip())
-                self.focus_chat_input_at_end()
-                dlg.close()
-                ui.notify(f"{guest_display_name(name)}入力モードにしました", type="info")
-
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("選択", icon="person_add", on_click=_apply).props("color=primary unelevated")
-        dlg.open()
-        ui.timer(0.1, lambda: name_input.run_method("focus"), once=True)
+        return open_guest_input_mode_dialog(self, left_text)
 
     def refresh_input_mode_indicator(self) -> None:
-        if self.input_mode_icon is None:
-            return
-        self.input_mode_icon.clear()
-        with self.input_mode_icon:
-            ui.icon(_group_input_mode_icon(self.input_mode))
+        return refresh_input_mode_indicator(self)
 
     def chat_title(self) -> str:
         return self.title or "チャットを開始"
@@ -963,38 +269,13 @@ event => {
         return f"{self.group.name} / {members} / {profile_name}"
 
     def refresh_chat_header(self) -> None:
-        if self.title_label is not None:
-            self.title_label.set_text(self.chat_title())
-        if self.subtitle_label is not None:
-            self.subtitle_label.set_text(self.chat_subtitle())
+        return refresh_chat_header(self)
 
     def render_messages(self) -> None:
-        if not self.messages:
-            with ui.element("div").classes("cs-group-chat-empty"):
-                ui.label("チャットはまだありません")
-            return
-        for index, message in enumerate(self.messages):
-            _render_group_chat_message(
-                self.ctx,
-                message,
-                self.participants,
-                index=index,
-                rewind_message=self.confirm_rewind_to_message,
-                rewrite_message=self.open_rewrite_message_dialog,
-                regenerate_message=self.confirm_or_regenerate_character_message,
-                play_tts_message=self.play_tts_message,
-                tts_playable=self.message_tts_playable(message),
-                tts_generating=self.tts_generating_index == index,
-            )
+        return render_messages(self)
 
     def refresh_messages(self, *, scroll_to_bottom: bool = False) -> None:
-        if self.messages_container is None:
-            return
-        self.messages_container.clear()
-        with self.messages_container:
-            self.render_messages()
-        if scroll_to_bottom:
-            self.scroll_messages_to_bottom()
+        return refresh_messages(self, scroll_to_bottom=scroll_to_bottom)
 
     def scroll_messages_to_bottom(self) -> None:
         self.page_client.run_javascript(
@@ -1202,74 +483,10 @@ event => {
         await self.save_current_session()
 
     def confirm_rewind_to_message(self, index: int) -> None:
-        if self.sending:
-            ui.notify("生成中は戻れません", type="warning")
-            return
-        if index < 0 or index >= len(self.messages):
-            return
-        message = self.messages[index]
-        role = str(message.get("role", ""))
-        if role not in {"character", "guest", "user", "narration", "memo"}:
-            return
-
-        target_label = _group_message_target_label(role)
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
-            ui.label(f"この{target_label}まで戻りますか？").classes("text-base font-semibold")
-            ui.label(f"この{target_label}以降の会話を削除し、本文を入力欄に戻します。").classes("text-sm text-grey-6")
-            ui.label(str(message.get("text", ""))).classes("text-sm").style(
-                "white-space: pre-wrap; overflow-wrap: anywhere;"
-            )
-
-            async def _do_rewind() -> None:
-                dlg.close()
-                await self.rewind_to_message(index)
-
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("OK", icon="undo", on_click=_do_rewind).props("color=primary unelevated")
-        dlg.open()
+        return confirm_rewind_to_message(self, index)
 
     def open_rewrite_message_dialog(self, index: int) -> None:
-        if self.sending:
-            ui.notify("生成中は書き換えできません", type="warning")
-            return
-        if index < 0 or index >= len(self.messages):
-            return
-        message = self.messages[index]
-        role = str(message.get("role", ""))
-        if role not in {"character", "guest", "user", "narration", "memo"}:
-            return
-        speaker_label = _group_message_target_label(role)
-
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-xl"):
-            ui.label(f"{speaker_label}を書き換え").classes("text-base font-semibold")
-            ui.label("保存しても、この後の会話は削除されません。").classes("text-sm text-grey-6")
-            rewrite_input = (
-                ui.textarea(
-                    value=str(message.get("text", "")),
-                    placeholder="書き換え後の本文",
-                )
-                .props("outlined rows=5 autogrow")
-                .classes("w-full")
-            )
-
-            async def _save_rewrite() -> None:
-                next_text = (rewrite_input.value or "").strip()
-                if not next_text:
-                    ui.notify("本文を入力してください", type="warning")
-                    return
-                if index >= len(self.messages):
-                    dlg.close()
-                    return
-                self.messages[index]["text"] = next_text
-                dlg.close()
-                self.refresh_messages()
-                await self.save_current_session()
-
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("保存", icon="save", on_click=_save_rewrite).props("color=primary unelevated")
-        dlg.open()
+        return open_rewrite_message_dialog(self, index)
 
     async def regenerate_character_message(self, index: int) -> None:
         if self.sending:
@@ -1353,32 +570,7 @@ event => {
             await self.maybe_generate_auto_title(llm)
 
     async def confirm_or_regenerate_character_message(self, index: int) -> None:
-        if self.sending:
-            ui.notify("生成中は再生成できません", type="warning")
-            return
-        if index < 0 or index >= len(self.messages):
-            return
-        if self.messages[index].get("role") != "character":
-            return
-        if index == len(self.messages) - 1:
-            await self.regenerate_character_message(index)
-            return
-
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
-            ui.label("この台詞から再生成しますか？").classes("text-base font-semibold")
-            ui.label("この台詞以降の会話を削除してから、新しい台詞を生成します。").classes("text-sm text-grey-6")
-            ui.label(str(self.messages[index].get("text", ""))).classes("text-sm").style(
-                "white-space: pre-wrap; overflow-wrap: anywhere;"
-            )
-
-            async def _do_regenerate() -> None:
-                dlg.close()
-                await self.regenerate_character_message(index)
-
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("再生成", icon="refresh", on_click=_do_regenerate).props("color=primary unelevated")
-        dlg.open()
+        return await confirm_or_regenerate_character_message(self, index)
 
     def message_tts_playable(self, message: dict[str, Any]) -> bool:
         role = str(message.get("role", ""))
@@ -1938,768 +1130,10 @@ setTimeout(() => {
         )
 
     async def open_guide_next_turn_dialog(self, left_text: str = "") -> None:
-        if left_text.strip():
-            self.set_input_value(left_text)
-        else:
-            self.clear_input()
-
-        active = self.active_members()
-        active_ids = {member.id for member in active}
-        inactive = [member for member in self.group.members if member.id not in active_ids]
-        departure_state = {"value": False}
-        departure_checkbox: dict[str, Any] = {"ref": None}
-        actor_value_syncing = {"active": False}
-        guide_targets = {
-            "character": ("キャラクター（自動）", "character", "theater_comedy"),
-            "narrative": ("地の文", "narration", "auto_stories"),
-            "user": ("ユーザー", "user", "person"),
-        }
-
-        def _resolve_actor_input(value: str) -> dict[str, Any] | None:
-            raw = (value or "").strip()
-            lowered = raw.lower()
-            guest_name = guest_name_from_actor_text(raw)
-            if guest_name:
-                return {
-                    "kind": "guest",
-                    "active": False,
-                    "member": None,
-                    "guest_name": guest_name,
-                    "label": guest_display_name(guest_name),
-                }
-            if lowered in {"character", "char", "キャラ", "キャラクター", "キャラクター（自動）"}:
-                return {"kind": "auto", "active": False, "member": None, "label": "キャラクター（自動）"}
-            if lowered in {"narrative", "narration", "地の文", "ナラティブ"}:
-                return {"kind": "narration", "active": False, "member": None, "label": "地の文"}
-            if lowered in {"user", "ユーザー"}:
-                return {"kind": "user", "active": False, "member": None, "label": "ユーザー"}
-            identifier = lowered.removeprefix("@")
-            for member in self.group.members:
-                if member.handle.lower() == identifier:
-                    return {
-                        "kind": "member",
-                        "active": member.id in active_ids,
-                        "member": member,
-                        "label": f"{member.character.name} / @{member.handle}",
-                    }
-                if raw and member.character.name == raw:
-                    return {
-                        "kind": "member",
-                        "active": member.id in active_ids,
-                        "member": member,
-                        "label": f"{member.character.name} / @{member.handle}",
-                    }
-            return None
-
-        def _actor_display_value(resolved: dict[str, Any]) -> str:
-            member = resolved.get("member")
-            if isinstance(member, GroupMember):
-                return member.character.name
-            if resolved.get("kind") == "guest":
-                return guest_display_name(str(resolved.get("guest_name") or ""))
-            return str(resolved.get("label") or "")
-
-        def _actor_suggestions(value: str) -> list[dict[str, Any]]:
-            raw = (value or "").strip()
-            if not raw:
-                return []
-            resolved = _resolve_actor_input(raw)
-            if resolved is not None:
-                return []
-            query = raw.lower().removeprefix("@")
-            suggestions: list[dict[str, Any]] = []
-            if not raw.startswith("@"):
-                guest_suggestion = _guest_prefix_completion(raw)
-                if guest_suggestion is not None:
-                    suggestions.append(guest_suggestion)
-                for token, (label, kind, icon) in guide_targets.items():
-                    if token.startswith(query):
-                        suggestions.append(
-                            {
-                                "value": token,
-                                "label": label,
-                                "state": "ロール",
-                                "kind": kind,
-                                "icon": icon,
-                                "member": None,
-                            }
-                        )
-            if raw.startswith("@"):
-                for member in self.group.members:
-                    if (
-                        not query
-                        or member.handle.lower().startswith(query)
-                        or member.character.name.lower().startswith(query)
-                    ):
-                        suggestions.append(
-                            {
-                                "value": f"@{member.handle}",
-                                "label": f"{member.character.name} / @{member.handle}",
-                                "state": "参加済み" if member.id in active_ids else "未参加",
-                                "kind": "member",
-                                "icon": "",
-                                "member": member,
-                            }
-                        )
-            return suggestions[:8]
-
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
-            ui.label("次の行動").classes("text-base font-semibold")
-            ui.label("行動者").classes("text-xs font-semibold text-grey-6")
-            with ui.element("div").classes("cs-group-guide-actor-row"):
-                with (
-                    ui.button()
-                    .props("flat dense unelevated aria-label=行動者を選択")
-                    .classes("cs-group-guide-actor-icon")
-                ):
-                    actor_icon = ui.element("div").classes("cs-group-guide-actor-icon-content")
-                    with ui.menu().classes("cs-chat-mode-menu") as target_menu:
-                        with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
-                            _render_group_role_icon("character")
-                            ui.label("キャラ").classes("cs-group-menu-option-label")
-                            ui.icon("chevron_right").classes("text-grey-6")
-                            with (
-                                ui.menu()
-                                .props('anchor="top end" self="top start"')
-                                .classes("cs-chat-mode-menu cs-group-character-submenu") as active_menu
-                            ):
-                                with (
-                                    ui.element("button")
-                                    .props("type=button")
-                                    .classes("cs-group-menu-option")
-                                    .on("click", lambda _: _choose_actor("character", active_menu))
-                                ):
-                                    _render_group_role_icon("character")
-                                    ui.label("自動").classes("cs-group-menu-option-label")
-                                    ui.element("span")
-                                if not active:
-                                    ui.label("参加済みキャラクターはいません").classes("text-xs text-grey-6 px-3 py-2")
-                                for member in active:
-                                    with (
-                                        ui.element("button")
-                                        .props("type=button")
-                                        .classes("cs-group-menu-option")
-                                        .on(
-                                            "click",
-                                            lambda _, member=member: _choose_actor(
-                                                f"@{member.handle}",
-                                                active_menu,
-                                            ),
-                                        )
-                                    ):
-                                        _render_group_member_menu_face(self.ctx, member)
-                                        ui.label(f"{member.character.name} / @{member.handle}").classes(
-                                            "cs-group-menu-option-label"
-                                        )
-                                        ui.element("span")
-                                with (
-                                    ui.element("button")
-                                    .props("type=button")
-                                    .classes("cs-group-menu-option")
-                                    .on("click", lambda _: _open_guest_actor_dialog(active_menu))
-                                ):
-                                    _render_group_role_icon("guest")
-                                    ui.label("ゲスト").classes("cs-group-menu-option-label")
-                                    ui.element("span")
-                        with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
-                            _render_group_role_icon("character")
-                            ui.label("未参加キャラ").classes("cs-group-menu-option-label")
-                            ui.icon("chevron_right").classes("text-grey-6")
-                            with (
-                                ui.menu()
-                                .props('anchor="top end" self="top start"')
-                                .classes("cs-chat-mode-menu cs-group-character-submenu") as inactive_menu
-                            ):
-                                if not inactive:
-                                    ui.label("未参加キャラクターはいません").classes("text-xs text-grey-6 px-3 py-2")
-                                for member in inactive:
-                                    with (
-                                        ui.element("button")
-                                        .props("type=button")
-                                        .classes("cs-group-menu-option")
-                                        .on(
-                                            "click",
-                                            lambda _, member=member: _choose_actor(
-                                                f"@{member.handle}",
-                                                inactive_menu,
-                                            ),
-                                        )
-                                    ):
-                                        _render_group_member_menu_face(self.ctx, member)
-                                        ui.label(f"{member.character.name} / @{member.handle}").classes(
-                                            "cs-group-menu-option-label"
-                                        )
-                                        ui.element("span")
-                        with (
-                            ui.element("button")
-                            .props("type=button")
-                            .classes("cs-group-menu-option")
-                            .on("click", lambda _: _choose_actor("narrative"))
-                        ):
-                            _render_group_role_icon("narration")
-                            ui.label("地の文").classes("cs-group-menu-option-label")
-                            ui.element("span")
-                        with (
-                            ui.element("button")
-                            .props("type=button")
-                            .classes("cs-group-menu-option")
-                            .on("click", lambda _: _choose_actor("user"))
-                        ):
-                            _render_group_user_menu_face(self.ctx, self.group.user_persona)
-                            ui.label("ユーザー").classes("cs-group-menu-option-label")
-                            ui.element("span")
-                with ui.element("div").classes("cs-group-guide-actor-wrap"):
-                    actor_input = (
-                        ui.input(
-                            value="",
-                            placeholder="@handle / character / narrative / user / guest:",
-                        )
-                        .props("outlined dense clearable")
-                        .classes("w-full")
-                    )
-                    suggestion_box = ui.element("div").classes("cs-group-guide-suggestions hidden")
-            direction_input = (
-                ui.textarea(
-                    label="指示",
-                    placeholder="キャラまたは地の文にだけ反映する任意の指示",
-                )
-                .props("outlined rows=4 autogrow")
-                .classes("w-full")
-            )
-            departure_container = ui.element("div").classes("w-full")
-
-            def _choose_actor(value: str, menu_to_close=None) -> None:
-                resolved = _resolve_actor_input(value)
-                actor_input.set_value(_actor_display_value(resolved) if resolved is not None else value)
-                suggestion_box.classes("hidden")
-                if menu_to_close is not None:
-                    menu_to_close.close()
-                target_menu.close()
-                _sync_actor_controls()
-
-            def _open_guest_actor_dialog(menu_to_close=None) -> None:
-                with ui.dialog() as guest_dialog, ui.card().classes("w-full max-w-sm"):
-                    ui.label("ゲストを指定").classes("text-base font-semibold")
-                    guest_name_input = (
-                        ui.input(
-                            label="ゲスト名",
-                            placeholder="例: 酒場のマスター",
-                        )
-                        .props("outlined dense clearable")
-                        .classes("w-full")
-                    )
-
-                    def _apply_guest() -> None:
-                        name = clean_guest_name(str(guest_name_input.value or ""))
-                        if not name:
-                            ui.notify("ゲスト名を入力してください", type="warning")
-                            return
-                        guest_dialog.close()
-                        _choose_actor(guest_display_name(name), menu_to_close)
-
-                    with ui.row().classes("justify-end gap-2 mt-4"):
-                        ui.button("キャンセル", on_click=guest_dialog.close).props("flat")
-                        ui.button("選択", icon="person_add", on_click=_apply_guest).props("color=primary unelevated")
-                guest_dialog.open()
-                ui.timer(0.1, lambda: guest_name_input.run_method("focus"), once=True)
-
-            def _render_suggestions() -> None:
-                suggestions = _actor_suggestions(str(actor_input.value or ""))
-                suggestion_box.clear()
-                if not suggestions:
-                    suggestion_box.classes("hidden")
-                    return
-                suggestion_box.classes(remove="hidden")
-                with suggestion_box:
-                    for index, suggestion in enumerate(suggestions):
-                        classes = "cs-group-guide-suggestion"
-                        if index == 0:
-                            classes += " cs-group-guide-suggestion-active"
-                        with (
-                            ui.element("button")
-                            .props("type=button")
-                            .classes(classes)
-                            .on(
-                                "click",
-                                lambda _, value=suggestion["value"]: _choose_actor(value),
-                            )
-                        ):
-                            member = suggestion.get("member")
-                            if isinstance(member, GroupMember):
-                                _render_group_member_menu_face(self.ctx, member)
-                            else:
-                                _render_group_role_icon(str(suggestion.get("kind") or "user"))
-                            ui.label(str(suggestion["label"])).classes("cs-group-guide-suggestion-label")
-                            ui.label(str(suggestion["state"])).classes("cs-group-guide-suggestion-state")
-                _position_group_actor_suggestions()
-
-            def _render_actor_icon(resolved: dict[str, Any] | None) -> None:
-                actor_icon.clear()
-                with actor_icon:
-                    if resolved is None:
-                        ui.icon("help_outline").classes("text-sm")
-                        return
-                    member = resolved.get("member")
-                    if isinstance(member, GroupMember):
-                        _render_group_member_menu_face(self.ctx, member)
-                        return
-                    kind = str(resolved.get("kind") or "")
-                    if kind == "auto":
-                        _render_group_role_icon("character")
-                    elif kind == "guest":
-                        _render_group_role_icon("guest")
-                    elif kind == "narration":
-                        _render_group_role_icon("narration")
-                    elif kind == "user":
-                        _render_group_user_menu_face(self.ctx, self.group.user_persona)
-                    else:
-                        ui.icon("help_outline").classes("text-sm")
-
-            def _sync_actor_controls() -> None:
-                if actor_value_syncing["active"]:
-                    return
-                raw_actor_value = str(actor_input.value or "")
-                resolved = _resolve_actor_input(raw_actor_value)
-                if resolved is not None:
-                    display_value = _actor_display_value(resolved)
-                    is_typing_guest_prefix = (
-                        resolved.get("kind") == "guest"
-                        and re.match(r"^\s*guest\s*[:：]", raw_actor_value, flags=re.IGNORECASE) is not None
-                    )
-                    if not is_typing_guest_prefix and raw_actor_value.strip() != display_value:
-                        actor_value_syncing["active"] = True
-                        actor_input.set_value(display_value)
-                        actor_value_syncing["active"] = False
-                _render_actor_icon(resolved)
-                departure_container.clear()
-                if resolved is None:
-                    departure_state["value"] = False
-                    direction_input.enable()
-                    _render_suggestions()
-                    return
-                if resolved["kind"] == "user":
-                    departure_state["value"] = False
-                    direction_input.set_value("")
-                    direction_input.disable()
-                else:
-                    direction_input.enable()
-                if resolved["kind"] == "member" and resolved["active"]:
-                    with departure_container:
-                        checkbox = ui.checkbox(
-                            "退場させる",
-                            value=departure_state["value"],
-                        )
-                        departure_checkbox["ref"] = checkbox
-                        checkbox.on_value_change(lambda e: departure_state.update({"value": bool(e.value)}))
-                else:
-                    departure_state["value"] = False
-                    departure_checkbox["ref"] = None
-                _render_suggestions()
-
-            actor_input.on_value_change(lambda _: _sync_actor_controls())
-            actor_input.on(
-                "keydown",
-                js_handler="""
-event => {
-  const root = event.target.closest('.cs-group-guide-actor-wrap');
-  const box = root ? root.querySelector('.cs-group-guide-suggestions:not(.hidden)') : null;
-  const options = box ? Array.from(box.querySelectorAll('.cs-group-guide-suggestion')) : [];
-  if (!options.length) return;
-  const activeIndex = () => Math.max(0, options.findIndex(option => option.classList.contains('cs-group-guide-suggestion-active')));
-  const setActive = index => {
-    options.forEach((option, current) => {
-      const active = current === index;
-      option.classList.toggle('cs-group-guide-suggestion-active', active);
-      option.setAttribute('aria-selected', active ? 'true' : 'false');
-      if (active) option.scrollIntoView({ block: 'nearest' });
-    });
-  };
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-    event.preventDefault();
-    const delta = event.key === 'ArrowDown' ? 1 : -1;
-    setActive((activeIndex() + delta + options.length) % options.length);
-    return;
-  }
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    (options[activeIndex()] || options[0]).click();
-    return;
-  }
-  if (event.key === 'Escape') {
-    box.classList.add('hidden');
-  }
-}
-""",
-            )
-
-            async def _run_directed_turn() -> None:
-                direction = (direction_input.value or "").strip()
-                resolved = _resolve_actor_input(str(actor_input.value or ""))
-                if resolved is None:
-                    ui.notify("行動者を指定してください", type="warning")
-                    return
-                dlg.close()
-                if resolved["kind"] == "user":
-                    if left_text.strip():
-                        self.clear_input()
-                        await self.post_hold_user_text(left_text.strip())
-                    else:
-                        self.clear_input()
-                        self.set_input_mode("user")
-                    return
-                if resolved["kind"] == "narration":
-                    await self.run_describe_action(left_text, instruction=direction)
-                    return
-                if left_text.strip():
-                    await self.post_command_left_text(left_text)
-                else:
-                    self.clear_input()
-                if resolved["kind"] == "auto":
-                    await self.append_character_turn(turn_instruction=direction)
-                    return
-                if resolved["kind"] == "guest":
-                    await self.append_guest_turn(
-                        str(resolved.get("guest_name") or ""),
-                        turn_instruction=direction,
-                    )
-                    return
-                member = resolved.get("member")
-                if not isinstance(member, GroupMember):
-                    ui.notify("行動者を指定してください", type="warning")
-                    return
-                if not resolved["active"]:
-                    await self.append_guided_member_turn(
-                        member,
-                        turn_instruction=direction,
-                        membership_action="join",
-                    )
-                    return
-                if departure_state["value"]:
-                    await self.append_guided_member_turn(
-                        member,
-                        turn_instruction=direction,
-                        membership_action="leave",
-                    )
-                    return
-                await self.append_character_turn(
-                    speaker=member,
-                    turn_instruction=direction,
-                )
-
-            _sync_actor_controls()
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("実行", icon="play_arrow", on_click=_run_directed_turn).props("color=primary unelevated")
-        dlg.open()
-        ui.timer(0.1, lambda: actor_input.run_method("focus"), once=True)
+        return await open_guide_next_turn_dialog(self, left_text)
 
     def open_imitate_character_dialog(self, left_text: str = "") -> None:
-        active = self.active_members()
-        active_ids = {member.id for member in active}
-        inactive = [member for member in self.group.members if member.id not in active_ids]
-        actor_value_syncing = {"active": False}
-
-        def _resolve_actor_input(value: str) -> dict[str, Any] | None:
-            raw = (value or "").strip()
-            guest_name = guest_name_from_actor_text(raw)
-            if guest_name:
-                return {
-                    "kind": "guest",
-                    "member": None,
-                    "active": False,
-                    "guest_name": guest_name,
-                    "label": guest_display_name(guest_name),
-                }
-            identifier = raw.lower().removeprefix("@")
-            for member in self.group.members:
-                if member.handle.lower() == identifier or member.character.name == raw:
-                    return {
-                        "kind": "member",
-                        "member": member,
-                        "active": member.id in active_ids,
-                        "label": f"{member.character.name} / @{member.handle}",
-                    }
-            return None
-
-        def _actor_display_value(resolved: dict[str, Any]) -> str:
-            member = resolved.get("member")
-            if isinstance(member, GroupMember):
-                return member.character.name
-            if resolved.get("kind") == "guest":
-                return guest_display_name(str(resolved.get("guest_name") or ""))
-            return str(resolved.get("label") or "")
-
-        def _actor_suggestions(value: str) -> list[dict[str, Any]]:
-            raw = (value or "").strip()
-            if not raw or _resolve_actor_input(raw) is not None:
-                return []
-            query = raw.lower().removeprefix("@")
-            suggestions: list[dict[str, Any]] = []
-            if not raw.startswith("@"):
-                guest_suggestion = _guest_prefix_completion(raw)
-                if guest_suggestion is not None:
-                    suggestions.append(guest_suggestion)
-            if raw.startswith("@"):
-                for member in self.group.members:
-                    if (
-                        not query
-                        or member.handle.lower().startswith(query)
-                        or member.character.name.lower().startswith(query)
-                    ):
-                        suggestions.append(
-                            {
-                                "value": f"@{member.handle}",
-                                "label": f"{member.character.name} / @{member.handle}",
-                                "state": "参加済み" if member.id in active_ids else "未参加",
-                                "kind": "member",
-                                "member": member,
-                            }
-                        )
-            return suggestions[:8]
-
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
-            ui.label("キャラクター入力").classes("text-base font-semibold")
-            ui.label("発言者").classes("text-xs font-semibold text-grey-6")
-            with ui.element("div").classes("cs-group-guide-actor-row"):
-                with (
-                    ui.button()
-                    .props("flat dense unelevated aria-label=発言者を選択")
-                    .classes("cs-group-guide-actor-icon")
-                ):
-                    actor_icon = ui.element("div").classes("cs-group-guide-actor-icon-content")
-                    with ui.menu().classes("cs-chat-mode-menu") as actor_menu:
-                        with ui.element("button").props("type=button").classes("cs-group-menu-parent"):
-                            _render_group_role_icon("character")
-                            ui.label("キャラ").classes("cs-group-menu-option-label")
-                            ui.icon("chevron_right").classes("text-grey-6")
-                            with (
-                                ui.menu()
-                                .props('anchor="top end" self="top start"')
-                                .classes("cs-chat-mode-menu cs-group-character-submenu") as character_menu
-                            ):
-                                if not active:
-                                    ui.label("参加済みキャラクターはいません").classes("text-xs text-grey-6 px-3 py-2")
-                                for member in active:
-                                    with (
-                                        ui.element("button")
-                                        .props("type=button")
-                                        .classes("cs-group-menu-option")
-                                        .on(
-                                            "click",
-                                            lambda _, member=member: _choose_actor(
-                                                f"@{member.handle}",
-                                                character_menu,
-                                            ),
-                                        )
-                                    ):
-                                        _render_group_member_menu_face(self.ctx, member)
-                                        ui.label(f"{member.character.name} / @{member.handle}").classes(
-                                            "cs-group-menu-option-label"
-                                        )
-                                        ui.element("span")
-                                if inactive:
-                                    for member in inactive:
-                                        with (
-                                            ui.element("button")
-                                            .props("type=button")
-                                            .classes("cs-group-menu-option")
-                                            .on(
-                                                "click",
-                                                lambda _, member=member: _choose_actor(
-                                                    f"@{member.handle}",
-                                                    character_menu,
-                                                ),
-                                            )
-                                        ):
-                                            _render_group_member_menu_face(self.ctx, member)
-                                            ui.label(f"{member.character.name} / @{member.handle}").classes(
-                                                "cs-group-menu-option-label"
-                                            )
-                                            ui.label("未参加").classes("text-xs text-grey-6")
-                                with (
-                                    ui.element("button")
-                                    .props("type=button")
-                                    .classes("cs-group-menu-option")
-                                    .on("click", lambda _: _open_guest_actor_dialog(character_menu))
-                                ):
-                                    _render_group_role_icon("guest")
-                                    ui.label("ゲスト").classes("cs-group-menu-option-label")
-                                    ui.element("span")
-                with ui.element("div").classes("cs-group-guide-actor-wrap"):
-                    actor_input = (
-                        ui.input(
-                            value="",
-                            placeholder="@handle / guest:酒場のマスター",
-                        )
-                        .props("outlined dense clearable")
-                        .classes("w-full")
-                    )
-                    suggestion_box = ui.element("div").classes("cs-group-guide-suggestions hidden")
-
-            def _choose_actor(value: str, menu_to_close=None) -> None:
-                resolved = _resolve_actor_input(value)
-                actor_input.set_value(_actor_display_value(resolved) if resolved is not None else value)
-                suggestion_box.classes("hidden")
-                if menu_to_close is not None:
-                    menu_to_close.close()
-                actor_menu.close()
-                _sync_actor_controls()
-
-            def _open_guest_actor_dialog(menu_to_close=None) -> None:
-                with ui.dialog() as guest_dialog, ui.card().classes("w-full max-w-sm"):
-                    ui.label("ゲストを指定").classes("text-base font-semibold")
-                    guest_name_input = (
-                        ui.input(
-                            label="ゲスト名",
-                            placeholder="例: 酒場のマスター",
-                        )
-                        .props("outlined dense clearable")
-                        .classes("w-full")
-                    )
-
-                    def _apply_guest() -> None:
-                        name = clean_guest_name(str(guest_name_input.value or ""))
-                        if not name:
-                            ui.notify("ゲスト名を入力してください", type="warning")
-                            return
-                        guest_dialog.close()
-                        _choose_actor(guest_display_name(name), menu_to_close)
-
-                    with ui.row().classes("justify-end gap-2 mt-4"):
-                        ui.button("キャンセル", on_click=guest_dialog.close).props("flat")
-                        ui.button("選択", icon="person_add", on_click=_apply_guest).props("color=primary unelevated")
-                guest_dialog.open()
-                ui.timer(0.1, lambda: guest_name_input.run_method("focus"), once=True)
-
-            def _render_suggestions() -> None:
-                suggestions = _actor_suggestions(str(actor_input.value or ""))
-                suggestion_box.clear()
-                if not suggestions:
-                    suggestion_box.classes("hidden")
-                    return
-                suggestion_box.classes(remove="hidden")
-                with suggestion_box:
-                    for index, suggestion in enumerate(suggestions):
-                        classes = "cs-group-guide-suggestion"
-                        if index == 0:
-                            classes += " cs-group-guide-suggestion-active"
-                        with (
-                            ui.element("button")
-                            .props("type=button")
-                            .classes(classes)
-                            .on(
-                                "click",
-                                lambda _, value=suggestion["value"]: _choose_actor(value),
-                            )
-                        ):
-                            member = suggestion.get("member")
-                            if isinstance(member, GroupMember):
-                                _render_group_member_menu_face(self.ctx, member)
-                            else:
-                                _render_group_role_icon("guest")
-                            ui.label(str(suggestion["label"])).classes("cs-group-guide-suggestion-label")
-                            ui.label(str(suggestion["state"])).classes("cs-group-guide-suggestion-state")
-                _position_group_actor_suggestions()
-
-            def _render_actor_icon(resolved: dict[str, Any] | None) -> None:
-                actor_icon.clear()
-                with actor_icon:
-                    if resolved is None:
-                        ui.icon("help_outline").classes("text-sm")
-                        return
-                    member = resolved.get("member")
-                    if isinstance(member, GroupMember):
-                        _render_group_member_menu_face(self.ctx, member)
-                    elif resolved.get("kind") == "guest":
-                        _render_group_role_icon("guest")
-                    else:
-                        ui.icon("help_outline").classes("text-sm")
-
-            def _sync_actor_controls() -> None:
-                if actor_value_syncing["active"]:
-                    return
-                raw_actor_value = str(actor_input.value or "")
-                resolved = _resolve_actor_input(raw_actor_value)
-                if resolved is not None:
-                    display_value = _actor_display_value(resolved)
-                    is_typing_guest_prefix = (
-                        resolved.get("kind") == "guest"
-                        and re.match(r"^\s*guest\s*[:：]", raw_actor_value, flags=re.IGNORECASE) is not None
-                    )
-                    if not is_typing_guest_prefix and raw_actor_value.strip() != display_value:
-                        actor_value_syncing["active"] = True
-                        actor_input.set_value(display_value)
-                        actor_value_syncing["active"] = False
-                _render_actor_icon(resolved)
-                _render_suggestions()
-
-            actor_input.on_value_change(lambda _: _sync_actor_controls())
-            actor_input.on(
-                "keydown",
-                js_handler="""
-event => {
-  const root = event.target.closest('.cs-group-guide-actor-wrap');
-  const box = root ? root.querySelector('.cs-group-guide-suggestions:not(.hidden)') : null;
-  const options = box ? Array.from(box.querySelectorAll('.cs-group-guide-suggestion')) : [];
-  if (!options.length) return;
-  const activeIndex = () => Math.max(0, options.findIndex(option => option.classList.contains('cs-group-guide-suggestion-active')));
-  const setActive = index => {
-    options.forEach((option, current) => {
-      const active = current === index;
-      option.classList.toggle('cs-group-guide-suggestion-active', active);
-      option.setAttribute('aria-selected', active ? 'true' : 'false');
-      if (active) option.scrollIntoView({ block: 'nearest' });
-    });
-  };
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-    event.preventDefault();
-    const delta = event.key === 'ArrowDown' ? 1 : -1;
-    setActive((activeIndex() + delta + options.length) % options.length);
-    return;
-  }
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    (options[activeIndex()] || options[0]).click();
-    return;
-  }
-  if (event.key === 'Escape') {
-    box.classList.add('hidden');
-  }
-}
-""",
-            )
-
-            async def _apply() -> None:
-                resolved = _resolve_actor_input(str(actor_input.value or ""))
-                if resolved is None:
-                    ui.notify("発言者を指定してください", type="warning")
-                    return
-                if resolved["kind"] == "guest":
-                    self.set_guest_input_mode(str(resolved.get("guest_name") or ""))
-                else:
-                    member = resolved.get("member")
-                    if not isinstance(member, GroupMember):
-                        ui.notify("発言者を指定してください", type="warning")
-                        return
-                    if self.settings is not None and member.id not in group_participant_ids(self.settings):
-                        self.settings = settings_with_participant(self.settings, member.id)
-                        self.messages.append(group_system_event_message(f"{member.character.name}が入場しました"))
-                        self.refresh_messages(scroll_to_bottom=True)
-                        await self.save_current_session(refresh_history=False)
-                        self.refresh_mention_palette()
-                        self.refresh_chat_header()
-                    self.set_character_input_member(member)
-                self.set_input_value(left_text.rstrip())
-                self.focus_chat_input_at_end()
-                dlg.close()
-                ui.notify("入力モードにしました", type="info")
-
-            _sync_actor_controls()
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("選択", icon="theater_comedy", on_click=_apply).props("color=primary unelevated")
-        dlg.open()
-        ui.timer(0.1, lambda: actor_input.run_method("focus"), once=True)
+        return open_imitate_character_dialog(self, left_text)
 
     async def execute_chat_command(self, left_text: str, query: str) -> None:
         command = resolve_chat_command(query)
@@ -3170,94 +1604,7 @@ event => {
         await self.save_current_session()
 
     def open_new_chat_dialog(self) -> None:
-        profile_options = _profile_options(self.ctx, self.ctx.api_config.get_llm_profiles())
-        default_profile = (
-            self.group.completion_profile_id
-            if self.group.completion_profile_id in profile_options
-            else _default_profile_id(self.ctx, profile_options)
-        )
-        member_checks: dict[str, Any] = {}
-
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
-            ui.label("新しいチャット").classes("text-lg font-semibold")
-            if not profile_options:
-                ui.label("LLMプロファイルが登録されていません。設定画面で追加してください。").classes(
-                    "text-sm text-negative"
-                )
-            profile_select = (
-                ui.select(
-                    options=profile_options,
-                    value=default_profile,
-                    label="LLMプロファイル",
-                )
-                .props("outlined dense")
-                .classes("w-full")
-            )
-            title_input = (
-                ui.input(
-                    label="タイトル（任意）",
-                    placeholder="未入力なら自動タイトル",
-                )
-                .props("outlined clearable")
-                .classes("w-full")
-            )
-
-            ui.label("参加キャラクター").classes("text-sm font-semibold")
-            with ui.element("div").classes("cs-group-selected-list"):
-                if not self.group.members:
-                    ui.label("参加できるキャラクターがいません").classes("text-sm text-grey-6")
-                for member in self.group.members:
-                    with ui.row().classes("items-center gap-2 w-full"):
-                        _render_face(self.ctx, member.character.media, "character")
-                        with ui.column().classes("gap-0 min-w-0 flex-1"):
-                            ui.label(member.character.name).classes("text-sm font-semibold")
-                            ui.label(f"@{member.handle}").classes("text-xs text-grey-6")
-                        member_checks[member.id] = ui.checkbox(value=True)
-
-            with ui.element("div").classes("cs-group-world-field"):
-                situation_input = ui.textarea(label="シチュエーション").props("outlined rows=4").classes("w-full")
-
-                async def _enhance_situation_click() -> None:
-                    participant_ids = [
-                        member_id for member_id, checkbox in member_checks.items() if bool(checkbox.value)
-                    ]
-                    enhanced = await self.enhance_situation(
-                        str(profile_select.value or ""),
-                        participant_ids,
-                        str(situation_input.value or ""),
-                    )
-                    if enhanced is not None:
-                        situation_input.set_value(enhanced)
-
-                ui.button(
-                    icon="auto_awesome",
-                    on_click=_enhance_situation_click,
-                ).props("flat round dense size=sm").classes("cs-group-world-enhance").tooltip("シチュエーションを補完")
-
-            async def _start() -> None:
-                profile_id = str(profile_select.value or "")
-                if not profile_id:
-                    ui.notify("LLMプロファイルを選択してください", type="warning")
-                    return
-                participant_ids = [member_id for member_id, checkbox in member_checks.items() if bool(checkbox.value)]
-                if not participant_ids:
-                    ui.notify("参加キャラクターを1人以上選択してください", type="warning")
-                    return
-                title = str(title_input.value or "").strip()
-                await self.start_chat_session(
-                    {
-                        "profile_id": profile_id,
-                        "participant_ids": participant_ids,
-                        "situation": str(situation_input.value or "").strip(),
-                    },
-                    title=title,
-                )
-                dlg.close()
-
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("開始", icon="chat", on_click=_start).props("color=primary unelevated")
-        dlg.open()
+        return open_new_chat_dialog(self)
 
     async def enhance_situation(
         self,
@@ -3319,145 +1666,19 @@ event => {
         self.refresh_history()
 
     def open_rename_current_chat_dialog(self) -> None:
-        if self.active_session_id is None:
-            ui.notify("先にチャットを開始してください", type="warning")
-            return
-        self.open_rename_chat_dialog(self.active_session_id)
+        return open_rename_current_chat_dialog(self)
 
     def open_rename_chat_dialog(self, session_id: str) -> None:
-        session = self.sessions_by_id.get(session_id)
-        if session is None:
-            ui.notify("チャットが見つかりません", type="warning")
-            return
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-md"):
-            ui.label("タイトル変更").classes("text-base font-semibold")
-            title_input = (
-                ui.input(
-                    label="タイトル",
-                    value=session.title or DEFAULT_GROUP_CHAT_TITLE,
-                )
-                .props("outlined clearable")
-                .classes("w-full")
-            )
-
-            async def _save_title() -> None:
-                title = str(title_input.value or "").strip()
-                if not title:
-                    ui.notify("タイトルを入力してください", type="warning")
-                    return
-                saved = await self.ctx.group_chats.rename_session(session_id, title)
-                if saved is None:
-                    dlg.close()
-                    ui.notify("チャットが見つかりません", type="warning")
-                    await self.reload_sessions()
-                    self.refresh_history()
-                    return
-                self.sessions_by_id[saved.id] = saved
-                if saved.id == self.active_session_id:
-                    self.title = saved.title
-                    self.active_title_is_auto = False
-                    self.refresh_chat_header()
-                await self.reload_sessions()
-                self.refresh_history()
-                dlg.close()
-
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("保存", icon="save", on_click=_save_title).props("color=primary unelevated")
-        dlg.open()
+        return open_rename_chat_dialog(self, session_id)
 
     def confirm_delete_current_chat(self) -> None:
-        if self.active_session_id is None:
-            ui.notify("削除するチャットがありません", type="warning")
-            return
-        self.confirm_delete_chat_session(self.active_session_id)
+        return confirm_delete_current_chat(self)
 
     def confirm_delete_chat_session(self, session_id: str) -> None:
-        if self.sending:
-            ui.notify("生成中は削除できません", type="warning")
-            return
-        session = self.sessions_by_id.get(session_id)
-        if session is None:
-            ui.notify("チャットが見つかりません", type="warning")
-            return
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
-            ui.label("チャットを削除しますか？").classes("text-base font-semibold")
-            ui.label("この操作は元に戻せません。").classes("text-sm text-grey-6")
-            ui.label(session.title or DEFAULT_GROUP_CHAT_TITLE).classes("text-sm font-semibold")
-
-            async def _delete() -> None:
-                dlg.close()
-                was_active = session_id == self.active_session_id
-                await self.ctx.group_chats.delete_session(session_id)
-                await self.reload_sessions()
-                if was_active:
-                    if self.sessions_by_id:
-                        await self.apply_session(next(iter(self.sessions_by_id.values())))
-                    else:
-                        self.clear_active_session()
-                    self.refresh_input_mode_indicator()
-                    self.refresh_chat_header()
-                    self.refresh_messages(scroll_to_bottom=True)
-                self.refresh_history()
-
-            with ui.row().classes("justify-end gap-2 mt-4"):
-                ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("削除", icon="delete", on_click=_delete).props("color=negative unelevated")
-        dlg.open()
+        return confirm_delete_chat_session(self, session_id)
 
     def open_system_prompt_dialog(self) -> None:
-        if self.settings is None:
-            ui.notify("先にチャットを開始してください", type="warning")
-            return
-        active = self.active_members()
-        if not active:
-            ui.notify("参加キャラがいません", type="warning")
-            return
-        prompt = build_group_system_prompt(self.group, self.settings, active, active[0])
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl"):
-            ui.label("システムプロンプト").classes("text-base font-semibold")
-            ui.code(prompt, language="markdown").classes("w-full text-xs")
-            with ui.row().classes("justify-end mt-3"):
-                ui.button("閉じる", on_click=dlg.close).props("flat")
-        dlg.open()
-
-
-def _guest_prefix_completion(value: str) -> dict[str, Any] | None:
-    query = (value or "").strip().lower()
-    if not query or query.startswith("@"):
-        return None
-    if query == "guest:" or not "guest:".startswith(query):
-        return None
-    return {
-        "value": "guest:",
-        "label": "guest:",
-        "state": "ゲスト",
-        "kind": "guest",
-        "icon": "person_add",
-        "member": None,
-    }
-
-
-def _position_group_actor_suggestions() -> None:
-    ui.run_javascript(
-        """
-requestAnimationFrame(() => {
-  document.querySelectorAll('.cs-group-guide-actor-wrap').forEach(root => {
-    const box = root.querySelector('.cs-group-guide-suggestions:not(.hidden)');
-    const field = root.querySelector('.q-field');
-    if (!box || !field) return;
-    const rect = field.getBoundingClientRect();
-    const margin = 8;
-    const width = Math.max(220, Math.min(rect.width, window.innerWidth - margin * 2));
-    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
-    const top = Math.min(rect.bottom + 4, window.innerHeight - margin);
-    box.style.setProperty('--cs-guide-suggestion-left', `${left}px`);
-    box.style.setProperty('--cs-guide-suggestion-top', `${top}px`);
-    box.style.setProperty('--cs-guide-suggestion-width', `${width}px`);
-  });
-});
-"""
-    )
+        return open_system_prompt_dialog(self)
 
 
 def _configured_group_chat_llm(ctx, profile_id: str):
