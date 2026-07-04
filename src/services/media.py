@@ -36,6 +36,7 @@ class MediaOwner(Generic[ResultT]):
     relative_root: Path
     media: CharacterMedia
     save: SaveMediaOwner[ResultT]
+    save_failed: Callable[[ResultT], bool] | None = None
     delete_new_file: DeleteMediaFile | None = None
     delete_old_file: DeleteMediaFile | None = None
 
@@ -390,6 +391,9 @@ class MediaFileService:
         except Exception:
             self._delete_new_file(owner, image.path)
             raise
+        if self._save_failed(owner, saved):
+            self._delete_new_file(owner, image.path)
+            return saved
         for old_path in old_paths:
             self._delete_old_file(owner, old_path)
         return saved
@@ -407,6 +411,9 @@ class MediaFileService:
         except Exception:
             self._delete_new_file(owner, voice.path)
             raise
+        if self._save_failed(owner, saved):
+            self._delete_new_file(owner, voice.path)
+            return saved
         for old_path in old_paths:
             self._delete_old_file(owner, old_path)
         return saved
@@ -424,3 +431,7 @@ class MediaFileService:
     def _delete_old_file(self, owner: MediaOwner[ResultT], relative_path: str) -> None:
         delete_file = owner.delete_old_file or self.delete_media_file
         delete_file(relative_path)
+
+    @staticmethod
+    def _save_failed(owner: MediaOwner[ResultT], result: ResultT) -> bool:
+        return owner.save_failed(result) if owner.save_failed is not None else False
