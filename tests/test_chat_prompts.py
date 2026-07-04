@@ -1,5 +1,4 @@
-from src.core.character.schemas import CharacterSheet
-from src.ui.chat.models import ChatMessagePreview, ChatSessionSettings
+from src.ui.chat.models import ChatMessagePreview
 from src.ui.chat.prompts import (
     build_llm_messages,
     build_response_choice_messages,
@@ -7,6 +6,8 @@ from src.ui.chat.prompts import (
     build_user_completion_messages,
     chat_history_for_prompt,
 )
+from tests.chat_test_helpers import make_chat_settings as make_settings
+from tests.chat_test_helpers import make_chat_sheet as make_sheet
 
 
 def test_memo_messages_are_not_in_chat_history_prompt() -> None:
@@ -109,25 +110,3 @@ def test_memo_mode_tailor_prompt_targets_comment() -> None:
     assert "作者向けの短いメモ" in joined_content
     assert "ここはあとで直す" in joined_content
     assert "LLMに渡さないコメント" not in joined_content
-
-
-def make_sheet() -> CharacterSheet:
-    return CharacterSheet(
-        id="character-1",
-        name="テストキャラ",
-        personality="穏やかで率直",
-        self_intro="短く自然に話す",
-    )
-
-
-def make_settings() -> ChatSessionSettings:
-    return ChatSessionSettings(
-        profile_id="profile-1",
-        chat_mode_id="mode-1",
-        chat_mode_name="テストモード",
-        chat_premise="テスト前提",
-        situation="",
-        user_persona_id="persona-1",
-        user_persona_name="テストユーザー",
-        user_persona_description="テスト用のユーザー設定",
-    )
