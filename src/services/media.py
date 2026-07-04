@@ -1,7 +1,7 @@
 """
 メディア保存の共通処理。
 
-キャラクター、ユーザーペルソナ、グループメンバーで共通する
+キャラクター、ユーザーペルソナ、グループメンバー、ナレーターで共通する
 画像・音声ファイルの保存と矩形更新を扱う。
 """
 
@@ -25,6 +25,7 @@ from ..core.character.schemas import (
 
 ResultT = TypeVar("ResultT")
 SaveMediaOwner = Callable[[], ResultT | Awaitable[ResultT]]
+SaveVoiceAssetOwner = Callable[[CharacterVoiceAsset], ResultT | Awaitable[ResultT]]
 DeleteMediaFile = Callable[[str], None]
 RectAttribute = Literal["face_rect", "bust_rect"]
 
@@ -37,6 +38,17 @@ class MediaOwner(Generic[ResultT]):
     media: CharacterMedia
     save: SaveMediaOwner[ResultT]
     save_failed: Callable[[ResultT], bool] | None = None
+    delete_new_file: DeleteMediaFile | None = None
+    delete_old_file: DeleteMediaFile | None = None
+
+
+@dataclass(slots=True)
+class VoiceAssetOwner(Generic[ResultT]):
+    """単一の音声アセットを持つ対象の差分を表す。"""
+
+    relative_root: Path
+    current_path: str
+    save: SaveVoiceAssetOwner[ResultT]
     delete_new_file: DeleteMediaFile | None = None
     delete_old_file: DeleteMediaFile | None = None
 
@@ -163,6 +175,38 @@ class MediaFileService:
         )
         return await self._replace_primary_voice(owner, voice)
 
+    async def save_voice_asset_bytes(
+        self,
+        owner: VoiceAssetOwner[ResultT],
+        audio_bytes: bytes,
+        *,
+        filename: str,
+        content_type: str,
+    ) -> CharacterVoiceAsset:
+        self.validate_non_empty(audio_bytes, "音声データが空です。")
+
+        asset_id = uuid.uuid4().hex
+        suffix = self.safe_suffix(filename, content_type, self.VOICE_SUFFIXES, ".wav")
+        relative_path = owner.relative_root / "voices" / f"{asset_id}{suffix}"
+        target = self._data_dir / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(audio_bytes)
+
+        voice = CharacterVoiceAsset(
+            id=asset_id,
+            path=relative_path.as_posix(),
+            original_name=filename,
+            content_type=content_type,
+        )
+        try:
+            await self._save_voice_asset_owner(owner, voice)
+        except Exception:
+            self._delete_voice_new_file(owner, voice.path)
+            raise
+        if owner.current_path:
+            self._delete_voice_old_file(owner, owner.current_path)
+        return voice
+
     def save_image_preview(
         self,
         relative_root: Path,
@@ -277,17 +321,38 @@ class MediaFileService:
         image_height: int = 0,
         clamp: Callable[[FaceRect], FaceRect] | None = None,
     ) -> ResultT:
-        image = owner.media.primary_image()
-        if image is None:
-            raise ValueError(missing_image_message)
-
-        setattr(image, rect_attribute, (clamp or self.clamp_rect)(rect))
-        if image_width > 0:
-            image.width = image_width
-        if image_height > 0:
-            image.height = image_height
-        owner.media.primary_image_id = image.id
+        self._apply_primary_image_rect(
+            owner.media,
+            rect,
+            rect_attribute=rect_attribute,
+            missing_image_message=missing_image_message,
+            image_width=image_width,
+            image_height=image_height,
+            clamp=clamp,
+        )
         return await self._save_owner(owner)
+
+    def update_primary_image_rect_sync(
+        self,
+        owner: MediaOwner[ResultT],
+        rect: FaceRect,
+        *,
+        rect_attribute: RectAttribute,
+        missing_image_message: str,
+        image_width: int = 0,
+        image_height: int = 0,
+        clamp: Callable[[FaceRect], FaceRect] | None = None,
+    ) -> ResultT:
+        self._apply_primary_image_rect(
+            owner.media,
+            rect,
+            rect_attribute=rect_attribute,
+            missing_image_message=missing_image_message,
+            image_width=image_width,
+            image_height=image_height,
+            clamp=clamp,
+        )
+        return self._save_owner_sync(owner)
 
     def delete_owner_files(self, relative_root: Path) -> None:
         parts = relative_root.parts
@@ -378,6 +443,28 @@ class MediaFileService:
         height = min(max(float(rect.height), 0.0), 1.0 - y)
         return FaceRect(x=x, y=y, width=width, height=height)
 
+    def _apply_primary_image_rect(
+        self,
+        media: CharacterMedia,
+        rect: FaceRect,
+        *,
+        rect_attribute: RectAttribute,
+        missing_image_message: str,
+        image_width: int,
+        image_height: int,
+        clamp: Callable[[FaceRect], FaceRect] | None,
+    ) -> None:
+        image = media.primary_image()
+        if image is None:
+            raise ValueError(missing_image_message)
+
+        setattr(image, rect_attribute, (clamp or self.clamp_rect)(rect))
+        if image_width > 0:
+            image.width = image_width
+        if image_height > 0:
+            image.height = image_height
+        media.primary_image_id = image.id
+
     async def _replace_primary_image(
         self,
         owner: MediaOwner[ResultT],
@@ -424,11 +511,42 @@ class MediaFileService:
             return await cast(Awaitable[ResultT], result)
         return cast(ResultT, result)
 
+    def _save_owner_sync(self, owner: MediaOwner[ResultT]) -> ResultT:
+        result = owner.save()
+        if inspect.isawaitable(result):
+            raise TypeError("同期保存では awaitable を返せません。")
+        return cast(ResultT, result)
+
+    async def _save_voice_asset_owner(
+        self,
+        owner: VoiceAssetOwner[ResultT],
+        voice: CharacterVoiceAsset,
+    ) -> None:
+        result = owner.save(voice)
+        if inspect.isawaitable(result):
+            await cast(Awaitable[ResultT], result)
+
     def _delete_new_file(self, owner: MediaOwner[ResultT], relative_path: str) -> None:
         delete_file = owner.delete_new_file or self.delete_media_file
         delete_file(relative_path)
 
     def _delete_old_file(self, owner: MediaOwner[ResultT], relative_path: str) -> None:
+        delete_file = owner.delete_old_file or self.delete_media_file
+        delete_file(relative_path)
+
+    def _delete_voice_new_file(
+        self,
+        owner: VoiceAssetOwner[ResultT],
+        relative_path: str,
+    ) -> None:
+        delete_file = owner.delete_new_file or self.delete_media_file
+        delete_file(relative_path)
+
+    def _delete_voice_old_file(
+        self,
+        owner: VoiceAssetOwner[ResultT],
+        relative_path: str,
+    ) -> None:
         delete_file = owner.delete_old_file or self.delete_media_file
         delete_file(relative_path)
 

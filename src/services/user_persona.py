@@ -7,31 +7,28 @@
 
 from __future__ import annotations
 
-import mimetypes
-import shutil
-import uuid
 from pathlib import Path
 from typing import Any
 
 from ..core.chat.schemas import UserPersona
 from ..core.character.schemas import (
-    CharacterImageAsset,
     CharacterTTSSettings,
     CharacterVoiceAsset,
     FaceRect,
 )
 from ..core.tts.schemas import TTSConfig
 from ..storage.api_config_store import ApiConfigStore
+from .media import MediaFileService, MediaOwner, VoiceAssetOwner
 
 
 class UserPersonaService:
-    _IMAGE_SUFFIXES = {".gif", ".jpeg", ".jpg", ".png", ".webp"}
-    _VOICE_SUFFIXES = {".aac", ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".webm"}
+    _IMAGE_SUFFIXES = MediaFileService.IMAGE_SUFFIXES
+    _VOICE_SUFFIXES = MediaFileService.VOICE_SUFFIXES
 
     def __init__(self, store: ApiConfigStore, data_dir: Path | None = None) -> None:
         self._store = store
         self._data_dir = data_dir or Path("data")
-        self._user_personas_dir = self._data_dir / "user_personas"
+        self._media_files = MediaFileService(self._data_dir)
 
     # ─── ユーザーペルソナ ───
 
@@ -62,47 +59,14 @@ class UserPersonaService:
         self._store.save()
 
     def media_path(self, relative_path: str) -> Path | None:
-        if not relative_path:
-            return None
-        path = (self._data_dir / relative_path).resolve()
-        data_root = self._data_dir.resolve()
-        if not path.is_relative_to(data_root) or not path.is_file():
-            return None
-        return path
+        return self._media_files.media_path(relative_path)
 
     async def save_user_persona_image(self, persona_id: str, upload: Any) -> UserPersona:
         persona = self._require_user_persona(persona_id)
-        filename = getattr(upload, "name", "") or ""
-        content_type = getattr(upload, "content_type", "") or ""
-        if content_type and not content_type.startswith("image/"):
-            raise ValueError("画像ファイルを選択してください。")
-        if not content_type and Path(filename).suffix.lower() not in self._IMAGE_SUFFIXES:
-            raise ValueError("画像ファイルを選択してください。")
-
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
-        relative_path = Path("user_personas") / persona_id / "images" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        await upload.save(target)
-
-        old_paths = [image.path for image in persona.media.images]
-        image = CharacterImageAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
-            content_type=content_type,
+        return await self._media_files.save_image_upload(
+            self._media_owner(persona_id, persona),
+            upload,
         )
-        persona.media.images = [image]
-        persona.media.primary_image_id = image.id
-        try:
-            self.update_user_persona(persona)
-        except Exception:
-            self._delete_media_file(image.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return persona
 
     async def save_user_persona_image_bytes(
         self,
@@ -114,72 +78,23 @@ class UserPersonaService:
         width: int = 0,
         height: int = 0,
     ) -> UserPersona:
-        if not image_bytes:
-            raise ValueError("画像データが空です。")
-        if content_type and not content_type.startswith("image/"):
-            raise ValueError("画像データを指定してください。")
-
+        self._media_files.validate_image_bytes(image_bytes, content_type)
         persona = self._require_user_persona(persona_id)
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
-        relative_path = Path("user_personas") / persona_id / "images" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(image_bytes)
-
-        old_paths = [image.path for image in persona.media.images]
-        image = CharacterImageAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
+        return await self._media_files.save_image_bytes(
+            self._media_owner(persona_id, persona),
+            image_bytes,
+            filename=filename,
             content_type=content_type,
-            width=max(0, int(width or 0)),
-            height=max(0, int(height or 0)),
+            width=width,
+            height=height,
         )
-        persona.media.images = [image]
-        persona.media.primary_image_id = image.id
-        try:
-            self.update_user_persona(persona)
-        except Exception:
-            self._delete_media_file(image.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return persona
 
     async def save_user_persona_voice(self, persona_id: str, upload: Any) -> UserPersona:
         persona = self._require_user_persona(persona_id)
-        filename = getattr(upload, "name", "") or ""
-        content_type = getattr(upload, "content_type", "") or ""
-        if content_type and not content_type.startswith("audio/"):
-            raise ValueError("音声ファイルを選択してください。")
-        if not content_type and Path(filename).suffix.lower() not in self._VOICE_SUFFIXES:
-            raise ValueError("音声ファイルを選択してください。")
-
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._VOICE_SUFFIXES, ".wav")
-        relative_path = Path("user_personas") / persona_id / "voices" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        await upload.save(target)
-
-        old_paths = [voice.path for voice in persona.media.voices]
-        voice = CharacterVoiceAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
-            content_type=content_type,
+        return await self._media_files.save_voice_upload(
+            self._media_owner(persona_id, persona),
+            upload,
         )
-        persona.media.voices = [voice]
-        persona.media.primary_voice_id = voice.id
-        try:
-            self.update_user_persona(persona)
-        except Exception:
-            self._delete_media_file(voice.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return persona
 
     async def save_user_persona_voice_bytes(
         self,
@@ -189,33 +104,14 @@ class UserPersonaService:
         filename: str = "voice-design.wav",
         content_type: str = "audio/wav",
     ) -> UserPersona:
-        if not audio_bytes:
-            raise ValueError("音声データが空です。")
+        self._media_files.validate_non_empty(audio_bytes, "音声データが空です。")
         persona = self._require_user_persona(persona_id)
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._VOICE_SUFFIXES, ".wav")
-        relative_path = Path("user_personas") / persona_id / "voices" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(audio_bytes)
-
-        old_paths = [voice.path for voice in persona.media.voices]
-        voice = CharacterVoiceAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
+        return await self._media_files.save_voice_bytes(
+            self._media_owner(persona_id, persona),
+            audio_bytes,
+            filename=filename,
             content_type=content_type,
         )
-        persona.media.voices = [voice]
-        persona.media.primary_voice_id = voice.id
-        try:
-            self.update_user_persona(persona)
-        except Exception:
-            self._delete_media_file(voice.path)
-            raise
-        for old_path in old_paths:
-            self._delete_media_file(old_path)
-        return persona
 
     def update_user_persona_face_rect(
         self,
@@ -226,18 +122,14 @@ class UserPersonaService:
         image_height: int = 0,
     ) -> UserPersona:
         persona = self._require_user_persona(persona_id)
-        image = persona.media.primary_image()
-        if image is None:
-            raise ValueError("顔範囲を設定する画像がありません。")
-
-        image.face_rect = self._clamp_rect(rect)
-        if image_width > 0:
-            image.width = image_width
-        if image_height > 0:
-            image.height = image_height
-        persona.media.primary_image_id = image.id
-        self.update_user_persona(persona)
-        return persona
+        return self._media_files.update_primary_image_rect_sync(
+            self._media_owner(persona_id, persona),
+            rect,
+            rect_attribute="face_rect",
+            missing_image_message="顔範囲を設定する画像がありません。",
+            image_width=image_width,
+            image_height=image_height,
+        )
 
     def update_user_persona_tts_settings(
         self,
@@ -256,23 +148,18 @@ class UserPersonaService:
         *,
         replace_existing: bool = True,
     ) -> Path:
-        return self._save_user_persona_temp_file(
-            persona_id,
+        return self._media_files.save_tts_preview(
+            self._user_persona_media_root(persona_id),
             audio_bytes,
-            directory="tts",
-            prefix="preview",
-            suffix=".wav",
             replace_existing=replace_existing,
+            ignore_delete_errors=True,
         )
 
     def save_user_persona_tts_playback(self, persona_id: str, audio_bytes: bytes) -> Path:
-        return self._save_user_persona_temp_file(
-            persona_id,
+        return self._media_files.save_tts_playback(
+            self._user_persona_media_root(persona_id),
             audio_bytes,
-            directory="tts",
-            prefix="playback",
-            suffix=".wav",
-            replace_existing=True,
+            ignore_delete_errors=True,
         )
 
     def save_narrator_tts_preview(
@@ -281,19 +168,18 @@ class UserPersonaService:
         *,
         replace_existing: bool = True,
     ) -> Path:
-        return self._save_narrator_temp_file(
+        return self._media_files.save_tts_preview(
+            self._narrator_media_root(),
             audio_bytes,
-            prefix="preview",
-            suffix=".wav",
             replace_existing=replace_existing,
+            ignore_delete_errors=True,
         )
 
     def save_narrator_tts_playback(self, audio_bytes: bytes) -> Path:
-        return self._save_narrator_temp_file(
+        return self._media_files.save_tts_playback(
+            self._narrator_media_root(),
             audio_bytes,
-            prefix="playback",
-            suffix=".wav",
-            replace_existing=True,
+            ignore_delete_errors=True,
         )
 
     async def save_narrator_voice_bytes(
@@ -303,33 +189,20 @@ class UserPersonaService:
         filename: str = "narrator-voice-design.wav",
         content_type: str = "audio/wav",
     ) -> CharacterVoiceAsset:
-        if not audio_bytes:
-            raise ValueError("音声データが空です。")
-
+        self._media_files.validate_non_empty(audio_bytes, "音声データが空です。")
         config = self.get_tts_config()
-        old_path = config.narrator_voice.path if config.narrator_voice else ""
-        asset_id = uuid.uuid4().hex
-        suffix = self._safe_suffix(filename, content_type, self._VOICE_SUFFIXES, ".wav")
-        relative_path = Path("narrator") / "voices" / f"{asset_id}{suffix}"
-        target = self._data_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(audio_bytes)
-
-        voice = CharacterVoiceAsset(
-            id=asset_id,
-            path=relative_path.as_posix(),
-            original_name=filename,
+        return await self._media_files.save_voice_asset_bytes(
+            VoiceAssetOwner(
+                relative_root=self._narrator_media_root(),
+                current_path=config.narrator_voice.path if config.narrator_voice else "",
+                save=lambda voice: self._save_narrator_voice(config, voice),
+                delete_new_file=self._delete_media_file,
+                delete_old_file=self._delete_media_file,
+            ),
+            audio_bytes,
+            filename=filename,
             content_type=content_type,
         )
-        config.narrator_voice = voice
-        try:
-            self.save_tts_config(config)
-        except Exception:
-            self._delete_media_file(voice.path)
-            raise
-        if old_path:
-            self._delete_media_file(old_path)
-        return voice
 
     def save_user_persona_image_preview(
         self,
@@ -340,16 +213,13 @@ class UserPersonaService:
         content_type: str = "image/png",
         replace_existing: bool = True,
     ) -> Path:
-        if not image_bytes:
-            raise ValueError("画像データが空です。")
-        suffix = self._safe_suffix(filename, content_type, self._IMAGE_SUFFIXES, ".png")
-        return self._save_user_persona_temp_file(
-            persona_id,
+        return self._media_files.save_image_preview(
+            self._user_persona_media_root(persona_id),
             image_bytes,
-            directory="images/previews",
-            prefix="preview",
-            suffix=suffix,
+            filename=filename,
+            content_type=content_type,
             replace_existing=replace_existing,
+            ignore_delete_errors=True,
         )
 
     def get_tts_config(self) -> TTSConfig:
@@ -365,97 +235,38 @@ class UserPersonaService:
             raise ValueError("ユーザーペルソナが見つかりません。")
         return persona
 
-    def _save_user_persona_temp_file(
+    def _media_owner(self, persona_id: str, persona: UserPersona) -> MediaOwner[UserPersona]:
+        return MediaOwner(
+            relative_root=self._user_persona_media_root(persona_id),
+            media=persona.media,
+            save=lambda: self._save_user_persona_media(persona),
+            delete_new_file=self._delete_media_file,
+            delete_old_file=self._delete_media_file,
+        )
+
+    def _save_user_persona_media(self, persona: UserPersona) -> UserPersona:
+        self.update_user_persona(persona)
+        return persona
+
+    def _save_narrator_voice(
         self,
-        persona_id: str,
-        data: bytes,
-        *,
-        directory: str,
-        prefix: str,
-        suffix: str,
-        replace_existing: bool,
-    ) -> Path:
-        if not data:
-            raise ValueError("保存するデータが空です。")
+        config: TTSConfig,
+        voice: CharacterVoiceAsset,
+    ) -> CharacterVoiceAsset:
+        config.narrator_voice = voice
+        self.save_tts_config(config)
+        return voice
 
-        temp_dir = (self._user_personas_dir / persona_id / directory).resolve()
-        persona_root = (self._user_personas_dir / persona_id).resolve()
-        if not temp_dir.is_relative_to(persona_root):
-            raise ValueError("保存先が不正です。")
+    @staticmethod
+    def _user_persona_media_root(persona_id: str) -> Path:
+        return Path("user_personas") / persona_id
 
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        if replace_existing:
-            for old_file in temp_dir.glob(f"{prefix}-*"):
-                self._delete_file_if_possible(old_file)
-
-        path = temp_dir / f"{prefix}-{uuid.uuid4().hex}{suffix}"
-        path.write_bytes(data)
-        return path
-
-    def _save_narrator_temp_file(
-        self,
-        data: bytes,
-        *,
-        prefix: str,
-        suffix: str,
-        replace_existing: bool,
-    ) -> Path:
-        if not data:
-            raise ValueError("保存するデータが空です。")
-
-        temp_dir = (self._data_dir / "narrator" / "tts").resolve()
-        data_root = self._data_dir.resolve()
-        if not temp_dir.is_relative_to(data_root):
-            raise ValueError("保存先が不正です。")
-
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        if replace_existing:
-            for old_file in temp_dir.glob(f"{prefix}-*"):
-                self._delete_file_if_possible(old_file)
-
-        path = temp_dir / f"{prefix}-{uuid.uuid4().hex}{suffix}"
-        path.write_bytes(data)
-        return path
+    @staticmethod
+    def _narrator_media_root() -> Path:
+        return Path("narrator")
 
     def _delete_user_persona_files(self, persona_id: str) -> None:
-        root = self._user_personas_dir.resolve()
-        target = (self._user_personas_dir / persona_id).resolve()
-        if target.is_relative_to(root):
-            shutil.rmtree(target, ignore_errors=True)
+        self._media_files.delete_owner_files(self._user_persona_media_root(persona_id))
 
     def _delete_media_file(self, relative_path: str) -> None:
-        path = self.media_path(relative_path)
-        if path is not None:
-            self._delete_file_if_possible(path)
-
-    @staticmethod
-    def _delete_file_if_possible(path: Path) -> None:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-    @staticmethod
-    def _safe_suffix(
-        filename: str,
-        content_type: str,
-        allowed: set[str],
-        fallback: str,
-    ) -> str:
-        suffix = Path(filename or "").suffix.lower()
-        if suffix in allowed:
-            return suffix
-        guessed = (mimetypes.guess_extension(content_type) or "").lower()
-        if guessed == ".jpe":
-            guessed = ".jpg"
-        if guessed in allowed:
-            return guessed
-        return fallback
-
-    @staticmethod
-    def _clamp_rect(rect: FaceRect) -> FaceRect:
-        width = min(max(rect.width, 0.01), 1.0)
-        height = min(max(rect.height, 0.01), 1.0)
-        x = min(max(rect.x, 0.0), 1.0 - width)
-        y = min(max(rect.y, 0.0), 1.0 - height)
-        return FaceRect(x=x, y=y, width=width, height=height)
+        self._media_files.delete_media_file(relative_path, ignore_errors=True)
