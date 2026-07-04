@@ -20,6 +20,25 @@ from ...core.character.schemas import (
     CHARACTER_TTS_API_TTS,
     CharacterSheet,
 )
+from ...core.conversation.llm_io import (
+    build_debug_info,
+    format_llm_input,
+    message_content_to_text,
+    sanitize_chat_title,
+)
+from ...core.conversation.prompts.common import character_summary
+from ...core.conversation.prompts.solo import (
+    build_chat_title_messages,
+    build_llm_messages,
+    build_narration_llm_messages,
+    build_response_choice_messages,
+    build_system_prompt,
+    build_tailored_input_messages,
+    build_user_completion_messages,
+    is_first_character_turn,
+    sanitize_narration,
+)
+from ...core.conversation.sanitize import sanitize_character_reply
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
 from ...services.llm_runtime import API_KEY_LOCKED, ENDPOINT_NOT_FOUND, LLMRuntimeError, MODEL_ID_MISSING, PROFILE_NOT_FOUND, build_configured_llm
@@ -42,23 +61,6 @@ from .models import (
     ChatState,
     ChatThreadPreview,
     time_label,
-)
-from .prompts import (
-    build_chat_title_messages,
-    build_debug_info,
-    build_llm_messages,
-    build_narration_llm_messages,
-    build_response_choice_messages,
-    build_system_prompt,
-    build_tailored_input_messages,
-    build_user_completion_messages,
-    character_summary,
-    format_llm_input,
-    is_first_character_turn,
-    message_content_to_text,
-    sanitize_chat_title,
-    sanitize_character_reply,
-    sanitize_narration,
 )
 
 

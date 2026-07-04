@@ -1,5 +1,5 @@
 from src.ui.chat.models import ChatMessagePreview
-from src.ui.chat.prompts import (
+from src.core.conversation.prompts.solo import (
     build_llm_messages,
     build_response_choice_messages,
     build_tailored_input_messages,
