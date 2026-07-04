@@ -12,9 +12,7 @@ from nicegui import ui
 from ...core.character.schemas import (
     CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
     CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
-    CHARACTER_TTS_API_DEFAULT,
     CHARACTER_TTS_API_GEN_SERVER,
-    CHARACTER_TTS_API_TTS,
     CharacterSheet,
     CharacterTTSSettings,
 )
@@ -25,7 +23,20 @@ from ...core.gen_server.schemas import (
     GEN_SERVER_MODE_LABELS,
     clean_gen_server_mode_defaults,
 )
-from ...core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
+from ...core.tts.options import (
+    CHARACTER_GEN_SERVER_VOICE_API_VALUE,
+    GEN_SERVER_TTS_MODE_OPTIONS,
+    TTS_API_PREFIX,
+    assigned_gen_server_voice_endpoints,
+    gen_server_backend_mode,
+    is_gen_server_voice_api,
+    normalize_gen_server_tts_mode,
+    parse_voice_api_value,
+    selected_tts_endpoint,
+    selected_voice_api_value,
+    voice_api_options,
+)
+from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobStatus
 from ...services.llm_runtime import (
     API_KEY_LOCKED,
@@ -40,14 +51,11 @@ from ..state import get_vault_password
 from .character_media_image import _read_gen_server_param_value
 
 
-_TTS_API_PREFIX = "tts:"
+_TTS_API_PREFIX = TTS_API_PREFIX
 
-_GEN_SERVER_VOICE_CLONE_API = "gen_server:irodori_voice_clone"
+_GEN_SERVER_VOICE_CLONE_API = CHARACTER_GEN_SERVER_VOICE_API_VALUE
 
-_GEN_SERVER_TTS_MODE_OPTIONS = {
-    CHARACTER_GEN_SERVER_TTS_MODE_CLONE: "ボイスクローン",
-    CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3: "VoiceDesign v3",
-}
+_GEN_SERVER_TTS_MODE_OPTIONS = GEN_SERVER_TTS_MODE_OPTIONS
 
 _VOICE_CAPTION_LABEL_RE = re.compile(
     r"^(?:voice\s*design\s*)?(?:caption|キャプション|ボイスキャプション|音声キャプション)\s*[:：]\s*",
@@ -792,100 +800,59 @@ def _render_tts_controls(
 
 
 def _voice_api_options(endpoints, gen_server_config) -> dict[str, str]:
-    options: dict[str, str] = {}
-    assigned = _assigned_gen_server_voice_endpoints(gen_server_config)
-    if assigned:
-        names = sorted({endpoint.name for endpoint in assigned if endpoint.name})
-        name_label = ", ".join(names) if names else "割り当て済み"
-        options[_GEN_SERVER_VOICE_CLONE_API] = f"Wizmy-Gen-Server (TTS: {name_label})"
-    options.update(
-        {
-            f"{_TTS_API_PREFIX}{endpoint.id}": f"{endpoint.name} ({_tts_provider_label(endpoint.provider)})"
-            for endpoint in endpoints
-        }
+    return voice_api_options(
+        endpoints,
+        gen_server_config,
+        gen_server_api_value=_GEN_SERVER_VOICE_CLONE_API,
+        tts_api_prefix=_TTS_API_PREFIX,
     )
-    return options
 
 
 def _selected_voice_api_value(settings: CharacterTTSSettings, endpoints, has_gen_server: bool) -> str:
-    if settings.api_type == CHARACTER_TTS_API_GEN_SERVER and has_gen_server:
-        return _GEN_SERVER_VOICE_CLONE_API
-    endpoint_ids = {endpoint.id for endpoint in endpoints}
-    if settings.api_type == CHARACTER_TTS_API_TTS and settings.endpoint_id in endpoint_ids:
-        return f"{_TTS_API_PREFIX}{settings.endpoint_id}"
-    if has_gen_server:
-        return _GEN_SERVER_VOICE_CLONE_API
-    if endpoints:
-        return f"{_TTS_API_PREFIX}{endpoints[0].id}"
-    return ""
-
-
-def _assigned_voice_clone_endpoint(gen_server_config):
-    assigned_id = gen_server_config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_CLONE)
-    return next(
-        (endpoint for endpoint in gen_server_config.endpoints if endpoint.id == assigned_id),
-        None,
-    )
-
-
-def _assigned_voice_design_endpoint(gen_server_config):
-    assigned_id = gen_server_config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_DESIGN)
-    return next(
-        (endpoint for endpoint in gen_server_config.endpoints if endpoint.id == assigned_id),
-        None,
+    return selected_voice_api_value(
+        settings,
+        endpoints,
+        has_gen_server,
+        gen_server_api_value=_GEN_SERVER_VOICE_CLONE_API,
+        tts_api_prefix=_TTS_API_PREFIX,
     )
 
 
 def _assigned_gen_server_voice_endpoints(gen_server_config) -> list:
-    endpoints = [
-        endpoint
-        for endpoint in [
-            _assigned_voice_clone_endpoint(gen_server_config),
-            _assigned_voice_design_endpoint(gen_server_config),
-        ]
-        if endpoint is not None
-    ]
-    result = []
-    seen: set[str] = set()
-    for endpoint in endpoints:
-        if endpoint.id in seen:
-            continue
-        result.append(endpoint)
-        seen.add(endpoint.id)
-    return result
+    return assigned_gen_server_voice_endpoints(gen_server_config)
 
 
 def _normalize_gen_server_tts_mode(value: str | None) -> str:
-    selected = str(value or "")
-    if selected == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
-        return CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
-    return CHARACTER_GEN_SERVER_TTS_MODE_CLONE
+    return normalize_gen_server_tts_mode(value)
 
 
 def _gen_server_backend_mode(tts_mode: str) -> str:
-    if tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
-        return GEN_SERVER_MODE_IRODORI_VOICE_DESIGN
-    return GEN_SERVER_MODE_IRODORI_VOICE_CLONE
+    return gen_server_backend_mode(tts_mode)
 
 
 def _parse_voice_api_value(value: str | None) -> tuple[str, str]:
-    selected = str(value or "")
-    if selected == _GEN_SERVER_VOICE_CLONE_API:
-        return CHARACTER_TTS_API_GEN_SERVER, ""
-    if selected.startswith(_TTS_API_PREFIX):
-        return CHARACTER_TTS_API_TTS, selected[len(_TTS_API_PREFIX) :]
-    return CHARACTER_TTS_API_DEFAULT, ""
+    return parse_voice_api_value(
+        value,
+        gen_server_api_value=_GEN_SERVER_VOICE_CLONE_API,
+        tts_api_prefix=_TTS_API_PREFIX,
+    )
 
 
 def _selected_tts_endpoint(value: str | None, endpoint_by_id: dict):
-    api_type, endpoint_id = _parse_voice_api_value(value)
-    if api_type != CHARACTER_TTS_API_TTS:
-        return None
-    return endpoint_by_id.get(endpoint_id)
+    return selected_tts_endpoint(
+        value,
+        endpoint_by_id,
+        gen_server_api_value=_GEN_SERVER_VOICE_CLONE_API,
+        tts_api_prefix=_TTS_API_PREFIX,
+    )
 
 
 def _is_gen_server_voice_api(value: str | None) -> bool:
-    return _parse_voice_api_value(value)[0] == CHARACTER_TTS_API_GEN_SERVER
+    return is_gen_server_voice_api(
+        value,
+        gen_server_api_value=_GEN_SERVER_VOICE_CLONE_API,
+        tts_api_prefix=_TTS_API_PREFIX,
+    )
 
 
 def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings, mode: str) -> None:
@@ -1039,11 +1006,3 @@ async def _fetch_character_gen_server_model_id(
                             ui.label(model_id).classes("text-xs text-grey-6 font-mono break-all")
 
     dlg.open()
-
-
-def _tts_provider_label(provider: str) -> str:
-    if provider == TTS_PROVIDER_IRODORI_GRADIO:
-        return "Irodori-TTS Gradio / 07dfa74"
-    if provider == TTS_PROVIDER_IRODORI_SERVER:
-        return "Irodori-TTS-Server"
-    return provider

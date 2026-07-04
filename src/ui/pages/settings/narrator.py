@@ -18,12 +18,10 @@ from ....core.gen_server.schemas import (
 from ....core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ....services.ai_jobs import AIJobStatus
 from ....services.tts import TTSServiceError
-from .common import TTS_PROVIDER_LABELS, build_profile_param_control, read_gen_server_default_value
+from .common import build_profile_param_control, read_gen_server_default_value
 from .media_generation import fetch_gen_server_model_id
 from .user_personas import (
     PERSONA_GEN_SERVER_TTS_MODE_OPTIONS,
-    PERSONA_GEN_SERVER_VOICE_API,
-    PERSONA_TTS_API_PREFIX,
     open_user_persona_gen_server_tts_params_dialog,
     persona_assigned_gen_server_voice_endpoints,
     persona_gen_server_backend_mode,
@@ -245,23 +243,6 @@ def narrator_tts_id() -> str:
 
 def narrator_voice_api_options(endpoints, gen_server_config) -> dict[str, str]:
     return persona_voice_api_options(endpoints, gen_server_config)
-
-    options: dict[str, str] = {}
-    assigned_id = gen_server_config.assigned_endpoint_id(GEN_SERVER_MODE_IRODORI_VOICE_DESIGN)
-    assigned_endpoint = next(
-        (endpoint for endpoint in gen_server_config.endpoints if endpoint.id == assigned_id),
-        None,
-    )
-    if assigned_endpoint is not None:
-        name_label = assigned_endpoint.name or "割り当て済み"
-        options[PERSONA_GEN_SERVER_VOICE_API] = f"Wizmy-Gen-Server (VoiceDesign: {name_label})"
-    options.update(
-        {
-            f"{PERSONA_TTS_API_PREFIX}{endpoint.id}": f"{endpoint.name} ({TTS_PROVIDER_LABELS.get(endpoint.provider, endpoint.provider)})"
-            for endpoint in endpoints
-        }
-    )
-    return options
 
 
 def narrator_has_gen_server_voice_design(gen_server_config) -> bool:

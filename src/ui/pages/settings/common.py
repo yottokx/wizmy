@@ -3,7 +3,7 @@ from __future__ import annotations
 from nicegui import ui
 
 from ....core.gen_server.schemas import GEN_SERVER_MODE_LABELS
-from ....core.tts.schemas import TTS_PROVIDER_IRODORI_GRADIO, TTS_PROVIDER_IRODORI_SERVER
+from ....core.tts.options import TTS_PROVIDER_LABELS as TTS_PROVIDER_LABELS
 
 
 _SORTABLE_FILTER = "button, input, textarea, select, .q-btn, .q-field, .q-checkbox, .q-slider, .q-menu, [role=button]"
@@ -344,9 +344,3 @@ async def fetch_gen_server_model_id_from_endpoint(
                             ui.label(model_id).classes("text-xs text-grey-6 font-mono break-all")
 
     dlg.open()
-
-
-TTS_PROVIDER_LABELS = {
-    TTS_PROVIDER_IRODORI_GRADIO: "Irodori-TTS Gradio / 07dfa74",
-    TTS_PROVIDER_IRODORI_SERVER: "Irodori-TTS-Server",
-}

@@ -11,7 +11,6 @@ from ....core.character.schemas import (
     CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
     CHARACTER_TTS_API_DEFAULT,
     CHARACTER_TTS_API_GEN_SERVER,
-    CHARACTER_TTS_API_TTS,
     CharacterImageAsset,
     CharacterTTSSettings,
     FaceRect,
@@ -28,13 +27,25 @@ from ....core.image_generation.schemas import (
     ImageGenerationProfile,
     image_generation_profile_values,
 )
+from ....core.tts.options import (
+    GEN_SERVER_TTS_MODE_OPTIONS,
+    PERSONA_GEN_SERVER_VOICE_API_VALUE,
+    TTS_API_PREFIX,
+    assigned_gen_server_voice_endpoints,
+    gen_server_backend_mode,
+    is_gen_server_voice_api,
+    normalize_gen_server_tts_mode,
+    parse_voice_api_value,
+    selected_tts_endpoint,
+    selected_voice_api_value,
+    voice_api_options,
+)
 from ....core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ....services.ai_jobs import AIJobStatus
 from ....services.image_generation import ImageGenerationError
 from ....services.tts import TTSServiceError
 from ...chat.media import cropped_background_style, read_image_size
 from .common import (
-    TTS_PROVIDER_LABELS,
     build_profile_param_control,
     enable_drag_sort,
     fetch_gen_server_model_id_from_endpoint,
@@ -46,12 +57,9 @@ from .common import (
 from .media_generation import fetch_gen_server_model_id
 
 
-PERSONA_TTS_API_PREFIX = "tts:"
-PERSONA_GEN_SERVER_VOICE_API = "gen_server:voice"
-PERSONA_GEN_SERVER_TTS_MODE_OPTIONS = {
-    CHARACTER_GEN_SERVER_TTS_MODE_CLONE: "ボイスクローン",
-    CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3: "VoiceDesign v3",
-}
+PERSONA_TTS_API_PREFIX = TTS_API_PREFIX
+PERSONA_GEN_SERVER_VOICE_API = PERSONA_GEN_SERVER_VOICE_API_VALUE
+PERSONA_GEN_SERVER_TTS_MODE_OPTIONS = GEN_SERVER_TTS_MODE_OPTIONS
 
 
 async def build_user_personas_tab(ctx) -> None:
@@ -1421,75 +1429,56 @@ def user_persona_generated_image_filename(image: object, index: int) -> str:
 
 
 def persona_voice_api_options(endpoints, gen_server_config) -> dict[str, str]:
-    options: dict[str, str] = {}
-    assigned = persona_assigned_gen_server_voice_endpoints(gen_server_config)
-    if assigned:
-        names = sorted({endpoint.name for endpoint in assigned if endpoint.name})
-        name_label = ", ".join(names) if names else "割り当て済み"
-        options[PERSONA_GEN_SERVER_VOICE_API] = f"Wizmy-Gen-Server (TTS: {name_label})"
-    options.update(
-        {
-            f"{PERSONA_TTS_API_PREFIX}{endpoint.id}": f"{endpoint.name} ({TTS_PROVIDER_LABELS.get(endpoint.provider, endpoint.provider)})"
-            for endpoint in endpoints
-        }
+    return voice_api_options(
+        endpoints,
+        gen_server_config,
+        gen_server_api_value=PERSONA_GEN_SERVER_VOICE_API,
+        tts_api_prefix=PERSONA_TTS_API_PREFIX,
     )
-    return options
 
 
 def persona_selected_voice_api_value(settings: CharacterTTSSettings, endpoints, has_gen_server: bool) -> str:
-    if settings.api_type == CHARACTER_TTS_API_GEN_SERVER and has_gen_server:
-        return PERSONA_GEN_SERVER_VOICE_API
-    endpoint_ids = {endpoint.id for endpoint in endpoints}
-    if settings.api_type == CHARACTER_TTS_API_TTS and settings.endpoint_id in endpoint_ids:
-        return f"{PERSONA_TTS_API_PREFIX}{settings.endpoint_id}"
-    if has_gen_server:
-        return PERSONA_GEN_SERVER_VOICE_API
-    if endpoints:
-        return f"{PERSONA_TTS_API_PREFIX}{endpoints[0].id}"
-    return ""
+    return selected_voice_api_value(
+        settings,
+        endpoints,
+        has_gen_server,
+        gen_server_api_value=PERSONA_GEN_SERVER_VOICE_API,
+        tts_api_prefix=PERSONA_TTS_API_PREFIX,
+    )
 
 
 def persona_parse_voice_api_value(value: str | None) -> tuple[str, str]:
-    selected = str(value or "")
-    if selected == PERSONA_GEN_SERVER_VOICE_API:
-        return CHARACTER_TTS_API_GEN_SERVER, ""
-    if selected.startswith(PERSONA_TTS_API_PREFIX):
-        return CHARACTER_TTS_API_TTS, selected[len(PERSONA_TTS_API_PREFIX) :]
-    return CHARACTER_TTS_API_DEFAULT, ""
+    return parse_voice_api_value(
+        value,
+        gen_server_api_value=PERSONA_GEN_SERVER_VOICE_API,
+        tts_api_prefix=PERSONA_TTS_API_PREFIX,
+    )
 
 
 def persona_selected_tts_endpoint(value: str | None, endpoint_by_id: dict):
-    api_type, endpoint_id = persona_parse_voice_api_value(value)
-    if api_type != CHARACTER_TTS_API_TTS:
-        return None
-    return endpoint_by_id.get(endpoint_id)
+    return selected_tts_endpoint(
+        value,
+        endpoint_by_id,
+        gen_server_api_value=PERSONA_GEN_SERVER_VOICE_API,
+        tts_api_prefix=PERSONA_TTS_API_PREFIX,
+    )
 
 
 def persona_is_gen_server_voice_api(value: str | None) -> bool:
-    return persona_parse_voice_api_value(value)[0] == CHARACTER_TTS_API_GEN_SERVER
+    return is_gen_server_voice_api(
+        value,
+        gen_server_api_value=PERSONA_GEN_SERVER_VOICE_API,
+        tts_api_prefix=PERSONA_TTS_API_PREFIX,
+    )
 
 
 def persona_normalize_gen_server_tts_mode(value: str | None) -> str:
-    selected = str(value or "")
-    if selected == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
-        return CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
-    return CHARACTER_GEN_SERVER_TTS_MODE_CLONE
+    return normalize_gen_server_tts_mode(value)
 
 
 def persona_gen_server_backend_mode(tts_mode: str) -> str:
-    if tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
-        return GEN_SERVER_MODE_IRODORI_VOICE_DESIGN
-    return GEN_SERVER_MODE_IRODORI_VOICE_CLONE
+    return gen_server_backend_mode(tts_mode)
 
 
 def persona_assigned_gen_server_voice_endpoints(gen_server_config) -> list:
-    endpoints = []
-    for mode in (GEN_SERVER_MODE_IRODORI_VOICE_CLONE, GEN_SERVER_MODE_IRODORI_VOICE_DESIGN):
-        assigned_id = gen_server_config.assigned_endpoint_id(mode)
-        endpoint = next(
-            (candidate for candidate in gen_server_config.endpoints if candidate.id == assigned_id),
-            None,
-        )
-        if endpoint is not None and all(existing.id != endpoint.id for existing in endpoints):
-            endpoints.append(endpoint)
-    return endpoints
+    return assigned_gen_server_voice_endpoints(gen_server_config)
