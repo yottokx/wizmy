@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import inspect
 import re
 from pathlib import Path
 from typing import Any
@@ -62,10 +63,11 @@ def _open_image_generation_dialog(
     controls: dict[str, object] = {}
     generated: list[dict[str, object]] = []
     prompt_candidates: list[object] = []
+    title = getattr(actions, "image_generation_title", "画像生成")
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-6xl").style("width: min(1100px, 96vw);"):
         with ui.row().classes("w-full items-center justify-between gap-2"):
-            ui.label("画像生成").classes("text-base font-semibold")
+            ui.label(title).classes("text-base font-semibold")
             ui.space()
             status = ui.label("").classes("text-xs text-grey-6")
             ui.button(icon="close", on_click=dlg.close).props("flat round dense")
@@ -396,7 +398,7 @@ def _open_image_generation_dialog(
                 job = ctx.image_generation.start_sdxl_job(
                     profile_id=profile_select.value or "",
                     gen_server_params=_read_params(),
-                    label=f"{sheet.name or 'キャラクター'}の画像生成",
+                    label=_image_generation_job_label(sheet, actions),
                     scope=f"{actions.scope_prefix}:image",
                     metadata=dict(actions.metadata),
                     result_handler=_save_previews,
@@ -429,20 +431,277 @@ def _open_image_generation_dialog(
                     raise RuntimeError("画像の保存処理が設定されていません。")
                 saved = await actions.save_image_bytes(
                     image.data,
-                    filename=_generated_image_filename(image, index),
+                    filename=_generated_image_filename_for_actions(image, index, actions),
                     content_type=image.content_type,
                     width=image.width,
                     height=image.height,
                 )
                 sheet.media = saved.media
-                ui.notify("生成画像をキャラ画像に保存しました", type="positive")
+                ui.notify(
+                    getattr(actions, "image_generation_save_message", "生成画像をキャラ画像に保存しました"),
+                    type="positive",
+                )
                 dlg.close()
-                refresh_fn()
+                await _refresh_media(refresh_fn, saved)
             except Exception as err:
                 ui.notify(f"画像の保存に失敗しました: {err}", type="negative")
 
         prompt_generate_btn.on("click", _generate_prompt_candidates)
         generate_btn.on("click", _generate)
+        _render_generated()
+
+    dlg.open()
+
+
+async def _refresh_media(refresh_fn, saved: object | None = None) -> None:
+    try:
+        result = refresh_fn(saved)
+    except TypeError:
+        result = refresh_fn()
+    if inspect.isawaitable(result):
+        await result
+
+
+def _image_generation_job_label(target, actions) -> str:
+    label_factory = getattr(actions, "image_generation_job_label", None)
+    if label_factory is not None:
+        return label_factory(target)
+    return f"{target.name or 'キャラクター'}の画像生成"
+
+
+def _generated_image_filename_for_actions(image: object, index: int, actions) -> str:
+    filename_factory = getattr(actions, "image_generation_filename", None)
+    if filename_factory is not None:
+        return filename_factory(image, index)
+    return _generated_image_filename(image, index)
+
+
+def open_simple_image_generation_dialog(
+    target,
+    ctx,
+    refresh_fn,
+    actions,
+    *,
+    title: str,
+    profile_prompt,
+    save_message: str,
+    job_label: str,
+) -> None:
+    profiles = ctx.api_config.get_image_generation_profiles()
+    if not profiles:
+        ui.notify("設定で画像生成プロファイルを追加してください。", type="warning")
+        return
+
+    config = ctx.api_config.get_image_generation_config()
+    selected_profile = ctx.api_config.get_image_generation_profile(config.default_profile_id) or profiles[0]
+    controls: dict[str, object] = {}
+    generated: list[dict[str, object]] = []
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-5xl").style("width: min(980px, 96vw);"):
+        with ui.row().classes("w-full items-center justify-between gap-2"):
+            ui.label(title).classes("text-base font-semibold")
+            status = ui.label("").classes("text-xs text-grey-6")
+            ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+
+        profile_options = {profile.id: profile.name or "無題のプロファイル" for profile in profiles}
+        with ui.row().classes("w-full gap-4 items-start flex-col lg:flex-row"):
+            with ui.column().classes("w-full lg:w-[420px] gap-3 shrink-0"):
+                profile_select = (
+                    ui.select(
+                        options=profile_options,
+                        value=selected_profile.id,
+                        label="画像生成プロファイル",
+                    )
+                    .props("outlined dense")
+                    .classes("w-full")
+                )
+                prompt_input = (
+                    ui.textarea(
+                        label="プロンプト",
+                        value=profile_prompt(selected_profile),
+                    )
+                    .props("outlined rows=5")
+                    .classes("w-full")
+                )
+                negative_input = (
+                    ui.textarea(
+                        label="ネガティブプロンプト",
+                        value=selected_profile.negative_prompt,
+                    )
+                    .props("outlined rows=4")
+                    .classes("w-full")
+                )
+                with ui.row().classes("w-full items-end gap-2"):
+                    model_input = (
+                        ui.input(
+                            label="モデルID",
+                            value=selected_profile.model_id,
+                        )
+                        .props("outlined dense clearable")
+                        .classes("flex-1")
+                    )
+                    ui.button(
+                        icon="refresh",
+                        on_click=lambda: _fetch_simple_image_model_id(profile_select, model_input, ctx),
+                    ).props("flat round").tooltip("モデルIDを取得")
+
+                with ui.expansion("詳細パラメータ", icon="tune").props("dense").classes("w-full"):
+                    with ui.grid(columns=2).classes("w-full gap-3"):
+                        initial_values = image_generation_profile_values(selected_profile)
+                        for key, spec in IMAGE_GENERATION_PARAMETER_FIELDS.items():
+                            controls[key] = _build_gen_server_param_control(
+                                key,
+                                spec,
+                                initial_values.get(key, spec.get("default")),
+                            )
+
+            with ui.column().classes("w-full lg:flex-1 min-w-0 gap-2"):
+                preview_container = ui.column().classes("w-full gap-2")
+
+        def _apply_profile(profile: ImageGenerationProfile) -> None:
+            values = image_generation_profile_values(profile)
+            prompt_input.set_value(profile_prompt(profile))
+            negative_input.set_value(str(values.get("negative_prompt") or ""))
+            model_input.set_value(str(values.get("model_id") or ""))
+            for key, spec in IMAGE_GENERATION_PARAMETER_FIELDS.items():
+                if key in controls:
+                    controls[key].set_value(values.get(key, spec.get("default")))
+
+        def _on_profile_change() -> None:
+            profile = ctx.api_config.get_image_generation_profile(profile_select.value or "")
+            if profile is not None:
+                _apply_profile(profile)
+
+        def _read_params() -> dict[str, object]:
+            params = {
+                "prompt": (prompt_input.value or "").strip(),
+                "negative_prompt": (negative_input.value or "").strip(),
+                "model_id": (model_input.value or "").strip(),
+            }
+            params.update(
+                {
+                    key: _read_gen_server_param_value(spec, controls[key])
+                    for key, spec in IMAGE_GENERATION_PARAMETER_FIELDS.items()
+                }
+            )
+            return params
+
+        def _render_generated() -> None:
+            preview_container.clear()
+            with preview_container:
+                if not generated:
+                    with (
+                        ui.element("div")
+                        .classes("w-full rounded-md border border-dashed flex items-center justify-center")
+                        .style("min-height: 320px; background: var(--cs-surface-soft); border-color: var(--cs-border);")
+                    ):
+                        ui.label("生成するとここに画像が表示されます").classes("text-sm text-grey-6")
+                    return
+                for index, item in enumerate(generated, start=1):
+                    image = item["image"]
+                    image_path = item["path"]
+                    with (
+                        ui.element("div")
+                        .classes("w-full rounded-md border p-2")
+                        .style("background: var(--cs-surface); border-color: var(--cs-border);")
+                    ):
+                        with ui.row().classes("w-full items-center gap-2"):
+                            label = f"候補 {index}"
+                            size_label = _generated_image_size_label(image)
+                            if size_label:
+                                label = f"{label} / {size_label}"
+                            ui.label(label).classes("text-sm font-semibold")
+                            ui.space()
+                            ui.button(
+                                "この画像を保存",
+                                icon="save",
+                                on_click=lambda image=image, index=index: _save_image(image, index),
+                            ).props("outline color=primary")
+                        ui.image(image_path).props("fit=contain").classes("w-full rounded-md").style(
+                            "height: min(62vh, 620px); min-height: 300px; background: var(--cs-surface-soft);"
+                        )
+
+        async def _generate() -> None:
+            if not (prompt_input.value or "").strip():
+                ui.notify("プロンプトを入力してください。", type="warning")
+                return
+            generate_btn.disable()
+            status.set_text("生成中...")
+            try:
+
+                def _save_previews(images: list[object], job) -> dict[str, object]:
+                    if actions.save_image_preview is None:
+                        raise RuntimeError("画像プレビューの保存処理が設定されていません。")
+                    items: list[dict[str, object]] = []
+                    for image in images:
+                        preview_path = actions.save_image_preview(
+                            image.data,
+                            filename=_generated_image_filename_for_actions(
+                                image,
+                                len(generated) + len(items) + 1,
+                                actions,
+                            ),
+                            content_type=image.content_type,
+                            replace_existing=False,
+                        )
+                        item = {"image": image, "path": preview_path}
+                        generated.append(item)
+                        items.append(item)
+                    return {
+                        "result_url": actions.result_url,
+                        "preview_paths": [str(item["path"]) for item in items],
+                        "image_count": len(items),
+                    }
+
+                job = ctx.image_generation.start_sdxl_job(
+                    profile_id=profile_select.value or "",
+                    gen_server_params=_read_params(),
+                    label=job_label,
+                    scope=f"{actions.scope_prefix}:image",
+                    metadata=dict(actions.metadata),
+                    result_handler=_save_previews,
+                )
+                finished = await ctx.ai_jobs.wait(job.id)
+                if finished.status == AIJobStatus.CANCELLED:
+                    status.set_text("")
+                    ui.notify("画像生成を停止しました", type="info")
+                    return
+                if finished.status != AIJobStatus.SUCCEEDED:
+                    raise ImageGenerationError(finished.error_message or "画像生成に失敗しました。")
+                _render_generated()
+                status.set_text("")
+                ui.notify("画像を生成しました", type="positive")
+            except ImageGenerationError as err:
+                status.set_text("")
+                ui.notify(f"画像生成に失敗しました: {err}", type="negative", timeout=10000)
+            except Exception as err:
+                status.set_text("")
+                ui.notify(f"画像生成に失敗しました: {err}", type="negative", timeout=10000)
+            finally:
+                generate_btn.enable()
+
+        async def _save_image(image: object, index: int) -> None:
+            try:
+                if actions.save_image_bytes is None:
+                    raise RuntimeError("画像の保存処理が設定されていません。")
+                saved = await actions.save_image_bytes(
+                    image.data,
+                    filename=_generated_image_filename_for_actions(image, index, actions),
+                    content_type=image.content_type,
+                    width=image.width,
+                    height=image.height,
+                )
+                target.media = saved.media
+                ui.notify(save_message, type="positive")
+                dlg.close()
+                await _refresh_media(refresh_fn, saved)
+            except Exception as err:
+                ui.notify(f"画像の保存に失敗しました: {err}", type="negative")
+
+        profile_select.on_value_change(lambda _: _on_profile_change())
+        with ui.row().classes("justify-end gap-2 mt-3"):
+            ui.button("キャンセル", on_click=dlg.close).props("flat")
+            generate_btn = ui.button("生成", icon="auto_awesome", on_click=_generate).props("color=primary unelevated")
         _render_generated()
 
     dlg.open()
@@ -563,6 +822,92 @@ def _editor_prompt_tag(value: str) -> str:
     if value in {"o_o", "x_x", "u_u"}:
         return value
     return value.replace("_", " ")
+
+
+def _build_gen_server_param_control(key: str, spec: dict, value: object):
+    label = str(spec.get("label", key))
+    if spec.get("type") == "boolean":
+        return ui.checkbox(label, value=bool(value)).classes("w-full")
+    if spec.get("enum"):
+        options = list(spec["enum"])
+        return (
+            ui.select(
+                options=options,
+                value=value if value in options else spec.get("default"),
+                label=label,
+            )
+            .props("outlined dense")
+            .classes("w-full")
+        )
+    if spec.get("type") in {"integer", "number"}:
+        return (
+            ui.number(
+                label=label,
+                value=value,
+                min=spec.get("minimum"),
+                step=spec.get("step"),
+            )
+            .props("outlined dense")
+            .classes("w-full")
+        )
+    if spec.get("multiline"):
+        return (
+            ui.textarea(
+                label=label,
+                value=value or "",
+            )
+            .props("outlined rows=3")
+            .classes("w-full col-span-2")
+        )
+    return (
+        ui.input(
+            label=label,
+            value=value or "",
+        )
+        .props("outlined dense clearable")
+        .classes("w-full")
+    )
+
+
+async def _fetch_simple_image_model_id(profile_select, model_input, ctx) -> None:
+    profile = ctx.api_config.get_image_generation_profile(profile_select.value or "")
+    if profile is None:
+        ui.notify("画像生成プロファイルを選択してください。", type="warning")
+        return
+    if not profile.endpoint_id:
+        ui.notify("画像生成プロファイルのAPI接続先を設定してください。", type="warning")
+        return
+    try:
+        models = await ctx.api_config.fetch_gen_server_models(
+            profile.endpoint_id,
+            GEN_SERVER_MODE_SDXL_IMAGE,
+        )
+    except Exception as err:
+        ui.notify(f"モデルIDを取得できませんでした: {err}", type="negative")
+        return
+
+    if not models:
+        ui.notify("この機能で利用できるモデルが見つかりませんでした。", type="warning")
+        return
+
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
+        ui.label("SDXL画像生成 のモデルID").classes("text-base font-semibold mb-2")
+        with ui.scroll_area().style("max-height: 50vh; width: 100%"):
+            with ui.list().props("dense separator").classes("w-full"):
+                for model in models:
+                    model_id = str(model.get("id") or "")
+                    display_name = str(model.get("display_name") or model_id)
+
+                    def _select(model_id: str = model_id) -> None:
+                        model_input.set_value(model_id)
+                        dlg.close()
+
+                    with ui.item(on_click=_select).classes("cursor-pointer"):
+                        with ui.item_section():
+                            ui.label(display_name).classes("text-sm font-medium")
+                            ui.label(model_id).classes("text-xs text-grey-6 font-mono break-all")
+
+    dlg.open()
 
 
 async def _fetch_character_image_model_id(profile_id: str, model_input, ctx) -> None:
@@ -901,7 +1246,7 @@ def _open_image_rect_dialog(
             sheet.media = saved.media
             ui.notify(saved_message, type="positive")
             dlg.close()
-            refresh_fn()
+            await _refresh_media(refresh_fn, saved)
 
         def _reset() -> None:
             state["draft"] = FaceRect()

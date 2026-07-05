@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -200,6 +201,106 @@ async def _generate_voice_caption_from_sheet(sheet: CharacterSheet, ctx) -> str:
     return caption
 
 
+async def _refresh_media(refresh_fn, saved: object | None = None) -> None:
+    try:
+        result = refresh_fn(saved)
+    except TypeError:
+        result = refresh_fn()
+    if inspect.isawaitable(result):
+        await result
+
+
+def _target_name(target, fallback: str = "キャラクター") -> str:
+    return str(getattr(target, "name", "") or fallback)
+
+
+def _call_text_factory(factory, target, fallback: str) -> str:
+    if factory is None:
+        return fallback
+    return str(factory(target))
+
+
+def _voice_design_job_label(target, actions) -> str:
+    label_factory = getattr(actions, "voice_design_job_label", None)
+    if label_factory is not None:
+        return label_factory(target)
+    return f"{_target_name(target)}のボイスデザイン"
+
+
+def _voice_design_filename(index: int, actions) -> str:
+    filename_factory = getattr(actions, "voice_design_filename", None)
+    if filename_factory is not None:
+        return filename_factory(index)
+    return f"voice-design-{index}.wav"
+
+
+def _action_voice_api_options(actions, endpoints, gen_server_config) -> dict[str, str]:
+    helper = getattr(actions, "voice_api_options", None)
+    if helper is not None:
+        return helper(endpoints, gen_server_config)
+    return _voice_api_options(endpoints, gen_server_config)
+
+
+def _action_selected_voice_api_value(actions, settings: CharacterTTSSettings, endpoints, has_gen_server: bool) -> str:
+    helper = getattr(actions, "selected_voice_api_value", None)
+    if helper is not None:
+        return helper(settings, endpoints, has_gen_server)
+    return _selected_voice_api_value(settings, endpoints, has_gen_server)
+
+
+def _action_parse_voice_api_value(actions, value: str | None) -> tuple[str, str]:
+    helper = getattr(actions, "parse_voice_api_value", None)
+    if helper is not None:
+        return helper(value)
+    return _parse_voice_api_value(value)
+
+
+def _action_selected_tts_endpoint(actions, value: str | None, endpoint_by_id: dict):
+    helper = getattr(actions, "selected_tts_endpoint", None)
+    if helper is not None:
+        return helper(value, endpoint_by_id)
+    return _selected_tts_endpoint(value, endpoint_by_id)
+
+
+def _action_is_gen_server_voice_api(actions, value: str | None) -> bool:
+    helper = getattr(actions, "is_gen_server_voice_api", None)
+    if helper is not None:
+        return helper(value)
+    return _is_gen_server_voice_api(value)
+
+
+def _action_assigned_gen_server_voice_endpoints(actions, gen_server_config) -> list:
+    helper = getattr(actions, "assigned_gen_server_voice_endpoints", None)
+    if helper is not None:
+        return helper(gen_server_config)
+    return _assigned_gen_server_voice_endpoints(gen_server_config)
+
+
+def _tts_id(actions) -> str:
+    return getattr(actions, "tts_id", None) or actions.target_id
+
+
+def _tts_default_voice_id(target, ctx, actions, settings: CharacterTTSSettings) -> str:
+    factory = getattr(actions, "tts_default_voice_id", None)
+    if factory is not None:
+        return factory(target)
+    return ctx.tts.voice_id_for_character(actions.target_id, settings.voice_id)
+
+
+def _tts_synthesis_label(target, actions) -> str:
+    label_factory = getattr(actions, "tts_synthesis_label", None)
+    if label_factory is not None:
+        return label_factory(target)
+    return f"{_target_name(target)}の読み上げ"
+
+
+def _notify_negative(message: str, *, timeout: int | None = None) -> None:
+    if timeout is None:
+        ui.notify(message, type="negative")
+    else:
+        ui.notify(message, type="negative", timeout=timeout)
+
+
 def _open_voice_design_dialog(
     sheet,
     ctx,
@@ -219,44 +320,69 @@ def _open_voice_design_dialog(
     current_voice = sheet.media.primary_voice()
     current_voice_path = actions.media_path(current_voice.path) if current_voice and actions.media_path else None
     initial_caption = sheet.media.tts.voice_caption
+    caption_generation_enabled = getattr(actions, "voice_caption_generation_enabled", True)
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl"):
         with ui.row().classes("w-full items-center justify-between gap-2"):
-            ui.label("ボイスデザイン").classes("text-base font-semibold")
+            ui.label(getattr(actions, "voice_design_title", "ボイスデザイン")).classes("text-base font-semibold")
             ui.button(icon="close", on_click=dlg.close).props("flat round dense")
 
         text_input = (
             ui.textarea(
-                label="自己紹介台詞",
-                value=sheet.self_intro,
-                placeholder="生成する音声で読み上げる台詞",
+                label=getattr(actions, "voice_design_text_label", "自己紹介台詞"),
+                value=_call_text_factory(
+                    getattr(actions, "voice_design_text_value", None),
+                    sheet,
+                    getattr(sheet, "self_intro", ""),
+                ),
+                placeholder=getattr(actions, "voice_design_text_placeholder", "生成する音声で読み上げる台詞"),
             )
             .props("outlined rows=4")
             .classes("w-full")
         )
-        with ui.row().classes("w-full items-end gap-2 flex-wrap"):
+        if caption_generation_enabled:
+            with ui.row().classes("w-full items-end gap-2 flex-wrap"):
+                caption_input = (
+                    ui.textarea(
+                        label="キャプション",
+                        value=initial_caption,
+                        placeholder=getattr(
+                            actions,
+                            "voice_design_caption_placeholder",
+                            "例: 明るく柔らかい少女声、少し早口で元気",
+                        ),
+                    )
+                    .props("outlined rows=4")
+                    .classes("flex-1 min-w-[260px]")
+                )
+                caption_generate_btn = (
+                    ui.button(
+                        "生成",
+                        icon="auto_awesome",
+                    )
+                    .props("outline color=secondary")
+                    .classes("mb-1")
+                )
+                caption_generate_btn.tooltip("キャラクターシートからキャプションを生成")
+        else:
             caption_input = (
                 ui.textarea(
                     label="キャプション",
                     value=initial_caption,
-                    placeholder="例: 明るく柔らかい少女声、少し早口で元気",
+                    placeholder=getattr(
+                        actions,
+                        "voice_design_caption_placeholder",
+                        "例: 明るく柔らかい少女声、少し早口で元気",
+                    ),
                 )
                 .props("outlined rows=4")
-                .classes("flex-1 min-w-[260px]")
+                .classes("w-full")
             )
-            caption_generate_btn = (
-                ui.button(
-                    "生成",
-                    icon="auto_awesome",
-                )
-                .props("outline color=secondary")
-                .classes("mb-1")
-            )
-            caption_generate_btn.tooltip("キャラクターシートからキャプションを生成")
+            caption_generate_btn = None
         reference_checkbox = None
         if current_voice_path is not None:
             reference_checkbox = ui.checkbox(
-                "現在のキャラ音声を参照音声として使う",
+                getattr(actions, "voice_design_reference_label", "現在のキャラ音声を参照音声として使う"),
                 value=True,
             ).classes("w-full")
 
@@ -305,6 +431,7 @@ def _open_voice_design_dialog(
                                     model_input,
                                     ctx,
                                     mode,
+                                    settings_style=getattr(actions, "gen_server_model_settings_style", False),
                                 ),
                             ).props("flat round").tooltip("モデルIDを取得")
                         controls[key] = model_input
@@ -374,7 +501,10 @@ def _open_voice_design_dialog(
             text = (text_input.value or "").strip()
             caption = (caption_input.value or "").strip()
             if not text:
-                ui.notify("自己紹介台詞を入力してください。", type="warning")
+                ui.notify(
+                    getattr(actions, "voice_design_empty_text_message", "自己紹介台詞を入力してください。"),
+                    type="warning",
+                )
                 return
             if not caption:
                 ui.notify("キャプションを入力してください。", type="warning")
@@ -414,7 +544,7 @@ def _open_voice_design_dialog(
                     filename=current_voice.original_name if current_voice else "",
                     content_type=current_voice.content_type if current_voice else "",
                     gen_server_params=params,
-                    label=f"{sheet.name or 'キャラクター'}のボイスデザイン",
+                    label=_voice_design_job_label(sheet, actions),
                     scope=f"{actions.scope_prefix}:tts",
                     metadata=dict(actions.metadata),
                     result_handler=_save_preview,
@@ -428,7 +558,10 @@ def _open_voice_design_dialog(
                     raise TTSServiceError(finished.error_message or "ボイスデザインに失敗しました。")
                 _render_generated()
                 status.set_text("")
-                ui.notify("ボイスデザイン音声を生成しました", type="positive")
+                ui.notify(
+                    getattr(actions, "voice_design_generated_message", "ボイスデザイン音声を生成しました"),
+                    type="positive",
+                )
             except TTSServiceError as err:
                 status.set_text("")
                 ui.notify(f"ボイスデザインに失敗しました: {err}", type="negative", timeout=10000)
@@ -444,35 +577,44 @@ def _open_voice_design_dialog(
                 ui.notify("先に音声を生成してください。", type="warning")
                 return
             try:
-                if actions.save_voice_bytes is None or actions.update_tts_settings is None:
-                    raise RuntimeError("音声の保存処理が設定されていません。")
-                saved = await actions.save_voice_bytes(
-                    audio,
-                    filename=f"voice-design-{index}.wav",
-                    content_type="audio/wav",
+                custom_save = getattr(actions, "voice_design_save_result", None)
+                if custom_save is not None:
+                    updated = await custom_save(item, index)
+                else:
+                    if actions.save_voice_bytes is None or actions.update_tts_settings is None:
+                        raise RuntimeError("音声の保存処理が設定されていません。")
+                    saved = await actions.save_voice_bytes(
+                        audio,
+                        filename=_voice_design_filename(index, actions),
+                        content_type="audio/wav",
+                    )
+                    previous_is_clone = saved.media.tts.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_CLONE
+                    clone_params = saved.media.tts.gen_server_params if previous_is_clone else {}
+                    settings = saved.media.tts.model_copy(
+                        update={
+                            "api_type": CHARACTER_TTS_API_GEN_SERVER,
+                            "gen_server_tts_mode": CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
+                            "voice_caption": str(item.get("caption") or "").strip(),
+                            "gen_server_params": clean_gen_server_mode_defaults(
+                                GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+                                clone_params,
+                            ),
+                        }
+                    )
+                    updated = await actions.update_tts_settings(settings)
+                if hasattr(updated, "media"):
+                    sheet.media = updated.media
+                ui.notify(
+                    getattr(actions, "voice_design_save_message", "生成音声をキャラ音声に保存しました"),
+                    type="positive",
                 )
-                previous_is_clone = saved.media.tts.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_CLONE
-                clone_params = saved.media.tts.gen_server_params if previous_is_clone else {}
-                settings = saved.media.tts.model_copy(
-                    update={
-                        "api_type": CHARACTER_TTS_API_GEN_SERVER,
-                        "gen_server_tts_mode": CHARACTER_GEN_SERVER_TTS_MODE_CLONE,
-                        "voice_caption": str(item.get("caption") or "").strip(),
-                        "gen_server_params": clean_gen_server_mode_defaults(
-                            GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
-                            clone_params,
-                        ),
-                    }
-                )
-                updated = await actions.update_tts_settings(settings)
-                sheet.media = updated.media
-                ui.notify("生成音声をキャラ音声に保存しました", type="positive")
                 dlg.close()
-                refresh_fn()
+                await _refresh_media(refresh_fn, updated)
             except Exception as err:
                 ui.notify(f"音声の保存に失敗しました: {err}", type="negative")
 
-        caption_generate_btn.on("click", _generate_caption)
+        if caption_generate_btn is not None:
+            caption_generate_btn.on("click", _generate_caption)
 
         with ui.row().classes("justify-end gap-2 mt-3"):
             ui.button("キャンセル", on_click=dlg.close).props("flat")
@@ -490,21 +632,26 @@ def _render_tts_controls(
     refresh_fn,
     actions,
 ) -> None:
-    ui.separator().classes("my-3")
+    if getattr(actions, "tts_show_separator", True):
+        ui.separator().classes("my-3")
     endpoints = ctx.tts.get_endpoints()
     gen_server_config = ctx.api_config.get_gen_server_config()
-    has_gen_server = bool(_assigned_gen_server_voice_endpoints(gen_server_config))
+    has_gen_server = bool(_action_assigned_gen_server_voice_endpoints(actions, gen_server_config))
     if not endpoints and not has_gen_server:
-        ui.label("使用できるTTSがありません。Wizmy-Gen-ServerまたはTTS APIを設定してください。").classes(
-            "text-sm text-grey-6"
-        )
+        ui.label(
+            getattr(
+                actions,
+                "tts_no_api_message",
+                "使用できるTTSがありません。Wizmy-Gen-ServerまたはTTS APIを設定してください。",
+            )
+        ).classes("text-sm text-grey-6")
         return
 
     current_settings = sheet.media.tts
     endpoint_by_id = {endpoint.id: endpoint for endpoint in endpoints}
-    endpoint_options = _voice_api_options(endpoints, gen_server_config)
-    selected_value = _selected_voice_api_value(current_settings, endpoints, has_gen_server)
-    selected_endpoint = _selected_tts_endpoint(selected_value, endpoint_by_id)
+    endpoint_options = _action_voice_api_options(actions, endpoints, gen_server_config)
+    selected_value = _action_selected_voice_api_value(actions, current_settings, endpoints, has_gen_server)
+    selected_endpoint = _action_selected_tts_endpoint(actions, selected_value, endpoint_by_id)
     gen_server_tts_mode_state = {"value": _normalize_gen_server_tts_mode(current_settings.gen_server_tts_mode)}
     gen_server_backend_mode = _gen_server_backend_mode(gen_server_tts_mode_state["value"])
     gen_server_params_state = {
@@ -530,7 +677,7 @@ def _render_tts_controls(
             raise RuntimeError("TTS設定の保存処理が設定されていません。")
         saved = await actions.update_tts_settings(_current_tts_settings())
         sheet.media = saved.media
-        refresh_fn()
+        await _refresh_media(refresh_fn, saved)
 
     async def _on_endpoint_change(_) -> None:
         await _change_endpoint()
@@ -538,30 +685,38 @@ def _render_tts_controls(
     endpoint_select.on_value_change(_on_endpoint_change)
 
     voice_id_input = None
+    register_btn = None
+    delete_btn = None
     if selected_endpoint is not None and selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
-        default_voice_id = ctx.tts.voice_id_for_character(actions.target_id, current_settings.voice_id)
+        default_voice_id = _tts_default_voice_id(sheet, ctx, actions, current_settings)
         voice_id_input = (
             ui.input(
                 label="Voice ID",
-                value=current_settings.voice_id,
+                value=current_settings.voice_id or default_voice_id
+                if getattr(actions, "tts_fill_default_voice_id", False)
+                else current_settings.voice_id,
                 placeholder=default_voice_id,
             )
             .props("outlined clearable")
             .classes("w-full")
         )
-        ui.label(f"既定値: {default_voice_id}").classes("text-xs text-grey-6 font-mono break-all")
-        with ui.row().classes("gap-2 w-full"):
-            register_btn = (
-                ui.button("Irodoriに登録", icon="cloud_upload").props("outline color=primary").classes("flex-1")
-            )
-            delete_btn = (
-                ui.button("Irodoriから削除", icon="delete_outline").props("outline color=negative").classes("flex-1")
-            )
+        if getattr(actions, "tts_show_default_voice_id_label", True):
+            ui.label(f"既定値: {default_voice_id}").classes("text-xs text-grey-6 font-mono break-all")
+        if getattr(actions, "tts_show_irodori_controls", True) and voice_path is not None:
+            with ui.row().classes("gap-2 w-full"):
+                register_btn = (
+                    ui.button("Irodoriに登録", icon="cloud_upload").props("outline color=primary").classes("flex-1")
+                )
+                delete_btn = (
+                    ui.button("Irodoriから削除", icon="delete_outline")
+                    .props("outline color=negative")
+                    .classes("flex-1")
+                )
 
     mode_select = None
     voice_caption_input = None
     voice_caption_generate_btn = None
-    if _is_gen_server_voice_api(selected_value):
+    if _action_is_gen_server_voice_api(actions, selected_value):
         mode_select = (
             ui.select(
                 options=_GEN_SERVER_TTS_MODE_OPTIONS,
@@ -580,29 +735,36 @@ def _render_tts_controls(
                 gen_server_params_state["value"],
             )
             await _save_tts_settings(notify=False)
-            refresh_fn()
+            await _refresh_media(refresh_fn)
 
         mode_select.on_value_change(_on_gen_server_mode_change)
         if gen_server_tts_mode_state["value"] == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
             with ui.row().classes("w-full items-end gap-2 flex-wrap"):
                 voice_caption_input = (
                     ui.textarea(
-                        label="キャプション",
+                        label=getattr(actions, "tts_caption_label", "キャプション"),
                         value=voice_caption_value,
-                        placeholder="例: 明るく柔らかい少女声、少し早口で元気",
+                        placeholder=getattr(
+                            actions,
+                            "tts_caption_placeholder",
+                            "例: 明るく柔らかい少女声、少し早口で元気",
+                        ),
                     )
                     .props("outlined rows=3")
-                    .classes("flex-1 min-w-[220px]")
-                )
-                voice_caption_generate_btn = (
-                    ui.button(
-                        "生成",
-                        icon="auto_awesome",
+                    .classes(
+                        "flex-1 min-w-[220px]" if getattr(actions, "tts_caption_generation_enabled", True) else "w-full"
                     )
-                    .props("outline color=secondary")
-                    .classes("mb-1")
                 )
-                voice_caption_generate_btn.tooltip("キャラクターシートからキャプションを生成")
+                if getattr(actions, "tts_caption_generation_enabled", True):
+                    voice_caption_generate_btn = (
+                        ui.button(
+                            "生成",
+                            icon="auto_awesome",
+                        )
+                        .props("outline color=secondary")
+                        .classes("mb-1")
+                    )
+                    voice_caption_generate_btn.tooltip("キャラクターシートからキャプションを生成")
 
         ui.button(
             "パラメータ設定",
@@ -612,16 +774,24 @@ def _render_tts_controls(
                 gen_server_params_state,
                 _save_tts_settings,
                 _gen_server_backend_mode(gen_server_tts_mode_state["value"]),
+                clear_message="キャラ固有パラメータをクリアしました"
+                if not getattr(actions, "gen_server_model_settings_style", False)
+                else "固有パラメータをクリアしました",
+                settings_style=getattr(actions, "gen_server_model_settings_style", False),
             ),
         ).props("outline color=primary").classes("w-full")
 
     tts_text = (
         ui.textarea(
             label="読み上げテキスト",
-            value=sheet.self_intro,
+            value=_call_text_factory(
+                getattr(actions, "tts_text_value", None),
+                sheet,
+                getattr(sheet, "self_intro", ""),
+            ),
             placeholder="読み上げるテキスト",
         )
-        .props("outlined rows=4")
+        .props(f"outlined rows={getattr(actions, 'tts_text_rows', 4)}")
         .classes("w-full mt-2")
     )
     with ui.row().classes("gap-2 w-full"):
@@ -647,7 +817,7 @@ def _render_tts_controls(
             voice_caption_generate_btn.enable()
 
     def _current_tts_settings() -> CharacterTTSSettings:
-        api_type, endpoint_id = _parse_voice_api_value(endpoint_select.value)
+        api_type, endpoint_id = _action_parse_voice_api_value(actions, endpoint_select.value)
         selected_mode = (
             _normalize_gen_server_tts_mode(mode_select.value)
             if mode_select is not None
@@ -678,15 +848,17 @@ def _render_tts_controls(
         saved = await actions.update_tts_settings(settings)
         sheet.media = saved.media
         if notify:
-            ui.notify("TTS設定を保存しました", type="positive")
+            ui.notify(getattr(actions, "tts_save_message", "TTS設定を保存しました"), type="positive")
         return settings
 
     async def _register_tts_voice() -> None:
+        if register_btn is None:
+            return
         settings = await _save_tts_settings(notify=False)
         register_btn.disable()
         try:
             await ctx.tts.register_voice(
-                actions.target_id,
+                _tts_id(actions),
                 voice_path,
                 endpoint_id=settings.endpoint_id,
                 voice_id=settings.voice_id,
@@ -702,11 +874,13 @@ def _render_tts_controls(
             register_btn.enable()
 
     async def _delete_tts_voice() -> None:
+        if delete_btn is None:
+            return
         settings = await _save_tts_settings(notify=False)
         delete_btn.disable()
         try:
             deleted = await ctx.tts.delete_voice(
-                actions.target_id,
+                _tts_id(actions),
                 endpoint_id=settings.endpoint_id,
                 voice_id=settings.voice_id,
             )
@@ -728,6 +902,10 @@ def _render_tts_controls(
             return
 
         settings = await _save_tts_settings(notify=False)
+        ready = getattr(actions, "tts_ready", None)
+        if ready is not None and not ready(settings):
+            ui.notify(getattr(actions, "tts_not_ready_message", "TTS設定を確認してください"), type="warning")
+            return
         if (
             settings.api_type == CHARACTER_TTS_API_GEN_SERVER
             and settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3
@@ -750,18 +928,18 @@ def _render_tts_controls(
                 }
 
             job = ctx.tts.start_synthesize_job(
-                actions.target_id,
+                _tts_id(actions),
                 voice_path,
                 text,
                 endpoint_id=settings.endpoint_id,
                 voice_id=settings.voice_id,
-                filename=voice.original_name,
-                content_type=voice.content_type,
+                filename=voice.original_name if voice else "",
+                content_type=voice.content_type if voice else "",
                 api_type=settings.api_type,
                 gen_server_tts_mode=settings.gen_server_tts_mode,
                 voice_caption=settings.voice_caption,
                 gen_server_params=settings.gen_server_params,
-                label=f"{sheet.name or 'キャラクター'}の読み上げ",
+                label=_tts_synthesis_label(sheet, actions),
                 scope=f"{actions.scope_prefix}:tts",
                 metadata=dict(actions.metadata),
                 result_handler=_save_preview,
@@ -783,18 +961,25 @@ def _render_tts_controls(
             ui.notify("読み上げ音声を生成しました", type="positive")
         except TTSServiceError as err:
             tts_status.set_text("")
-            ui.notify(f"読み上げに失敗しました: {err}", type="negative")
+            _notify_negative(
+                f"読み上げに失敗しました: {err}",
+                timeout=getattr(actions, "tts_error_timeout", None),
+            )
         except Exception as err:
             tts_status.set_text("")
-            ui.notify(f"読み上げに失敗しました: {err}", type="negative")
+            _notify_negative(
+                f"読み上げに失敗しました: {err}",
+                timeout=getattr(actions, "tts_error_timeout", None),
+            )
         finally:
             synth_btn.enable()
 
     save_settings_btn.on("click", lambda: _save_tts_settings())
     if voice_caption_generate_btn is not None:
         voice_caption_generate_btn.on("click", _generate_voice_caption_for_tts)
-    if selected_endpoint is not None and selected_endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
+    if register_btn is not None:
         register_btn.on("click", _register_tts_voice)
+    if delete_btn is not None:
         delete_btn.on("click", _delete_tts_voice)
     synth_btn.on("click", _synthesize_tts)
 
@@ -855,7 +1040,15 @@ def _is_gen_server_voice_api(value: str | None) -> bool:
     )
 
 
-def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings, mode: str) -> None:
+def _open_gen_server_tts_params_dialog(
+    ctx,
+    params_state: dict,
+    save_settings,
+    mode: str,
+    *,
+    clear_message: str = "キャラ固有パラメータをクリアしました",
+    settings_style: bool = False,
+) -> None:
     fields = GEN_SERVER_DEFAULT_FIELDS.get(mode, {})
     defaults = ctx.api_config.get_gen_server_config().defaults_for_mode(mode)
     current = {
@@ -923,6 +1116,7 @@ def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings, m
                                     model_input,
                                     ctx,
                                     mode,
+                                    settings_style=settings_style,
                                 ),
                             ).props("flat round").tooltip("モデルIDを取得")
                         controls[key] = model_input
@@ -942,7 +1136,7 @@ def _open_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings, m
         async def _clear_overrides() -> None:
             params_state["value"] = {}
             await save_settings(notify=False)
-            ui.notify("キャラ固有パラメータをクリアしました", type="positive")
+            ui.notify(clear_message, type="positive")
             dlg.close()
 
         async def _save() -> None:
@@ -970,12 +1164,19 @@ async def _fetch_character_gen_server_model_id(
     model_input,
     ctx,
     mode: str = GEN_SERVER_MODE_IRODORI_VOICE_CLONE,
+    *,
+    settings_style: bool = False,
 ) -> None:
     config = ctx.api_config.get_gen_server_config()
     endpoint_id = config.assigned_endpoint_id(mode)
     mode_label = GEN_SERVER_MODE_LABELS.get(mode, mode)
     if not endpoint_id:
-        ui.notify(f"先に{mode_label}へWizmy-Gen-Serverを割り当ててください。", type="warning")
+        message = (
+            "先にこの機能へWizmy-Gen-Serverを割り当ててください。"
+            if settings_style
+            else f"先に{mode_label}へWizmy-Gen-Serverを割り当ててください。"
+        )
+        ui.notify(message, type="warning")
         return
 
     try:
@@ -985,11 +1186,17 @@ async def _fetch_character_gen_server_model_id(
         return
 
     if not models:
-        ui.notify(f"{mode_label}で利用できるモデルが見つかりませんでした。", type="warning")
+        message = (
+            "この機能で利用できるモデルが見つかりませんでした。"
+            if settings_style
+            else f"{mode_label}で利用できるモデルが見つかりませんでした。"
+        )
+        ui.notify(message, type="warning")
         return
 
     with ui.dialog() as dlg, ui.card().classes("w-full max-w-lg"):
-        ui.label(f"{mode_label}のモデルID").classes("text-base font-semibold mb-2")
+        title = f"{mode_label} のモデルID" if settings_style else f"{mode_label}のモデルID"
+        ui.label(title).classes("text-base font-semibold mb-2")
         with ui.scroll_area().style("max-height: 50vh; width: 100%"):
             with ui.list().props("dense separator").classes("w-full"):
                 for model in models:

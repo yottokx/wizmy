@@ -33,6 +33,47 @@ class CharacterMediaActions:
     save_tts_preview: Callable[..., Path] | None = None
     save_image_preview: Callable[..., Path] | None = None
     save_tts_playback: Callable[[bytes], Path] | None = None
+    image_generation_title: str = "画像生成"
+    image_generation_save_message: str = "生成画像をキャラ画像に保存しました"
+    image_generation_job_label: Callable[[Any], str] | None = None
+    image_generation_filename: Callable[[object, int], str] | None = None
+    voice_design_title: str = "ボイスデザイン"
+    voice_design_text_label: str = "自己紹介台詞"
+    voice_design_text_value: Callable[[Any], str] | None = None
+    voice_design_text_placeholder: str = "生成する音声で読み上げる台詞"
+    voice_design_empty_text_message: str = "自己紹介台詞を入力してください。"
+    voice_design_caption_placeholder: str = "例: 明るく柔らかい少女声、少し早口で元気"
+    voice_design_reference_label: str = "現在のキャラ音声を参照音声として使う"
+    voice_design_job_label: Callable[[Any], str] | None = None
+    voice_design_generated_message: str = "ボイスデザイン音声を生成しました"
+    voice_design_save_message: str = "生成音声をキャラ音声に保存しました"
+    voice_design_filename: Callable[[int], str] | None = None
+    voice_design_save_result: Callable[[dict[str, object], int], Awaitable[Any]] | None = None
+    voice_caption_generation_enabled: bool = True
+    tts_id: str | None = None
+    tts_no_api_message: str = "使用できるTTSがありません。Wizmy-Gen-ServerまたはTTS APIを設定してください。"
+    tts_text_value: Callable[[Any], str] | None = None
+    tts_text_rows: int = 4
+    tts_caption_label: str = "キャプション"
+    tts_caption_placeholder: str = "例: 明るく柔らかい少女声、少し早口で元気"
+    tts_caption_generation_enabled: bool = True
+    tts_default_voice_id: Callable[[Any], str] | None = None
+    tts_fill_default_voice_id: bool = False
+    tts_show_default_voice_id_label: bool = True
+    tts_show_irodori_controls: bool = True
+    tts_show_separator: bool = True
+    tts_save_message: str = "TTS設定を保存しました"
+    tts_synthesis_label: Callable[[Any], str] | None = None
+    tts_ready: Callable[[CharacterTTSSettings], bool] | None = None
+    tts_not_ready_message: str = "TTS設定を確認してください"
+    tts_error_timeout: int | None = None
+    gen_server_model_settings_style: bool = False
+    voice_api_options: Callable[[Any, Any], dict[str, str]] | None = None
+    selected_voice_api_value: Callable[[CharacterTTSSettings, Any, bool], str] | None = None
+    parse_voice_api_value: Callable[[str | None], tuple[str, str]] | None = None
+    selected_tts_endpoint: Callable[[str | None, dict], Any] | None = None
+    is_gen_server_voice_api: Callable[[str | None], bool] | None = None
+    assigned_gen_server_voice_endpoints: Callable[[Any], list] | None = None
 
 
 def character_media_actions(ctx, character_id: str) -> CharacterMediaActions:
