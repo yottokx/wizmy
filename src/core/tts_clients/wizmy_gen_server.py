@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -37,7 +38,7 @@ class AIJobServiceLike(Protocol):
     ) -> None: ...
 
 
-class WizmyGenServerVoiceCloneClient:
+class WizmyGenServerTTSClientBase:
     RESPONSE_FORMAT = "wav"
     POLL_LIMIT = 600
 
@@ -51,69 +52,37 @@ class WizmyGenServerVoiceCloneClient:
         if not self._base_url:
             raise TTSServiceError("Wizmy-Gen-ServerのURLを設定してください。")
 
-    async def synthesize(
+    async def _synthesize_chunks(
         self,
-        text: str,
-        voice_path: Path | None,
-        *,
-        model_id: str,
-        params: dict[str, Any],
-        filename: str = "",
-        content_type: str = "",
-        chunking_enabled: bool = True,
-        chunk_min_chars: int = DEFAULT_CHUNK_MIN_CHARS,
-        ai_job: Any = None,
+        chunks: list[str],
+        synthesize_chunk: Callable[[httpx.AsyncClient, str], Awaitable[bytes]],
     ) -> bytes:
-        if voice_path is None:
-            raise TTSServiceError("Wizmy-Gen-Serverで読み上げるには参照音声が必要です。")
-        chunks = speech_chunks(text, enabled=chunking_enabled, min_chars=chunk_min_chars)
         async with self._client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
             try:
-                audio_chunks = [
-                    await self._synthesize_once(
-                        client,
-                        chunk,
-                        voice_path,
-                        model_id=model_id,
-                        params=params,
-                        filename=filename,
-                        content_type=content_type,
-                        ai_job=ai_job,
-                    )
-                    for chunk in chunks
-                ]
+                audio_chunks = [await synthesize_chunk(client, chunk) for chunk in chunks]
                 return concat_wav_bytes(audio_chunks)
             except httpx.HTTPError as exc:
                 raise TTSServiceError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
 
-    async def _synthesize_once(
+    async def _post_job_and_fetch_audio(
         self,
         client: httpx.AsyncClient,
-        text: str,
-        voice_path: Path,
+        path: str,
         *,
-        model_id: str,
-        params: dict[str, Any],
-        filename: str,
-        content_type: str,
+        data: dict[str, str],
+        kind: str,
+        files: Any = None,
         ai_job: Any = None,
     ) -> bytes:
-        name = filename or voice_path.name
-        media_type = content_type or mimetypes.guess_type(name)[0] or "audio/wav"
-        data = {
-            "text": text,
-            "params": json.dumps(params, ensure_ascii=False),
-        }
-        if model_id:
-            data["model_id"] = model_id
-        with voice_path.open("rb") as handle:
-            files = {"reference_audio": (name, handle, media_type)}
-            response = await client.post("/v1/tts/clone/jobs", data=data, files=files)
+        if files is None:
+            response = await client.post(path, data=data)
+        else:
+            response = await client.post(path, data=data, files=files)
         raise_for_error(response, "Wizmy-Gen-Server")
         job_id = str(response.json().get("job_id") or "")
         if not job_id:
             raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
-        self._attach_external_job(ai_job, job_id, "tts.clone")
+        self._attach_external_job(ai_job, job_id, kind)
         result = await self._wait_job_result(client, job_id, ai_job=ai_job)
         audio_url = first_audio_artifact_url(result)
         if not audio_url:
@@ -173,8 +142,72 @@ class WizmyGenServerVoiceCloneClient:
         return httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
 
 
-class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
-    async def synthesize(  # type: ignore[override]  # 理由: VoiceDesign は共通HTTP処理を継承しつつ、API仕様上 caption 引数を追加するため。
+class WizmyGenServerVoiceCloneClient(WizmyGenServerTTSClientBase):
+    async def synthesize(
+        self,
+        text: str,
+        voice_path: Path | None,
+        *,
+        model_id: str,
+        params: dict[str, Any],
+        filename: str = "",
+        content_type: str = "",
+        chunking_enabled: bool = True,
+        chunk_min_chars: int = DEFAULT_CHUNK_MIN_CHARS,
+        ai_job: Any = None,
+    ) -> bytes:
+        if voice_path is None:
+            raise TTSServiceError("Wizmy-Gen-Serverで読み上げるには参照音声が必要です。")
+        chunks = speech_chunks(text, enabled=chunking_enabled, min_chars=chunk_min_chars)
+
+        async def _request_audio(client: httpx.AsyncClient, chunk: str) -> bytes:
+            return await self._synthesize_once(
+                client,
+                chunk,
+                voice_path,
+                model_id=model_id,
+                params=params,
+                filename=filename,
+                content_type=content_type,
+                ai_job=ai_job,
+            )
+
+        return await self._synthesize_chunks(chunks, _request_audio)
+
+    async def _synthesize_once(
+        self,
+        client: httpx.AsyncClient,
+        text: str,
+        voice_path: Path,
+        *,
+        model_id: str,
+        params: dict[str, Any],
+        filename: str,
+        content_type: str,
+        ai_job: Any = None,
+    ) -> bytes:
+        name = filename or voice_path.name
+        media_type = content_type or mimetypes.guess_type(name)[0] or "audio/wav"
+        data = {
+            "text": text,
+            "params": json.dumps(params, ensure_ascii=False),
+        }
+        if model_id:
+            data["model_id"] = model_id
+        with voice_path.open("rb") as handle:
+            files = {"reference_audio": (name, handle, media_type)}
+            return await self._post_job_and_fetch_audio(
+                client,
+                "/v1/tts/clone/jobs",
+                data=data,
+                files=files,
+                kind="tts.clone",
+                ai_job=ai_job,
+            )
+
+
+class WizmyGenServerVoiceDesignClient(WizmyGenServerTTSClientBase):
+    async def synthesize(
         self,
         text: str,
         caption: str,
@@ -193,27 +226,23 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
         else:
             params = {**params, "no_ref": False}
         chunks = speech_chunks(text, enabled=chunking_enabled, min_chars=chunk_min_chars)
-        async with self._client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
-            try:
-                audio_chunks = [
-                    await self._synthesize_once(
-                        client,
-                        chunk,
-                        caption,
-                        voice_path,
-                        model_id=model_id,
-                        params=params,
-                        filename=filename,
-                        content_type=content_type,
-                        ai_job=ai_job,
-                    )
-                    for chunk in chunks
-                ]
-                return concat_wav_bytes(audio_chunks)
-            except httpx.HTTPError as exc:
-                raise TTSServiceError(f"Wizmy-Gen-Serverへの接続に失敗しました: {exc}") from exc
 
-    async def _synthesize_once(  # type: ignore[override]  # 理由: VoiceDesign のAPI仕様に合わせ、共通処理の一部だけを差し替えるため。
+        async def _request_audio(client: httpx.AsyncClient, chunk: str) -> bytes:
+            return await self._synthesize_once(
+                client,
+                chunk,
+                caption,
+                voice_path,
+                model_id=model_id,
+                params=params,
+                filename=filename,
+                content_type=content_type,
+                ai_job=ai_job,
+            )
+
+        return await self._synthesize_chunks(chunks, _request_audio)
+
+    async def _synthesize_once(
         self,
         client: httpx.AsyncClient,
         text: str,
@@ -234,22 +263,22 @@ class WizmyGenServerVoiceDesignClient(WizmyGenServerVoiceCloneClient):
         if model_id:
             data["model_id"] = model_id
         if voice_path is None:
-            response = await client.post("/v1/tts/design/jobs", data=data)
-        else:
-            name = filename or voice_path.name
-            media_type = content_type or mimetypes.guess_type(name)[0] or "audio/wav"
-            with voice_path.open("rb") as handle:
-                files = {"reference_audio": (name, handle, media_type)}
-                response = await client.post("/v1/tts/design/jobs", data=data, files=files)
-        raise_for_error(response, "Wizmy-Gen-Server")
-        job_id = str(response.json().get("job_id") or "")
-        if not job_id:
-            raise TTSServiceError("Wizmy-Gen-ServerのジョブIDを取得できませんでした。")
-        self._attach_external_job(ai_job, job_id, "tts.design")
-        result = await self._wait_job_result(client, job_id, ai_job=ai_job)
-        audio_url = first_audio_artifact_url(result)
-        if not audio_url:
-            raise TTSServiceError("Wizmy-Gen-Serverの生成結果に音声が含まれていません。")
-        audio_response = await client.get(audio_url)
-        raise_for_error(audio_response, "Wizmy-Gen-Server")
-        return audio_response.content
+            return await self._post_job_and_fetch_audio(
+                client,
+                "/v1/tts/design/jobs",
+                data=data,
+                kind="tts.design",
+                ai_job=ai_job,
+            )
+        name = filename or voice_path.name
+        media_type = content_type or mimetypes.guess_type(name)[0] or "audio/wav"
+        with voice_path.open("rb") as handle:
+            files = {"reference_audio": (name, handle, media_type)}
+            return await self._post_job_and_fetch_audio(
+                client,
+                "/v1/tts/design/jobs",
+                data=data,
+                files=files,
+                kind="tts.design",
+                ai_job=ai_job,
+            )
