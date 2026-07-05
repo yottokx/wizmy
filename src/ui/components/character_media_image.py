@@ -18,6 +18,7 @@ from ...core.image_generation.schemas import (
     ImageGenerationProfile,
     image_generation_profile_values,
 )
+from ...core.media import read_image_size
 from ...services.ai_jobs import AIJobStatus
 from ...services.danbooru_prompt import DanbooruPromptServiceError
 from ...services.image_generation import ImageGenerationError
@@ -963,7 +964,7 @@ def _image_size(image: CharacterImageAsset, image_path: Path | None = None) -> t
     if image.width > 0 and image.height > 0:
         return image.width, image.height
     if image_path is not None:
-        return _read_image_size(image_path)
+        return read_image_size(image_path)
     return None
 
 
@@ -974,46 +975,6 @@ def _image_frame_style(size: tuple[int, int] | None) -> str:
         return f"{base} aspect-ratio: 1 / 1; width: min(100%, {max_height});"
     width, height = size
     return f"{base} aspect-ratio: {width} / {height}; width: min(100%, calc({max_height} * {width} / {height}));"
-
-
-def _read_image_size(path: Path) -> tuple[int, int] | None:
-    try:
-        with path.open("rb") as f:
-            head = f.read(32)
-            if head.startswith(b"\x89PNG\r\n\x1a\n") and len(head) >= 24:
-                return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
-            if head[:6] in (b"GIF87a", b"GIF89a") and len(head) >= 10:
-                return int.from_bytes(head[6:8], "little"), int.from_bytes(head[8:10], "little")
-            if head.startswith(b"\xff\xd8"):
-                f.seek(2)
-                return _read_jpeg_size(f)
-    except OSError:
-        return None
-    return None
-
-
-def _read_jpeg_size(f) -> tuple[int, int] | None:
-    while True:
-        marker_start = f.read(1)
-        if not marker_start:
-            return None
-        if marker_start != b"\xff":
-            continue
-        marker = f.read(1)
-        while marker == b"\xff":
-            marker = f.read(1)
-        if not marker or marker in (b"\xd8", b"\xd9"):
-            continue
-        length_bytes = f.read(2)
-        if len(length_bytes) != 2:
-            return None
-        length = int.from_bytes(length_bytes, "big")
-        if marker[0] in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
-            data = f.read(5)
-            if len(data) != 5:
-                return None
-            return int.from_bytes(data[3:5], "big"), int.from_bytes(data[1:3], "big")
-        f.seek(max(length - 2, 0), 1)
 
 
 def _render_image_editor(

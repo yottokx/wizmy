@@ -7,6 +7,7 @@ from pathlib import Path
 from nicegui import app
 
 from ...core.character.schemas import CharacterImageAsset, FaceRect
+from ...core.media import read_image_size
 
 
 def cropped_background_style(
@@ -53,43 +54,3 @@ def image_dimensions(image: CharacterImageAsset, image_path: Path) -> tuple[int,
     if size is not None:
         return size
     return 1, 1
-
-
-def read_image_size(path: Path) -> tuple[int, int] | None:
-    try:
-        with path.open("rb") as f:
-            head = f.read(32)
-            if head.startswith(b"\x89PNG\r\n\x1a\n") and len(head) >= 24:
-                return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
-            if head[:6] in (b"GIF87a", b"GIF89a") and len(head) >= 10:
-                return int.from_bytes(head[6:8], "little"), int.from_bytes(head[8:10], "little")
-            if head.startswith(b"\xff\xd8"):
-                f.seek(2)
-                return read_jpeg_size(f)
-    except OSError:
-        return None
-    return None
-
-
-def read_jpeg_size(f) -> tuple[int, int] | None:
-    while True:
-        marker_start = f.read(1)
-        if not marker_start:
-            return None
-        if marker_start != b"\xff":
-            continue
-        marker = f.read(1)
-        while marker == b"\xff":
-            marker = f.read(1)
-        if not marker or marker in (b"\xd8", b"\xd9"):
-            continue
-        length_bytes = f.read(2)
-        if len(length_bytes) != 2:
-            return None
-        length = int.from_bytes(length_bytes, "big")
-        if marker[0] in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
-            data = f.read(5)
-            if len(data) != 5:
-                return None
-            return int.from_bytes(data[3:5], "big"), int.from_bytes(data[1:3], "big")
-        f.seek(max(length - 2, 0), 1)

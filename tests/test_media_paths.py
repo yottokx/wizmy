@@ -5,14 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from src.core.character.schemas import CharacterSheet, FaceRect
+from src.core.character.schemas import CharacterImageAsset, CharacterSheet, FaceRect
 from src.core.chat.schemas import UserPersona
+from src.core.media import read_image_size
 from src.services.character import CharacterService
 from src.services.group_chat import GroupChatService
 from src.services.user_persona import UserPersonaService
 from src.storage.api_config_store import ApiConfigStore
 from src.storage.character_repository import CharacterRepository
 from src.storage.group_chat_repository import GroupChatRepository
+from src.ui.chat.media import image_dimensions
 
 UUID_RE = r"[0-9a-f]{32}"
 
@@ -46,6 +48,46 @@ def service_media_file(service, relative_path: str, expected_bytes: bytes) -> Pa
     return path
 
 
+def riff_webp(chunk_type: bytes, payload: bytes) -> bytes:
+    chunk = chunk_type + len(payload).to_bytes(4, "little") + payload
+    if len(payload) % 2:
+        chunk += b"\x00"
+    riff_size = len(b"WEBP") + len(chunk)
+    return b"RIFF" + riff_size.to_bytes(4, "little") + b"WEBP" + chunk
+
+
+def webp_vp8x(width: int, height: int) -> bytes:
+    payload = b"\x00\x00\x00\x00" + (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
+    return riff_webp(b"VP8X", payload)
+
+
+def webp_vp8l(width: int, height: int) -> bytes:
+    bits = (width - 1) | ((height - 1) << 14)
+    return riff_webp(b"VP8L", b"\x2f" + bits.to_bytes(4, "little"))
+
+
+def webp_vp8(width: int, height: int) -> bytes:
+    payload = b"\x00\x00\x00\x9d\x01\x2a" + width.to_bytes(2, "little") + height.to_bytes(2, "little")
+    return riff_webp(b"VP8 ", payload)
+
+
+def test_read_image_size_supports_webp_variants(tmp_path: Path) -> None:
+    cases = [
+        ("vp8x.webp", webp_vp8x(640, 360), (640, 360)),
+        ("vp8l.webp", webp_vp8l(321, 123), (321, 123)),
+        ("vp8.webp", webp_vp8(1024, 768), (1024, 768)),
+    ]
+    for filename, data, expected_size in cases:
+        path = tmp_path / filename
+        path.write_bytes(data)
+        assert read_image_size(path) == expected_size
+
+    path = tmp_path / "fallback.webp"
+    path.write_bytes(webp_vp8x(512, 288))
+    image = CharacterImageAsset(id="image-1", path="fallback.webp")
+    assert image_dimensions(image, path) == (512, 288)
+
+
 async def test_character_service_media_paths_are_fixed(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     repo = CharacterRepository(tmp_path / "characters.db")
@@ -53,14 +95,17 @@ async def test_character_service_media_paths_are_fixed(tmp_path: Path) -> None:
     service = CharacterService(repo, data_dir)
     await service.save(CharacterSheet(id="character-1", name="テストキャラ"))
 
+    uploaded_image = webp_vp8x(640, 360)
     saved = await service.save_image(
         "character-1",
-        UploadStub("portrait.WEBP", "", b"uploaded-image"),
+        UploadStub("portrait.WEBP", "", uploaded_image),
     )
     image = saved.media.primary_image()
     assert image is not None
     assert_path_pattern(image.path, rf"characters/character-1/images/{UUID_RE}\.webp")
-    uploaded_image_path = service_media_file(service, image.path, b"uploaded-image")
+    assert image.width == 640
+    assert image.height == 360
+    uploaded_image_path = service_media_file(service, image.path, uploaded_image)
 
     saved = await service.update_face_rect(
         "character-1",

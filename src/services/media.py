@@ -22,6 +22,7 @@ from ..core.character.schemas import (
     CharacterVoiceAsset,
     FaceRect,
 )
+from ..core.media import read_image_size
 
 ResultT = TypeVar("ResultT")
 SaveMediaOwner = Callable[[], ResultT | Awaitable[ResultT]]
@@ -86,12 +87,16 @@ class MediaFileService:
         target = self._data_dir / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         await upload.save(target)
+        size = read_image_size(target)
+        width, height = size if size is not None else (0, 0)
 
         image = CharacterImageAsset(
             id=asset_id,
             path=relative_path.as_posix(),
             original_name=filename,
             content_type=content_type,
+            width=width,
+            height=height,
         )
         return await self._replace_primary_image(owner, image)
 
