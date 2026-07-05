@@ -1,14 +1,8 @@
-"""スラッシュコマンドと短文生成結果を扱う純粋関数。"""
+"""スラッシュコマンドと入力モード表示を扱う純粋関数。"""
 
 from __future__ import annotations
 
 import re
-
-from ...core.conversation.input_assist import (
-    merge_completion as merge_completion,
-    parse_response_choices as parse_response_choices,
-)
-from ...core.conversation.sanitize import clean_short_llm_text as clean_short_llm_text
 from .models import CHAT_COMMANDS, ChatCommandDefinition
 
 

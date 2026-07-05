@@ -777,10 +777,6 @@ def _replace_generated_editor_html(
     return f"{generated_html}{body}"
 
 
-def _remove_generated_prompt_html(value: str) -> str:
-    return _GENERATED_PROMPT_RE.sub("", str(value or ""), count=1)
-
-
 def _editor_html_to_prompt(value: str) -> str:
     text = str(value or "")
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)

@@ -1297,7 +1297,6 @@ setTimeout(() => {
             return
 
         prior_messages = [dict(message) for message in self.messages]
-        placeholder_index = len(self.messages)  # noqa: F841
         self.last_speaker_debug = None
         display_speaker = speaker or active[0]
         self.messages.append(group_message("character", "…", member=display_speaker))

@@ -15,7 +15,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-_VAULT_VERIFIER_PLAINTEXT = "CHARAPP_VAULT_OK"
+_VAULT_VERIFIER_PLAINTEXT = "WIZMY_VAULT_OK"
+_LEGACY_VAULT_VERIFIER_PLAINTEXT = "CHARAPP" + "_VAULT_OK"
 
 
 def _derive_key(password: str, salt: bytes) -> bytes:
@@ -83,7 +84,7 @@ class KeyVault:
             return False
         salt = base64.b64decode(self._data.salt_b64)
         decrypted = _decrypt(self._data.verifier, password, salt)
-        return decrypted == _VAULT_VERIFIER_PLAINTEXT
+        return decrypted in {_VAULT_VERIFIER_PLAINTEXT, _LEGACY_VAULT_VERIFIER_PLAINTEXT}
 
     def setup(self, password: str, carry_keys: dict[str, str] | None = None) -> None:
         """マスターパスワードを新規設定する（既存キーは再暗号化して引き継ぐ）。"""

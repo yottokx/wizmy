@@ -1,4 +1,4 @@
-"""TTS provider integration service."""
+"""TTS クライアントを選択して音声合成を実行するサービス。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from ..core.gen_server.schemas import (
     clean_gen_server_mode_defaults,
 )
 from ..core.tts.schemas import (
-    TTS_PROVIDER_IRODORI_GRADIO,
     TTS_PROVIDER_IRODORI_SERVER,
     TTSEndpoint,
 )

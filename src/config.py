@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="CHARAPP_",
+        env_prefix="WIZMY_",
         env_file=PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",

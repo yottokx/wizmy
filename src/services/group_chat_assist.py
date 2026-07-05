@@ -52,9 +52,6 @@ from .api_config import ApiConfigService
 from .llm_assist import AssistJobResult, LLMAssistService
 from .llm_runtime import build_configured_llm
 
-# 後方互換のための別名(旧名で import している箇所を保持する)。
-GroupChatAssistJobResult = AssistJobResult
-
 
 class GroupChatAssistService(LLMAssistService):
     """グループチャット補助機能の LLM 呼び出しを UI 非依存で実行する。"""
@@ -74,9 +71,9 @@ class GroupChatAssistService(LLMAssistService):
         group: GroupChatRecord,
         generated_sheet: CharacterSheet,
         base_members: list[GroupMember],
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         if not base_members:
-            return GroupChatAssistJobResult("", AIJobStatus.SUCCEEDED, {})
+            return AssistJobResult("", AIJobStatus.SUCCEEDED, {})
         llm = self.build_llm(profile_id, vault_password)
         payload = {
             "world": group.world,
@@ -132,7 +129,7 @@ class GroupChatAssistService(LLMAssistService):
         world: str,
         additional_instruction: str,
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
         original_markdown = base_character_markdown(sheet)
 
@@ -171,7 +168,7 @@ class GroupChatAssistService(LLMAssistService):
             on_job_started=on_job_started,
         )
         if result.succeeded:
-            return GroupChatAssistJobResult(
+            return AssistJobResult(
                 result.job_id,
                 result.status,
                 remove_markdown_section(str(result.value or "").strip(), "世界観・舞台"),
@@ -189,7 +186,7 @@ class GroupChatAssistService(LLMAssistService):
         world: str,
         additional_instruction: str,
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
         current_description = (description or "").strip()
 
@@ -238,7 +235,7 @@ class GroupChatAssistService(LLMAssistService):
         world: str,
         summary: str,
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
 
         async def _runner() -> str:
@@ -283,7 +280,7 @@ class GroupChatAssistService(LLMAssistService):
         world: str,
         state: dict[str, Any],
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
         participants = relationship_draft_participants(characters, persona, state)
         valid_keys = {item["key"] for item in participants}
@@ -336,7 +333,7 @@ class GroupChatAssistService(LLMAssistService):
         characters: list[CharacterSheet],
         persona: Any,
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
         payload = {
             "characters": [
@@ -394,7 +391,7 @@ class GroupChatAssistService(LLMAssistService):
         characters: list[CharacterSheet],
         persona: Any,
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
 
         async def _runner() -> str:
@@ -446,7 +443,7 @@ class GroupChatAssistService(LLMAssistService):
         characters: list[CharacterSheet],
         persona: Any,
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
         participant_lines = "\n".join(f"- {sheet.name}: {compact_character_summary(sheet)}" for sheet in characters)
         if persona is not None:
@@ -498,7 +495,7 @@ class GroupChatAssistService(LLMAssistService):
         second_key: str,
         current_description: str,
         on_job_started=None,
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
         participant_map = {str(item.get("key") or ""): item for item in participants}
         first = participant_map.get(first_key, {"key": first_key, "name": first_key})
@@ -580,7 +577,7 @@ class GroupChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
 
         async def _runner() -> str:
@@ -621,7 +618,7 @@ class GroupChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
 
         async def _runner() -> str:
@@ -662,7 +659,7 @@ class GroupChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
 
         async def _runner() -> list[str]:
@@ -702,7 +699,7 @@ class GroupChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> GroupChatAssistJobResult:
+    ) -> AssistJobResult:
         llm = self.build_llm(profile_id, vault_password)
         active = [member for member in group.members if member.id in set(participant_ids)] or group.members
         member_lines = "\n".join(

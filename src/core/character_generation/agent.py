@@ -677,7 +677,7 @@ def run_generation(
     _pending_inputs: dict[str, dict] = {}
 
     try:
-        for chunk in graph.stream(  # type: ignore[call-overload]  # 理由: LangGraph の型定義が create_agent の実行時引数を狭く扱うため。
+        for chunk in graph.stream(  # type: ignore[call-overload]  # 恒久判断: LangGraph の型定義が create_agent の実行時引数を狭く扱うため。
             {"messages": [HumanMessage(content=user_message)]},
             stream_mode="updates",
             config=graph_config,

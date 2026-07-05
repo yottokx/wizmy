@@ -21,9 +21,6 @@ from ..core.conversation.schemas import ChatMessagePreview, ChatSessionSettings
 from ..core.conversation.solo import clean_situation_enhancement
 from .llm_assist import AssistJobResult, LLMAssistService
 
-# 後方互換のための別名(旧名で import している箇所を保持する)。
-ChatAssistJobResult = AssistJobResult
-
 
 class ChatAssistService(LLMAssistService):
     """1:1チャット補助機能の LLM 呼び出しを UI 非依存で実行する。"""
@@ -40,7 +37,7 @@ class ChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> ChatAssistJobResult:
+    ) -> AssistJobResult:
         async def _runner() -> str:
             response = await llm.ainvoke(
                 build_user_completion_messages(
@@ -74,7 +71,7 @@ class ChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> ChatAssistJobResult:
+    ) -> AssistJobResult:
         async def _runner() -> str:
             response = await llm.ainvoke(
                 build_tailored_input_messages(
@@ -108,7 +105,7 @@ class ChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> ChatAssistJobResult:
+    ) -> AssistJobResult:
         async def _runner() -> list[str]:
             response = await llm.ainvoke(
                 build_response_choice_messages(
@@ -145,7 +142,7 @@ class ChatAssistService(LLMAssistService):
         scope: str,
         metadata: dict[str, Any],
         result_url: str = "",
-    ) -> ChatAssistJobResult:
+    ) -> AssistJobResult:
         async def _runner() -> str:
             response = await llm.ainvoke(
                 [
