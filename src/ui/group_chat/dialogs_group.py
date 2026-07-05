@@ -1543,7 +1543,7 @@ async def generate_handles(
             timeout=10000,
         )
         return
-    suggested = finished.result or {}
+    suggested = finished.value or {}
 
     used: set[str] = {handle.lower() for handle in reserved_handles or set()}
     for index, sheet in enumerate(characters, start=1):
@@ -1598,7 +1598,7 @@ async def enhance_world_click(
             timeout=10000,
         )
         return
-    enhanced = str(finished.result or "")
+    enhanced = str(finished.value or "")
     if not enhanced:
         ui.notify("世界観を補完できませんでした", type="warning")
         return
@@ -1645,7 +1645,7 @@ async def generate_group_name_from_world(
             timeout=10000,
         )
         return ""
-    name = str(finished.result or "")
+    name = str(finished.value or "")
     if not name:
         notify_on_client(page_client, "グループ名を補完できませんでした", type="warning")
         return ""
