@@ -16,7 +16,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 _VAULT_VERIFIER_PLAINTEXT = "WIZMY_VAULT_OK"
-_LEGACY_VAULT_VERIFIER_PLAINTEXT = "CHARAPP" + "_VAULT_OK"
+# 既存の暗号化済みボルトとの互換のため、旧検証値の復号受け入れを意図的に残す。
+_LEGACY_VAULT_VERIFIER_PLAINTEXT = "CHARAPP_VAULT_OK"
 
 
 def _derive_key(password: str, salt: bytes) -> bytes:
