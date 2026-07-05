@@ -9,7 +9,6 @@ from .group_chat import (
     group_member_detail_page,
     group_persona_detail_page,
 )
-from .group_chat_mock import group_chat_mock_demo_page, group_chat_mock_page
 from .settings import settings_page
 
 __all__ = [
@@ -22,7 +21,5 @@ __all__ = [
     "group_generation_page",
     "group_member_detail_page",
     "group_persona_detail_page",
-    "group_chat_mock_page",
-    "group_chat_mock_demo_page",
     "settings_page",
 ]

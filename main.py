@@ -20,8 +20,6 @@ from src.ui.pages import (
     characters_page,
     generation_page,
     group_chat_detail_page,
-    group_chat_mock_demo_page,
-    group_chat_mock_page,
     group_chat_page,
     settings_page,
 )

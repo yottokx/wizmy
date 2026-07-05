@@ -130,7 +130,6 @@ exclude = [
     "src/ui/pages/characters.py",
     "src/ui/pages/generation.py",
     "src/ui/pages/group_chat.py",
-    "src/ui/pages/group_chat_mock.py",
     "src/ui/server_noise.py",
     "src/ui/state.py",
     "tests/test_ai_jobs.py",
