@@ -27,7 +27,6 @@ from ...chat.media import cropped_background_style
 from ...components.character_media import CharacterMediaActions, _open_media_upload_dialog
 from ...components.character_media_image import _open_image_rect_dialog, open_simple_image_generation_dialog
 from ...components.character_media_voice import (
-    _open_gen_server_tts_params_dialog,
     _open_voice_design_dialog,
     _render_tts_controls,
 )
@@ -539,17 +538,6 @@ def render_user_persona_tts_controls(persona: UserPersona, ctx, voice, voice_pat
     )
 
 
-def open_user_persona_gen_server_tts_params_dialog(ctx, params_state: dict, save_settings, mode: str) -> None:
-    _open_gen_server_tts_params_dialog(
-        ctx,
-        params_state,
-        save_settings,
-        mode,
-        clear_message="固有パラメータをクリアしました",
-        settings_style=True,
-    )
-
-
 def user_persona_image_prompt(persona: UserPersona) -> str:
     parts = [
         "portrait",
@@ -567,12 +555,6 @@ def user_persona_voice_text(persona: UserPersona) -> str:
 
 def user_persona_tts_id(persona_id: str) -> str:
     return f"user-persona-{persona_id}"
-
-
-def user_persona_generated_image_size_label(image: object) -> str:
-    width = int(getattr(image, "width", 0) or 0)
-    height = int(getattr(image, "height", 0) or 0)
-    return f"{width}x{height}" if width and height else ""
 
 
 def user_persona_generated_image_filename(image: object, index: int) -> str:
