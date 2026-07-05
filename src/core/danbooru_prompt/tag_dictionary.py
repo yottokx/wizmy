@@ -461,15 +461,14 @@ def _normalize_search_text(text: str) -> str:
 
 def _text_match_score(record: TagRecord, haystack: str) -> int:
     tag_phrase = normalize_tag(record.tag)
-    space_phrase = tag_phrase.replace("_", " ")
-    if f"_{tag_phrase}_" in haystack or normalize_tag(space_phrase) in haystack:
+    if f"_{tag_phrase}_" in haystack:
         return 8
 
     useful_tokens = [token for token in record.tokens if token not in _GENERIC_TOKENS]
     if not useful_tokens:
         return 0
 
-    matched = [token for token in useful_tokens if f"_{token}_" in haystack or token in haystack]
+    matched = [token for token in useful_tokens if f"_{token}_" in haystack]
     if len(useful_tokens) == 1:
         return 4 if matched else 0
     if len(matched) >= min(2, len(useful_tokens)):

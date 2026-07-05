@@ -376,7 +376,8 @@ def render_chat(
             command_palette.clear()
             command_palette.classes("cs-chat-command-palette-hidden")
             swipe_action_menu.classes("cs-chat-swipe-action-menu-hidden")
-            await send_message(False, f"{left_text.rstrip()}/{command}")
+            submitted = f"{left_text.rstrip()}/{command}" if left_text.strip() else f"/{command}"
+            await send_message(False, submitted)
 
         def _swipe_action_click_handler(command: str):
             async def _handler(_) -> None:
@@ -595,7 +596,8 @@ event => {
                     value = str(e.args or "")
                 parsed = parse_command_input(value)
                 left_text = parsed[0] if parsed is not None else value
-                await send_message(False, f"{left_text.rstrip()}/guide")
+                submitted = f"{left_text.rstrip()}/guide" if left_text.strip() else "/guide"
+                await send_message(False, submitted)
 
             refs.send_btn = ui.button(icon="send").props("round color=primary unelevated")
             refs.send_btn.on(

@@ -1,5 +1,6 @@
 import unittest
 
+from src.core.character_generation.agent import score_completion
 from src.core.character_generation.prompts import (
     ASSEMBLY_SYSTEM,
     ASSEMBLY_USER_TEMPLATE,
@@ -11,6 +12,7 @@ from src.core.character_generation.prompts import (
     RELATED_ASSEMBLY_SYSTEM,
     REQUIRED_SHEET_HEADERS,
 )
+from src.core.character_generation.schemas import GenerationMode, ToolCallRecord
 from src.services.character_generation import parse_markdown_to_sheet
 
 
@@ -102,6 +104,42 @@ def test_group_generation_output_format_omits_group_owned_sections() -> None:
     assert "## 人間関係" not in output_format
 
 
+def test_character_name_tool_result_covers_phase_d() -> None:
+    sheet = """# 星野テスト
+
+## 基本情報
+| 項目 | 内容 |
+|------|------|
+| 名前 | 星野テスト |
+
+## 外見
+落ち着いた雰囲気。
+
+## 性格
+慎重。
+
+## スキル
+記録整理。
+
+## サンプル台詞
+- 「確認します。」
+"""
+    score = score_completion(
+        [
+            ToolCallRecord(tool_name="random_select", result="[世界観] 選択: 現代日本"),
+            ToolCallRecord(tool_name="random_select", result="[外見] 選択: 落ち着いた雰囲気"),
+            ToolCallRecord(tool_name="random_select", result="[転機] 選択: 大切な記録を守った"),
+            ToolCallRecord(tool_name="random_select", result="[キャラクター名] 選択: 星野テスト"),
+        ],
+        sheet,
+        GenerationMode.NEW,
+    )
+
+    assert score["phase_coverage"]["D: 名前・整合性"]
+    assert score["phases_covered"] == 4
+    assert score["quality_status"] == "complete"
+
+
 class CharacterGenerationSheetFieldsTest(unittest.TestCase):
     def test_parse_markdown_extracts_sample_dialogues(self) -> None:
         test_parse_markdown_extracts_sample_dialogues()
@@ -126,6 +164,9 @@ class CharacterGenerationSheetFieldsTest(unittest.TestCase):
 
     def test_group_generation_output_format_omits_group_owned_sections(self) -> None:
         test_group_generation_output_format_omits_group_owned_sections()
+
+    def test_character_name_tool_result_covers_phase_d(self) -> None:
+        test_character_name_tool_result_covers_phase_d()
 
 
 if __name__ == "__main__":

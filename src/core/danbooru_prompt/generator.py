@@ -956,19 +956,19 @@ def _infer_person_tag(sheet: CharacterSheet) -> str:
 
 
 def _infer_age_tags(sheet: CharacterSheet, person_tag: str) -> list[str]:
-    text = _normalize_text(f"{sheet.age}\n{sheet.raw_markdown}")
+    text = f"{sheet.age}\n{sheet.raw_markdown}"
     age = _extract_age_number(sheet.age)
-    if any(word in text for word in ("baby", "赤ちゃん", "乳児")) or (age is not None and age <= 2):
+    if _contains_any_text_marker(text, ("baby", "赤ちゃん", "乳児")) or (age is not None and age <= 2):
         return ["baby"]
-    if any(word in text for word in ("幼児", "子供", "child")) or (age is not None and age <= 12):
+    if _contains_any_text_marker(text, ("幼児", "子供", "child")) or (age is not None and age <= 12):
         if person_tag == "1girl":
             return ["loli"]
         if person_tag == "1boy":
             return ["shota"]
         return ["child"]
-    if any(word in text for word in ("老人", "老年", "高齢", "old")) or (age is not None and age >= 65):
+    if _contains_any_text_marker(text, ("老人", "老年", "高齢", "old")) or (age is not None and age >= 65):
         return ["old_woman"] if person_tag == "1girl" else ["old"]
-    if any(word in text for word in ("成熟", "大人", "mature")) or (age is not None and age >= 35):
+    if _contains_mature_marker(text) or (age is not None and age >= 35):
         if person_tag == "1girl":
             return ["mature_female"]
         if person_tag == "1boy":
@@ -987,7 +987,6 @@ def _extract_age_number(value: str) -> int | None:
 
 
 def _looks_like_plain_human(text: str) -> bool:
-    normalized = _normalize_text(text)
     nonhuman_markers = (
         "elf",
         "demon",
@@ -1015,10 +1014,59 @@ def _looks_like_plain_human(text: str) -> bool:
         "翼",
         "角",
     )
-    if any(marker in normalized for marker in nonhuman_markers):
+    if any(_contains_nonhuman_marker(text, marker) for marker in nonhuman_markers):
         return False
-    return any(marker in normalized for marker in ("human", "人間", "普通の人間"))
+    return _contains_any_text_marker(text, ("human", "人間", "普通の人間"))
 
 
 def _normalize_text(text: str) -> str:
     return str(text).lower().replace("_", " ")
+
+
+def _contains_any_text_marker(text: str, markers: tuple[str, ...]) -> bool:
+    return any(_contains_text_marker(text, marker) for marker in markers)
+
+
+def _contains_text_marker(text: str, marker: str) -> bool:
+    normalized_text = _normalize_text(text)
+    normalized_marker = _normalize_text(marker)
+    if not normalized_marker:
+        return False
+    if re.fullmatch(r"[a-z0-9][a-z0-9\s_-]*", normalized_marker):
+        parts = [re.escape(part) for part in re.split(r"[\s_-]+", normalized_marker) if part]
+        if not parts:
+            return False
+        pattern = r"(?<![a-z0-9])" + r"[\s_-]+".join(parts) + r"(?![a-z0-9])"
+        return re.search(pattern, normalized_text) is not None
+    return normalized_marker in normalized_text
+
+
+def _contains_mature_marker(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if _contains_text_marker(normalized, "mature") or "成熟" in normalized:
+        return True
+    for match in re.finditer("大人", normalized):
+        if normalized.startswith(("大人し", "大人気", "大人数"), match.start()):
+            continue
+        return True
+    return False
+
+
+def _contains_nonhuman_marker(text: str, marker: str) -> bool:
+    normalized_marker = _normalize_text(marker)
+    if normalized_marker == "角":
+        return _contains_horn_marker(text)
+    return _contains_text_marker(text, marker)
+
+
+def _contains_horn_marker(text: str) -> bool:
+    normalized = _normalize_text(text)
+    false_prefixes = {"三", "四", "五", "六", "七", "八", "九", "十", "多", "方", "口", "広", "直"}
+    false_suffixes = {"度", "形", "材", "地", "落", "部"}
+    for match in re.finditer("角", normalized):
+        previous_char = normalized[match.start() - 1 : match.start()]
+        next_char = normalized[match.end() : match.end() + 1]
+        if previous_char in false_prefixes or next_char in false_suffixes:
+            continue
+        return True
+    return False

@@ -1012,7 +1012,8 @@ def render_chat_main(controller: "GroupChatPageController") -> None:
             if controller.mention_palette is not None:
                 controller.mention_palette.classes("cs-group-mention-palette-hidden")
             swipe_action_menu.classes("cs-chat-swipe-action-menu-hidden")
-            await controller.send_message(False, f"{left_text.rstrip()}/{command}")
+            submitted = f"{left_text.rstrip()}/{command}" if left_text.strip() else f"/{command}"
+            await controller.send_message(False, submitted)
 
         def _swipe_action_click_handler(command: str):
             async def _handler(_) -> None:
@@ -1143,7 +1144,8 @@ document.querySelector('.cs-group-mention-palette')
                     value = str(e.args or "")
                 parsed = parse_command_input(value)
                 left_text = parsed[0] if parsed is not None else value
-                await controller.send_message(False, f"{left_text.rstrip()}/guide")
+                submitted = f"{left_text.rstrip()}/guide" if left_text.strip() else "/guide"
+                await controller.send_message(False, submitted)
 
             controller.send_button = ui.button(icon="send").props("round color=primary unelevated")
             controller.send_button.on(

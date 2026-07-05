@@ -8,6 +8,7 @@ from typing import Any
 
 from src.core.character.schemas import CharacterSheet
 from src.core.danbooru_prompt import DanbooruPromptGenerator, DanbooruTagDictionary
+from src.core.danbooru_prompt.generator import _looks_like_plain_human
 
 
 class FakeLLM:
@@ -235,6 +236,51 @@ class DanbooruPromptTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("leather book bag on shoulder", candidate.prompt)
         self.assertFalse(any("pale_skin" in candidate.dropped_tags for candidate in result.candidates))
 
+    async def test_fixed_skin_tags_do_not_match_inside_other_words(self) -> None:
+        llm = FakeLLM(
+            policy={"include_categories": [], "search_terms": [], "avoid_terms": [], "style_directions": []},
+            proposal={"candidates": [{"label": "案1", "variant_tags": ["glasses"]}]},
+        )
+        sheet = CharacterSheet(
+            id="test",
+            name="Fantasy Character",
+            age="24",
+            gender="女性",
+            origin="ordinary human",
+            appearance="fantasy adventurer with black hair and blue eyes",
+            raw_markdown="",
+        )
+
+        result = await DanbooruPromptGenerator(self.dictionary, llm).generate_with_debug(sheet, count=1)
+
+        self.assertNotIn("tan", result.fixed_tags)
+        self.assertIn("tan", self.dictionary.match_tags(["肌の色"], "tan skin", limit=3))
+
+    async def test_age_tags_do_not_match_inside_other_words(self) -> None:
+        llm = FakeLLM(
+            policy={"include_categories": [], "search_terms": [], "avoid_terms": [], "style_directions": []},
+            proposal={"candidates": [{"label": "案1", "variant_tags": ["glasses"]}]},
+        )
+        sheet = CharacterSheet(
+            id="test",
+            name="Calm Character",
+            age="16",
+            gender="女性",
+            origin="ordinary human",
+            appearance="black hair and blue eyes",
+            raw_markdown="gold badge, bold choices, 大人しい性格",
+        )
+
+        result = await DanbooruPromptGenerator(self.dictionary, llm).generate_with_debug(sheet, count=1)
+
+        self.assertNotIn("old_woman", result.fixed_tags)
+        self.assertNotIn("mature_female", result.fixed_tags)
+
+    def test_plain_human_detection_uses_marker_boundaries(self) -> None:
+        self.assertTrue(_looks_like_plain_human("ordinary human with precise detail and a 三角帽子"))
+        self.assertFalse(_looks_like_plain_human("ordinary human with cat ears and tail"))
+        self.assertFalse(_looks_like_plain_human("普通の人間だが頭に角がある"))
+
     def test_small_categories_are_passed_in_full_and_large_are_summarized(self) -> None:
         guide = self.dictionary.build_llm_tag_guide()
         small = {item["category"]: item for item in guide["small_categories"]}  # type: ignore[index]
@@ -294,6 +340,7 @@ def _write_sample_csv(path: Path) -> None:
         ("light_blush", "表情/頬/顔色", "medium", ""),
         ("smile", "表情/全体", "high", ""),
         (":d", "表情/口元の表情", "high", ""),
+        ("tan", "肌の色", "high", ""),
         ("dark_skin", "肌の色", "high", ""),
         ("colored_skin", "肌の色", "high", ""),
         ("off_shoulder", "服装/トップス", "high", ""),

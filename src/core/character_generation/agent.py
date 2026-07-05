@@ -74,6 +74,11 @@ def _classify_phase(text: str) -> str | None:
     return None
 
 
+def _is_tool_error_result(text: str) -> bool:
+    """ツールが明示的に返した失敗結果かどうかを判定する。"""
+    return text.lstrip().startswith("エラー:")
+
+
 def _parse_base_sheet(base_sheet: str) -> dict:
     """元シートから主人公名と人間関係欄の情報を抽出する。"""
     main_char_name = extract_character_name_from_markdown(base_sheet, default="")
@@ -696,7 +701,7 @@ def run_generation(
                                 _pending_inputs[cid] = args if isinstance(args, dict) else {}
                     elif isinstance(msg, ToolMessage):
                         result = _extract_text(msg.content)
-                        if result and "エラー" not in result:
+                        if result and not _is_tool_error_result(result):
                             is_resolution = "[矛盾解決]" in result
                             tc_id = getattr(msg, "tool_call_id", "")
                             tc_args = _pending_inputs.pop(tc_id, {})

@@ -9,7 +9,11 @@ API設定の永続化ストア（JSON ファイルベース）。
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +39,7 @@ from .key_vault import KeyVault, VaultData
 _DEFAULT_ENDPOINT_ID = "ep-ollama-local"
 _DEFAULT_PROFILE_ID = "profile-ollama-local"
 _GEN_SERVER_ASSIGNABLE_MODES = tuple(mode for mode in GEN_SERVER_MODES if mode != GEN_SERVER_MODE_SDXL_IMAGE)
+_logger = logging.getLogger(__name__)
 
 
 def _new_id() -> str:
@@ -125,8 +130,16 @@ class ApiConfigStore:
         if self._path.exists():
             try:
                 raw = json.loads(self._path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("設定ファイルのJSONルートがオブジェクトではありません。")
                 self._data = self._migrate(raw)
             except Exception:
+                broken_path = self._quarantine_broken_config()
+                _logger.exception(
+                    "設定ファイルの読み込みに失敗したため退避しました: %s -> %s",
+                    self._path,
+                    broken_path,
+                )
                 self._data = _default_data()
         else:
             self._data = _default_data()
@@ -236,10 +249,42 @@ class ApiConfigStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if self._vault:
             self._data.update(self._vault.data.to_dict())
-        self._path.write_text(
-            json.dumps(self._data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=self._path.parent,
+                prefix=f".{self._path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                json.dump(self._data, tmp, ensure_ascii=False, indent=2)
+                tmp.write("\n")
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp_path, self._path)
+        except Exception:
+            if tmp_path is not None and tmp_path.exists():
+                tmp_path.unlink()
+            raise
+
+    def _quarantine_broken_config(self) -> Path:
+        broken_path = self._next_broken_config_path()
+        os.replace(self._path, broken_path)
+        return broken_path
+
+    def _next_broken_config_path(self) -> Path:
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        base = self._path.with_name(f"{self._path.name}.broken-{timestamp}")
+        if not base.exists():
+            return base
+        for suffix in range(1, 1000):
+            candidate = self._path.with_name(f"{base.name}-{suffix}")
+            if not candidate.exists():
+                return candidate
+        raise RuntimeError("破損した設定ファイルの退避先を作成できません。")
 
     def _migrate(self, data: dict) -> dict:
         """旧Streamlit版フォーマットから新フォーマットへ変換する。"""

@@ -7,11 +7,17 @@ import re
 from .models import CHAT_COMMANDS, ChatCommandDefinition
 
 
-def parse_command_input(value: str) -> tuple[str, str] | None:
+def parse_command_input(value: str, *, allow_empty_query: bool = True) -> tuple[str, str] | None:
     match = re.match(r"(?s)^(.*)/([A-Za-z]*)\s*$", value)
     if match is None:
         return None
-    return match.group(1), match.group(2).lower()
+    left_text = match.group(1)
+    query = match.group(2).lower()
+    if not query and not allow_empty_query:
+        return None
+    if query and not command_suggestions(query):
+        return None
+    return left_text, query
 
 
 def command_suggestions(query: str) -> list[ChatCommandDefinition]:

@@ -1357,7 +1357,7 @@ setTimeout(() => {
             if submitted_text is not None
             else (self.refs.input.value if self.refs.input is not None else "")
         )
-        parsed_command = parse_command_input(raw_text or "")
+        parsed_command = parse_command_input(raw_text or "", allow_empty_query=False)
         if parsed_command is not None:
             left_text, query = parsed_command
             await self.execute_chat_command(settings, left_text, query)

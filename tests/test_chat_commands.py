@@ -36,10 +36,21 @@ def test_new_chat_commands_resolve() -> None:
 
 def test_parse_command_input_returns_current_values() -> None:
     assert parse_command_input("本文 /TaIlOr  ") == ("本文 ", "tailor")
+    assert parse_command_input("本文/fill") == ("本文", "fill")
+    assert parse_command_input("本文/ta") == ("本文", "ta")
+    assert parse_command_input("ああ/") == ("ああ", "")
     assert parse_command_input("/memo") == ("", "memo")
     assert parse_command_input("本文 /") == ("本文 ", "")
     assert parse_command_input("本文 /memo 続き") is None
     assert parse_command_input("本文だけ") is None
+
+
+def test_parse_command_input_ignores_normal_text_ending_with_slash_words() -> None:
+    assert parse_command_input("詳しくは https://example.com/docs") is None
+    assert parse_command_input("and/or") is None
+    assert parse_command_input("これで終わり/", allow_empty_query=False) is None
+    assert parse_command_input("本文 /unknown") is None
+    assert parse_command_input("本文 /de") == ("本文 ", "de")
 
 
 def test_command_suggestions_filter_by_prefix() -> None:

@@ -12,7 +12,7 @@ import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import AsyncIterator
 
@@ -84,10 +84,18 @@ class CharacterGenerationService:
     進捗は AsyncIterator[ProgressEvent] でストリーミングされる。
     """
 
-    def __init__(self, character_service: CharacterService) -> None:
+    def __init__(
+        self,
+        character_service: CharacterService,
+        *,
+        max_completed_jobs: int = 80,
+        completed_ttl_minutes: int = 120,
+    ) -> None:
         self._character_service = character_service
         self._stop_flag: dict[str, bool] = {}
         self._jobs: dict[str, GenerationJob] = {}
+        self._max_completed_jobs = max_completed_jobs
+        self._completed_ttl = timedelta(minutes=completed_ttl_minutes)
 
     def start_job(
         self,
@@ -100,6 +108,7 @@ class CharacterGenerationService:
         auto_save: bool = True,
     ) -> GenerationJob:
         """生成ジョブをバックグラウンドで開始する。"""
+        self._prune_completed_jobs()
         gen_id = generation_id or f"gen-{uuid.uuid4().hex[:12]}"
         job = GenerationJob(
             id=gen_id,
@@ -117,15 +126,18 @@ class CharacterGenerationService:
     def get_job(self, generation_id: str | None) -> GenerationJob | None:
         if not generation_id:
             return None
+        self._prune_completed_jobs()
         return self._jobs.get(generation_id)
 
     def get_latest_active_job(self) -> GenerationJob | None:
+        self._prune_completed_jobs()
         active = [job for job in self._jobs.values() if job.is_active]
         if not active:
             return None
         return max(active, key=lambda job: job.created_at)
 
     def has_active_jobs(self) -> bool:
+        self._prune_completed_jobs()
         return any(job.is_active for job in self._jobs.values())
 
     def mark_job_saved(
@@ -257,6 +269,7 @@ class CharacterGenerationService:
             )
         finally:
             self._stop_flag.pop(job.id, None)
+            self._prune_completed_jobs()
 
     def _record_event(self, generation_id: str, event: ProgressEvent) -> None:
         job = self._jobs.get(generation_id)
@@ -288,6 +301,19 @@ class CharacterGenerationService:
 
     def stop(self, generation_id: str = "default") -> None:
         self._stop_flag[generation_id] = True
+
+    def _prune_completed_jobs(self) -> None:
+        now = datetime.now()
+        completed = [job for job in self._jobs.values() if not job.is_active and job.completed_at is not None]
+        for job in completed:
+            completed_at = job.completed_at
+            if completed_at is not None and now - completed_at > self._completed_ttl:
+                self._jobs.pop(job.id, None)
+
+        completed = [job for job in self._jobs.values() if not job.is_active and job.completed_at is not None]
+        completed.sort(key=lambda item: item.completed_at or item.created_at, reverse=True)
+        for job in completed[self._max_completed_jobs :]:
+            self._jobs.pop(job.id, None)
 
     async def save_result(
         self,
