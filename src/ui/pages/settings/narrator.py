@@ -106,6 +106,7 @@ def narrator_media_actions(ctx) -> CharacterMediaActions:
         tts_no_api_message="利用できるTTS APIがありません。TTS APIまたはVoiceDesign用のWizmy-Gen-Serverを設定してください。",
         tts_text_value=lambda _: narrator_voice_text(),
         tts_text_rows=3,
+        tts_text_placeholder="地の文として読み上げるテキスト",
         tts_caption_label="VoiceDesign caption",
         tts_caption_placeholder="落ち着いた低めの声。穏やかで、情景を丁寧に語る。",
         tts_caption_generation_enabled=False,

@@ -789,7 +789,7 @@ def _render_tts_controls(
                 sheet,
                 getattr(sheet, "self_intro", ""),
             ),
-            placeholder="読み上げるテキスト",
+            placeholder=getattr(actions, "tts_text_placeholder", "読み上げるテキスト"),
         )
         .props(f"outlined rows={getattr(actions, 'tts_text_rows', 4)}")
         .classes("w-full mt-2")

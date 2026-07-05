@@ -54,6 +54,7 @@ class CharacterMediaActions:
     tts_no_api_message: str = "使用できるTTSがありません。Wizmy-Gen-ServerまたはTTS APIを設定してください。"
     tts_text_value: Callable[[Any], str] | None = None
     tts_text_rows: int = 4
+    tts_text_placeholder: str = "読み上げるテキスト"
     tts_caption_label: str = "キャプション"
     tts_caption_placeholder: str = "例: 明るく柔らかい少女声、少し早口で元気"
     tts_caption_generation_enabled: bool = True
