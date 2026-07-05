@@ -33,9 +33,9 @@ from ...services.ai_jobs import AIJobKind, AIJobStatus
 from ...services.llm_runtime import (
     API_KEY_LOCKED,
     ENDPOINT_NOT_FOUND,
-    LLMRuntimeError,
     MODEL_ID_MISSING,
     PROFILE_NOT_FOUND,
+    LLMRuntimeError,
     build_configured_llm,
 )
 from ...services.tts import TTSServiceError
@@ -47,7 +47,11 @@ from ..chat.models import ChatDebugInfo, ChatThreadPreview
 from ..state import get_vault_password
 from .common import (
     group_member_tts_id as _group_member_tts_id,
+)
+from .common import (
     group_user_persona_tts_id as _group_user_persona_tts_id,
+)
+from .common import (
     notify_group_chat_llm_runtime_error as _notify_group_chat_llm_runtime_error,
 )
 from .dialogs_controller import (
@@ -66,7 +70,11 @@ from .dialogs_controller import (
 )
 from .rendering import (
     group_message_target_label as _group_message_target_label,
+)
+from .rendering import (
     group_participants as _group_participants,
+)
+from .rendering import (
     refresh_chat_header,
     refresh_command_palette,
     refresh_history,
@@ -81,6 +89,8 @@ from .rendering import (
     render_mention_options,
     render_messages,
     render_shell,
+)
+from .rendering import (
     time_label as _time_label,
 )
 

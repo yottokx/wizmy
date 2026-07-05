@@ -1,2 +1,1 @@
 """TTS integration domain models."""
-

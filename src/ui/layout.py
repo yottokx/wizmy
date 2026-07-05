@@ -39,6 +39,7 @@ def _wizmy_logo_svg() -> str:
             _WIZMY_LOGO_SVG_CACHE = '<span class="cs-brand-fallback">Wizmy</span>'
     return _WIZMY_LOGO_SVG_CACHE
 
+
 # テーマ定義
 # cs-* : アプリ独自の CSS 変数 / q-* : Quasar のカラー変数
 THEMES: dict[str, dict] = {
@@ -47,84 +48,84 @@ THEMES: dict[str, dict] = {
         "desc": "落ち着いた標準テーマ",
         "dark": False,
         "icon": "🌿",
-        "cs-bg":           "#f6f4ec",
-        "cs-surface":      "#fffdf7",
+        "cs-bg": "#f6f4ec",
+        "cs-surface": "#fffdf7",
         "cs-surface-soft": "#f0eee3",
-        "cs-border":       "#d8d2c3",
-        "cs-text":         "#2f332c",
-        "cs-muted":        "#6f7468",
-        "cs-accent":       "#5f7f5f",
-        "cs-accent-bg":    "#dfe9dc",
-        "cs-accent-border":"#b0ccb0",
-        "q-primary":       "#5f7f5f",
-        "q-secondary":     "#8b7aa8",
-        "q-positive":      "#4f8a5b",
-        "q-negative":      "#b86e65",
-        "q-warning":       "#b9944e",
-        "q-info":          "#6f8fa8",
+        "cs-border": "#d8d2c3",
+        "cs-text": "#2f332c",
+        "cs-muted": "#6f7468",
+        "cs-accent": "#5f7f5f",
+        "cs-accent-bg": "#dfe9dc",
+        "cs-accent-border": "#b0ccb0",
+        "q-primary": "#5f7f5f",
+        "q-secondary": "#8b7aa8",
+        "q-positive": "#4f8a5b",
+        "q-negative": "#b86e65",
+        "q-warning": "#b9944e",
+        "q-info": "#6f8fa8",
     },
     "lavender-mist": {
         "label": "Lavender Mist",
         "desc": "柔らかく幻想的なテーマ",
         "dark": False,
         "icon": "🪻",
-        "cs-bg":           "#f8f6fb",
-        "cs-surface":      "#fffefe",
+        "cs-bg": "#f8f6fb",
+        "cs-surface": "#fffefe",
         "cs-surface-soft": "#f1eef7",
-        "cs-border":       "#d8d2e6",
-        "cs-text":         "#303044",
-        "cs-muted":        "#72708a",
-        "cs-accent":       "#8b79b7",
-        "cs-accent-bg":    "#e9e4f5",
-        "cs-accent-border":"#c8b8d8",
-        "q-primary":       "#8b79b7",
-        "q-secondary":     "#6f8fa8",
-        "q-positive":      "#6e9276",
-        "q-negative":      "#b98d91",
-        "q-warning":       "#b98d4e",
-        "q-info":          "#6f8fa8",
+        "cs-border": "#d8d2e6",
+        "cs-text": "#303044",
+        "cs-muted": "#72708a",
+        "cs-accent": "#8b79b7",
+        "cs-accent-bg": "#e9e4f5",
+        "cs-accent-border": "#c8b8d8",
+        "q-primary": "#8b79b7",
+        "q-secondary": "#6f8fa8",
+        "q-positive": "#6e9276",
+        "q-negative": "#b98d91",
+        "q-warning": "#b98d4e",
+        "q-info": "#6f8fa8",
     },
     "night-library": {
         "label": "Night Library",
         "desc": "長時間作業向きのダークテーマ",
         "dark": True,
         "icon": "🌙",
-        "cs-bg":           "#071017",
-        "cs-surface":      "#101b23",
+        "cs-bg": "#071017",
+        "cs-surface": "#101b23",
         "cs-surface-soft": "#16232d",
-        "cs-border":       "#263743",
-        "cs-text":         "#d8dedb",
-        "cs-muted":        "#9aa8a6",
-        "cs-accent":       "#5ea6a2",
-        "cs-accent-bg":    "#183b3d",
-        "cs-accent-border":"#2a5a5c",
-        "q-primary":       "#5ea6a2",
-        "q-secondary":     "#87a68a",
-        "q-positive":      "#67b27c",
-        "q-negative":      "#c47070",
-        "q-warning":       "#c7a66b",
-        "q-info":          "#5ea6a2",
+        "cs-border": "#263743",
+        "cs-text": "#d8dedb",
+        "cs-muted": "#9aa8a6",
+        "cs-accent": "#5ea6a2",
+        "cs-accent-bg": "#183b3d",
+        "cs-accent-border": "#2a5a5c",
+        "q-primary": "#5ea6a2",
+        "q-secondary": "#87a68a",
+        "q-positive": "#67b27c",
+        "q-negative": "#c47070",
+        "q-warning": "#c7a66b",
+        "q-info": "#5ea6a2",
     },
     "sand-terracotta": {
         "label": "Sand & Terracotta",
         "desc": "温かく個性的なテーマ",
         "dark": False,
         "icon": "🏺",
-        "cs-bg":           "#f5efe3",
-        "cs-surface":      "#fff8ec",
+        "cs-bg": "#f5efe3",
+        "cs-surface": "#fff8ec",
         "cs-surface-soft": "#efe4d3",
-        "cs-border":       "#d9c6ae",
-        "cs-text":         "#352b24",
-        "cs-muted":        "#77695e",
-        "cs-accent":       "#a9543f",
-        "cs-accent-bg":    "#f0d8cf",
-        "cs-accent-border":"#d0a898",
-        "q-primary":       "#a9543f",
-        "q-secondary":     "#66784d",
-        "q-positive":      "#6d814d",
-        "q-negative":      "#b86e65",
-        "q-warning":       "#b98742",
-        "q-info":          "#66784d",
+        "cs-border": "#d9c6ae",
+        "cs-text": "#352b24",
+        "cs-muted": "#77695e",
+        "cs-accent": "#a9543f",
+        "cs-accent-bg": "#f0d8cf",
+        "cs-accent-border": "#d0a898",
+        "q-primary": "#a9543f",
+        "q-secondary": "#66784d",
+        "q-positive": "#6d814d",
+        "q-negative": "#b86e65",
+        "q-warning": "#b98742",
+        "q-info": "#66784d",
     },
 }
 
@@ -476,14 +477,16 @@ label { color: var(--cs-text); }
 def apply_theme_js(theme_id: str) -> str:
     """指定テーマを即座に適用する JavaScript を返す。"""
     t = THEMES.get(theme_id, THEMES[DEFAULT_THEME])
-    colors_json = json.dumps({
-        "primary":   t["q-primary"],
-        "secondary": t["q-secondary"],
-        "positive":  t["q-positive"],
-        "negative":  t["q-negative"],
-        "warning":   t["q-warning"],
-        "info":      t["q-info"],
-    })
+    colors_json = json.dumps(
+        {
+            "primary": t["q-primary"],
+            "secondary": t["q-secondary"],
+            "positive": t["q-positive"],
+            "negative": t["q-negative"],
+            "warning": t["q-warning"],
+            "info": t["q-info"],
+        }
+    )
     dark = "true" if t["dark"] else "false"
     return f"""
 (function(){{
@@ -578,8 +581,10 @@ def page_layout(title: str = ""):
 
         with jobs_container:
             if character_generation_active:
-                with ui.element("div").classes("w-full rounded-md border p-3").style(
-                    "border-color: var(--cs-border); background: var(--cs-surface-soft);"
+                with (
+                    ui.element("div")
+                    .classes("w-full rounded-md border p-3")
+                    .style("border-color: var(--cs-border); background: var(--cs-surface-soft);")
                 ):
                     with ui.row().classes("items-center gap-2 w-full"):
                         ui.icon("auto_awesome").style("color: var(--cs-accent);")
@@ -600,8 +605,10 @@ def page_layout(title: str = ""):
                 summary = job.summary()
                 status = str(summary["status"])
                 result_url = str(summary.get("result_url") or "")
-                with ui.element("div").classes("w-full rounded-md border p-3").style(
-                    "border-color: var(--cs-border); background: var(--cs-surface);"
+                with (
+                    ui.element("div")
+                    .classes("w-full rounded-md border p-3")
+                    .style("border-color: var(--cs-border); background: var(--cs-surface);")
                 ):
                     with ui.row().classes("items-center gap-2 w-full"):
                         ui.icon("memory").style("color: var(--cs-accent);")
@@ -622,6 +629,7 @@ def page_layout(title: str = ""):
                                 on_click=lambda url=result_url: ui.navigate.to(url),
                             ).props("flat color=primary size=sm")
                         if summary.get("can_cancel"):
+
                             async def _cancel(job_id: str = job.id) -> None:
                                 await _cancel_ai_job(job_id)
 
@@ -632,19 +640,25 @@ def page_layout(title: str = ""):
                             ).props("flat color=negative size=sm")
 
     with jobs_drawer:
-        with ui.row().classes("items-center justify-between px-4 py-3 w-full").style(
-            "border-bottom: 1px solid var(--cs-border);"
+        with (
+            ui.row()
+            .classes("items-center justify-between px-4 py-3 w-full")
+            .style("border-bottom: 1px solid var(--cs-border);")
         ):
             ui.label("AIジョブ").classes("text-sm font-semibold").style("color: var(--cs-muted);")
-            ui.button(
-                icon="close", on_click=lambda: jobs_drawer.hide()
-            ).props("flat round dense").style("color: var(--cs-muted);")
+            ui.button(icon="close", on_click=lambda: jobs_drawer.hide()).props("flat round dense").style(
+                "color: var(--cs-muted);"
+            )
         jobs_container = ui.column().classes("w-full gap-2 p-3")
 
-    with ui.header(elevated=False, wrap=False).classes("flex items-center gap-3 px-5").style(
-        "background: var(--cs-surface); border-bottom: 1px solid var(--cs-border); "
-        "box-shadow: 0 1px 4px rgba(0,0,0,0.07); height: 56px; min-height: 56px; "
-        "display: flex; align-items: center; overflow: hidden; padding-top: 0; padding-bottom: 0;"
+    with (
+        ui.header(elevated=False, wrap=False)
+        .classes("flex items-center gap-3 px-5")
+        .style(
+            "background: var(--cs-surface); border-bottom: 1px solid var(--cs-border); "
+            "box-shadow: 0 1px 4px rgba(0,0,0,0.07); height: 56px; min-height: 56px; "
+            "display: flex; align-items: center; overflow: hidden; padding-top: 0; padding-bottom: 0;"
+        )
     ):
         ui.html(_wizmy_logo_svg(), sanitize=False).classes("cs-brand-logo")
         if title:
@@ -655,18 +669,20 @@ def page_layout(title: str = ""):
             .on("click", lambda: (_refresh_jobs_drawer(), jobs_drawer.show()))
         )
         ui.space()
-        ui.button(icon="menu", on_click=lambda: drawer.toggle()).props(
-            "flat round dense"
-        ).style("color: var(--cs-muted); align-self: center;")
+        ui.button(icon="menu", on_click=lambda: drawer.toggle()).props("flat round dense").style(
+            "color: var(--cs-muted); align-self: center;"
+        )
 
     with drawer:
-        with ui.row().classes("items-center justify-between px-4 py-3 w-full").style(
-            "border-bottom: 1px solid var(--cs-border);"
+        with (
+            ui.row()
+            .classes("items-center justify-between px-4 py-3 w-full")
+            .style("border-bottom: 1px solid var(--cs-border);")
         ):
             ui.label("メニュー").classes("text-sm font-semibold").style("color: var(--cs-muted);")
-            ui.button(
-                icon="close", on_click=lambda: drawer.hide()
-            ).props("flat round dense").style("color: var(--cs-muted);")
+            ui.button(icon="close", on_click=lambda: drawer.hide()).props("flat round dense").style(
+                "color: var(--cs-muted);"
+            )
         try:
             current_path = ui.context.client.page.path
         except Exception:
@@ -679,21 +695,25 @@ def page_layout(title: str = ""):
                 )
                 item_style = (
                     "background-color: var(--cs-accent-bg); border-left: 3px solid var(--cs-accent);"
-                    if is_active else "border-left: 3px solid transparent;"
+                    if is_active
+                    else "border-left: 3px solid transparent;"
                 )
-                with ui.item(on_click=lambda p=item["path"]: ui.navigate.to(p)).classes(
-                    "cursor-pointer"
-                ).style(item_style):
+                with (
+                    ui.item(on_click=lambda p=item["path"]: ui.navigate.to(p))
+                    .classes("cursor-pointer")
+                    .style(item_style)
+                ):
                     with ui.item_section().props("avatar"):
                         ui.icon(item["icon"]).style(
                             "color: var(--cs-accent);" if is_active else "color: var(--cs-muted);"
                         )
                     with ui.item_section():
-                        ui.label(item["label"]).classes(
-                            "text-sm font-semibold" if is_active else "text-sm"
-                        ).style("color: var(--cs-text);" if is_active else "color: var(--cs-muted);")
+                        ui.label(item["label"]).classes("text-sm font-semibold" if is_active else "text-sm").style(
+                            "color: var(--cs-text);" if is_active else "color: var(--cs-muted);"
+                        )
 
     with ui.column().classes("w-full px-4 py-4"):
+
         def _sync_generation_indicator() -> None:
             try:
                 ctx = get_context()

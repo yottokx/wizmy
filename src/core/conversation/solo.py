@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import re
 
+from ..character.schemas import CharacterSheet
 from ..chat.schemas import ChatMode, UserPersona
 from ..chat.templates import render_chat_mode
-from ..character.schemas import CharacterSheet
-
 
 USER_PERSONA_SOURCE_PERSONA = "persona"
 USER_PERSONA_SOURCE_CHARACTER = "character"

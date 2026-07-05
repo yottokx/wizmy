@@ -7,7 +7,6 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from .schemas import ChatMode
 
-
 _TEMPLATE_ENV = SandboxedEnvironment(
     autoescape=False,
     undefined=StrictUndefined,

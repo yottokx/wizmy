@@ -15,9 +15,8 @@ from ..core.danbooru_prompt import (
     LangChainDanbooruPromptLLM,
 )
 from ..core.llm.factory import create_llm
-from .api_config import ApiConfigService
 from .ai_jobs import AIJobKind, AIJobRecord, AIJobService
-
+from .api_config import ApiConfigService
 
 DEFAULT_TAG_CLASSIFICATION_CSV = PROJECT_ROOT / "assets" / "danbooru_tag_classification_flat.csv"
 
@@ -88,7 +87,8 @@ class DanbooruPromptService:
         label: str = "プロンプト生成",
         scope: str = "",
         metadata: dict | None = None,
-        result_handler: Callable[[list[DanbooruPromptCandidate], AIJobRecord], Awaitable[object] | object] | None = None,
+        result_handler: Callable[[list[DanbooruPromptCandidate], AIJobRecord], Awaitable[object] | object]
+        | None = None,
     ) -> AIJobRecord:
         ai_jobs = self._ai_jobs
         if ai_jobs is None:

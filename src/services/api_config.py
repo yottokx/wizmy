@@ -32,8 +32,8 @@ from ..core.tts.schemas import (
     TTS_PROVIDER_IRODORI_GRADIO,
     TTS_PROVIDER_IRODORI_SERVER,
     TTSConfig,
-    TTSProvider,
     TTSEndpoint,
+    TTSProvider,
 )
 from ..storage.api_config_store import ApiConfigStore
 
@@ -82,9 +82,7 @@ class ApiConfigService:
             return False
         return await validate_connection(ep, api_key)
 
-    async def fetch_endpoint_models(
-        self, endpoint_id: str, vault_password: str | None = None
-    ) -> list[str]:
+    async def fetch_endpoint_models(self, endpoint_id: str, vault_password: str | None = None) -> list[str]:
         ep = self._store.get_endpoint(endpoint_id)
         if ep is None:
             return []
@@ -295,10 +293,12 @@ class ApiConfigService:
         original = self._store.get_image_generation_profile(profile_id)
         if original is None:
             return None
-        copy = original.model_copy(update={
-            "id": self._store.new_id(),
-            "name": f"{original.name} (コピー)",
-        })
+        copy = original.model_copy(
+            update={
+                "id": self._store.new_id(),
+                "name": f"{original.name} (コピー)",
+            }
+        )
         self._store.upsert_image_generation_profile(copy)
         self._store.save()
         return copy
@@ -386,9 +386,7 @@ class ApiConfigService:
             config.endpoints.append(endpoint)
         else:
             endpoint = TTSEndpoint(**{**endpoint.model_dump(), "base_url": url})
-            config.endpoints = [
-                endpoint if current.id == endpoint.id else current for current in config.endpoints
-            ]
+            config.endpoints = [endpoint if current.id == endpoint.id else current for current in config.endpoints]
         config.default_endpoint_id = endpoint.id
         self.save_tts_config(config)
         return config
@@ -409,9 +407,7 @@ class ApiConfigService:
             config.endpoints.append(endpoint)
         else:
             endpoint = TTSEndpoint(**{**endpoint.model_dump(), "base_url": url})
-            config.endpoints = [
-                endpoint if current.id == endpoint.id else current for current in config.endpoints
-            ]
+            config.endpoints = [endpoint if current.id == endpoint.id else current for current in config.endpoints]
         config.default_endpoint_id = endpoint.id
         self.save_tts_config(config)
         return config

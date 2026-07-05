@@ -22,13 +22,23 @@ from ...core.group_chat.schemas import GroupMember
 from ...core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE
 from .common import (
     default_profile_id as _default_profile_id,
+)
+from .common import (
     profile_options as _profile_options,
 )
 from .rendering import (
     group_message_target_label as _group_message_target_label,
+)
+from .rendering import (
     render_face as _render_face,
+)
+from .rendering import (
     render_group_member_menu_face as _render_group_member_menu_face,
+)
+from .rendering import (
     render_group_role_icon as _render_group_role_icon,
+)
+from .rendering import (
     render_group_user_menu_face as _render_group_user_menu_face,
 )
 

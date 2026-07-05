@@ -8,13 +8,13 @@ NiceGUI の app.on_startup/on_shutdown で使用する。
 from __future__ import annotations
 
 from .config import AppSettings
-from .services.api_config import ApiConfigService
 from .services.ai_jobs import AIJobService
+from .services.api_config import ApiConfigService
+from .services.character import CharacterService
+from .services.character_generation import CharacterGenerationService
 from .services.chat import ChatService
 from .services.chat_assist import ChatAssistService
 from .services.chat_turns import ChatTurnService
-from .services.character import CharacterService
-from .services.character_generation import CharacterGenerationService
 from .services.danbooru_prompt import DanbooruPromptService
 from .services.group_chat import GroupChatService
 from .services.group_chat_assist import GroupChatAssistService
@@ -23,8 +23,8 @@ from .services.image_generation import ImageGenerationService
 from .services.tts import TTSService
 from .services.user_persona import UserPersonaService
 from .storage.api_config_store import ApiConfigStore
-from .storage.chat_repository import ChatRepository
 from .storage.character_repository import CharacterRepository
+from .storage.chat_repository import ChatRepository
 from .storage.group_chat_repository import GroupChatRepository
 
 

@@ -8,14 +8,18 @@ from typing import Any
 from nicegui import app, ui
 
 from ...app_context import get_context
+from ...core.character.markdown import (
+    base_character_markdown as _base_character_markdown,
+)
+from ...core.character.markdown import (
+    parse_markdown_to_sheet,
+)
+from ...core.character.markdown import (
+    sheet_from_markdown_preserving as _sheet_from_markdown_preserving,
+)
 from ...core.character.schemas import (
     CharacterSheet,
     GenerationMeta,
-)
-from ...core.character.markdown import (
-    base_character_markdown as _base_character_markdown,
-    parse_markdown_to_sheet,
-    sheet_from_markdown_preserving as _sheet_from_markdown_preserving,
 )
 from ...core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS
 from ...core.character_generation.schemas import (
@@ -25,17 +29,17 @@ from ...core.character_generation.schemas import (
     GenerationRequest,
     ProgressEventType,
 )
-from ...core.group_chat.schemas import (
-    GroupChatRecord,
-    GroupMember,
-    GroupRelationship,
-)
 from ...core.conversation.group_setup import (
     ascii_outside_parentheses,
     fallback_handle,
     sanitize_group_generated_markdown,
     sanitize_handle,
     unique_handle,
+)
+from ...core.group_chat.schemas import (
+    GroupChatRecord,
+    GroupMember,
+    GroupRelationship,
 )
 from ...services.ai_jobs import AIJobStatus
 from ...services.character_generation import (
@@ -55,23 +59,33 @@ from ..components.generation_result import (
 from ..components.progress_stream import ProgressPanel
 from ..group_chat.common import (
     HANDLE_RE as _HANDLE_RE,
+)
+from ..group_chat.common import (
     default_profile_id as _default_profile_id,
+)
+from ..group_chat.common import (
     group_member_tts_id as _group_member_tts_id,
+)
+from ..group_chat.common import (
     notify_setup_llm_runtime_error as _notify_setup_llm_runtime_error,
+)
+from ..group_chat.common import (
     profile_options as _profile_options,
 )
 from ..group_chat.controller import GroupChatPageController
 from ..group_chat.dialogs_group import open_new_group_dialog
 from ..group_chat.rendering import (
     render_group_card as _render_group_card,
+)
+from ..group_chat.rendering import (
     render_recent_group as _render_recent_group,
+)
+from ..group_chat.rendering import (
     render_section_head as _render_section_head,
 )
 from ..group_chat.style import GROUP_CHAT_CSS
 from ..layout import page_layout
 from ..state import get_vault_password
-
-
 
 
 @ui.page("/groups")
@@ -84,16 +98,12 @@ async def group_chat_page() -> None:
             with ui.element("div").classes("cs-group-page-head"):
                 with ui.element("div"):
                     ui.label("グループチャット").classes("cs-group-page-title")
-                    ui.label("グループ一覧と最近のチャットを確認できます。").classes(
-                        "cs-group-page-subtitle"
-                    )
+                    ui.label("グループ一覧と最近のチャットを確認できます。").classes("cs-group-page-subtitle")
                 ui.button(
                     "新しいグループ",
                     icon="group_add",
                     on_click=lambda: open_new_group_dialog(ctx, refresh_groups),
-                ).props("color=primary unelevated").style(
-                    "border-radius: 8px; font-weight: 700;"
-                )
+                ).props("color=primary unelevated").style("border-radius: 8px; font-weight: 700;")
 
             with ui.element("div").classes("cs-group-home-grid"):
                 groups_container = ui.element("section")
@@ -132,9 +142,7 @@ async def group_chat_detail_page(group_id: str) -> None:
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props(
-                "flat color=primary"
-            )
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
         return
 
     with page_layout(group.name):
@@ -152,9 +160,7 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props(
-                "flat color=primary"
-            )
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
         return
 
     member = next((item for item in group.members if item.id == member_id), None)
@@ -241,9 +247,7 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
                 return sheet
 
             async def _save_image(upload: Any) -> CharacterSheet:
-                return _apply_saved(
-                    await ctx.group_chats.save_member_image(group.id, member.id, upload)
-                )
+                return _apply_saved(await ctx.group_chats.save_member_image(group.id, member.id, upload))
 
             async def _save_image_bytes(image_bytes: bytes, **kwargs: Any) -> CharacterSheet:
                 return _apply_saved(
@@ -256,9 +260,7 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
                 )
 
             async def _save_voice(upload: Any) -> CharacterSheet:
-                return _apply_saved(
-                    await ctx.group_chats.save_member_voice(group.id, member.id, upload)
-                )
+                return _apply_saved(await ctx.group_chats.save_member_voice(group.id, member.id, upload))
 
             async def _save_voice_bytes(audio_bytes: bytes, **kwargs: Any) -> CharacterSheet:
                 return _apply_saved(
@@ -343,12 +345,16 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
                             edit_btn = ui.button("編集", icon="edit", on_click=lambda: _enter_edit()).props(
                                 "flat size=sm color=primary"
                             )
-                            save_edit_btn = ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
-                                "unelevated size=sm color=primary"
-                            ).classes("hidden")
-                            cancel_edit_btn = ui.button("キャンセル", on_click=lambda: _cancel_edit()).props(
-                                "flat size=sm"
-                            ).classes("hidden")
+                            save_edit_btn = (
+                                ui.button("保存", icon="save", on_click=lambda: _save_edit())
+                                .props("unelevated size=sm color=primary")
+                                .classes("hidden")
+                            )
+                            cancel_edit_btn = (
+                                ui.button("キャンセル", on_click=lambda: _cancel_edit())
+                                .props("flat size=sm")
+                                .classes("hidden")
+                            )
 
                     sheet_container = ui.element("div").classes("w-full")
                     with sheet_container:
@@ -386,9 +392,7 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
             edit_mode["active"] = True
             sheet_container.clear()
             with sheet_container:
-                ta = ui.textarea(value=sheet.raw_markdown).classes("w-full font-mono text-sm").props(
-                    "rows=30 outlined"
-                )
+                ta = ui.textarea(value=sheet.raw_markdown).classes("w-full font-mono text-sm").props("rows=30 outlined")
                 edit_area["ref"] = ta
                 with ui.row().classes("justify-end gap-2 mt-2"):
                     ui.button("キャンセル", on_click=lambda: _cancel_edit()).props("flat size=sm")
@@ -537,9 +541,7 @@ async def group_generation_page(group_id: str) -> None:
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props(
-                "flat color=primary"
-            )
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
         return
 
     preset_mode = str(app.storage.user.pop("group_gen_mode", "") or "")
@@ -549,10 +551,7 @@ async def group_generation_page(group_id: str) -> None:
     else:
         preset_member_ids = [str(item) for item in raw_preset_ids or []]
 
-    member_options = {
-        member.id: _group_generation_member_label(member)
-        for member in group.members
-    }
+    member_options = {member.id: _group_generation_member_label(member) for member in group.members}
     member_by_id = {member.id: member for member in group.members}
     profile_options = _profile_options(ctx, ctx.api_config.get_llm_profiles())
     progress_panel = ProgressPanel()
@@ -601,13 +600,17 @@ async def group_generation_page(group_id: str) -> None:
             with ui.column().classes("gap-0 flex-1 min-w-0"):
                 ui.label("グループ内キャラクター生成").classes("text-2xl font-bold")
                 ui.label(group.name).classes("text-sm text-grey-6")
-            profile_select = ui.select(
-                options=profile_options,
-                value=group.completion_profile_id
-                if group.completion_profile_id in profile_options
-                else _default_profile_id(ctx, profile_options),
-                label="LLMプロファイル",
-            ).props("outlined dense").classes("min-w-[260px]")
+            profile_select = (
+                ui.select(
+                    options=profile_options,
+                    value=group.completion_profile_id
+                    if group.completion_profile_id in profile_options
+                    else _default_profile_id(ctx, profile_options),
+                    label="LLMプロファイル",
+                )
+                .props("outlined dense")
+                .classes("min-w-[260px]")
+            )
             job_status_badge = ui.badge("").classes("hidden")
             stop_btn = ui.button("停止", icon="stop").props("outline color=negative").classes("hidden")
             generate_btn = ui.button("生成する", icon="auto_awesome").props("color=primary unelevated")
@@ -701,9 +704,7 @@ async def group_generation_page(group_id: str) -> None:
                             related_extra_input = ui.textarea(label="その他の要望").classes("w-full").props("rows=3")
 
             with ui.column().classes("flex-1 gap-3 min-w-0"):
-                base_expansion = ui.expansion("ベースメンバー確認", icon="groups", value=False).classes(
-                    "w-full hidden"
-                )
+                base_expansion = ui.expansion("ベースメンバー確認", icon="groups", value=False).classes("w-full hidden")
                 with base_expansion:
                     base_content = ui.element("div").classes("w-full max-h-[480px] overflow-y-auto")
 
@@ -716,16 +717,30 @@ async def group_generation_page(group_id: str) -> None:
                             ui.label("生成結果").classes("text-sm font-semibold")
                         with ui.row().classes("gap-1 items-center flex-wrap"):
                             quality_badge = ui.badge("").classes("hidden")
-                            save_result_btn = ui.button(
-                                "グループに追加",
-                                icon="person_add",
-                            ).props("flat size=sm color=primary").classes("hidden")
-                            log_download_btn = ui.button(
-                                icon="assignment_late",
-                            ).props("flat round dense").classes("hidden").tooltip("詳細ログをダウンロード")
-                            download_btn = ui.button(
-                                icon="download",
-                            ).props("flat round dense").classes("hidden").tooltip("シートをダウンロード")
+                            save_result_btn = (
+                                ui.button(
+                                    "グループに追加",
+                                    icon="person_add",
+                                )
+                                .props("flat size=sm color=primary")
+                                .classes("hidden")
+                            )
+                            log_download_btn = (
+                                ui.button(
+                                    icon="assignment_late",
+                                )
+                                .props("flat round dense")
+                                .classes("hidden")
+                                .tooltip("詳細ログをダウンロード")
+                            )
+                            download_btn = (
+                                ui.button(
+                                    icon="download",
+                                )
+                                .props("flat round dense")
+                                .classes("hidden")
+                                .tooltip("シートをダウンロード")
+                            )
                     save_status_label = ui.label("").classes("text-xs hidden text-primary")
                     result_area = ui.element("div").classes("w-full max-h-[640px] overflow-y-auto")
                     show_sheet_placeholder(result_area)
@@ -747,7 +762,9 @@ async def group_generation_page(group_id: str) -> None:
             base_expansion.set_value(True)
             with base_content:
                 for member in members:
-                    with ui.expansion(_group_generation_member_label(member), value=len(members) == 1).classes("w-full"):
+                    with ui.expansion(_group_generation_member_label(member), value=len(members) == 1).classes(
+                        "w-full"
+                    ):
                         render_sheet_result(ui.element("div"), _base_character_markdown(member.character))
 
         def _on_tab_change(e) -> None:
@@ -763,9 +780,7 @@ async def group_generation_page(group_id: str) -> None:
         mode_tabs.on("update:model-value", _on_tab_change)
         if member_options:
             modify_member_select.on_value_change(
-                lambda e: _refresh_base_preview(
-                    [member] if (member := _member_by_id(str(e.value or ""))) else []
-                )
+                lambda e: _refresh_base_preview([member] if (member := _member_by_id(str(e.value or ""))) else [])
             )
         for checkbox in related_checks.values():
             checkbox.on_value_change(lambda _: _refresh_base_preview(_selected_related_members()))
@@ -807,14 +822,16 @@ async def group_generation_page(group_id: str) -> None:
             _sync_job_badge(job)
 
         def _prepare_job_view(job: GenerationJob) -> None:
-            current_result.update({
-                "gen_id": job.id,
-                "sheet": "",
-                "mode": job.request.mode,
-                "request": job.request,
-                "profile": job.profile,
-                "gen_result": None,
-            })
+            current_result.update(
+                {
+                    "gen_id": job.id,
+                    "sheet": "",
+                    "mode": job.request.mode,
+                    "request": job.request,
+                    "profile": job.profile,
+                    "gen_result": None,
+                }
+            )
             quality_badge.classes("hidden")
             save_result_btn.classes("hidden")
             log_download_btn.classes("hidden")
@@ -890,19 +907,27 @@ async def group_generation_page(group_id: str) -> None:
                 ui.label("ハンドルと関係性を確認してから、グループ内メンバーとして保存します。").classes(
                     "text-sm text-grey-6"
                 )
-                handle_input = ui.input(
-                    "ハンドル",
-                    value=_default_generated_handle(draft_sheet, group),
-                ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
+                handle_input = (
+                    ui.input(
+                        "ハンドル",
+                        value=_default_generated_handle(draft_sheet, group),
+                    )
+                    .props("outlined dense mask=\"NNNNNNNNNNNN\"")
+                    .classes("w-full")
+                )
 
                 relationship_inputs: dict[str, Any] = {}
                 if job.request.mode == GenerationMode.RELATED and base_members:
                     ui.label("ベースメンバーとの関係性").classes("text-sm font-semibold mt-2")
                     for member in base_members:
-                        relationship_inputs[member.id] = ui.textarea(
-                            _group_generation_member_label(member),
-                            value=relationship_drafts.get(member.id, ""),
-                        ).props("outlined rows=3").classes("w-full")
+                        relationship_inputs[member.id] = (
+                            ui.textarea(
+                                _group_generation_member_label(member),
+                                value=relationship_drafts.get(member.id, ""),
+                            )
+                            .props("outlined rows=3")
+                            .classes("w-full")
+                        )
 
                 with ui.expansion("生成シートを確認", icon="description", value=False).classes("w-full"):
                     render_sheet_result(ui.element("div"), sanitized)
@@ -918,7 +943,10 @@ async def group_generation_page(group_id: str) -> None:
                     for member_id, textarea in relationship_inputs.items():
                         if not str(textarea.value or "").strip():
                             member = member_by_id.get(member_id)
-                            ui.notify(f"{member.character.name if member else 'ベースメンバー'}との関係性を入力してください", type="warning")
+                            ui.notify(
+                                f"{member.character.name if member else 'ベースメンバー'}との関係性を入力してください",
+                                type="warning",
+                            )
                             return
 
                     sheet_to_save = _group_generated_sheet_from_result(
@@ -1068,10 +1096,7 @@ async def group_generation_page(group_id: str) -> None:
                     base_sheet=_base_character_markdown(related_members[0].character),
                     new_char_name=str(related_name_input.value or "").strip(),
                     group_world=group.world,
-                    related_base_sheets=[
-                        _generation_base_sheet_from_member(member)
-                        for member in related_members
-                    ],
+                    related_base_sheets=[_generation_base_sheet_from_member(member) for member in related_members],
                     omit_group_sections=True,
                 )
                 base_member = related_members[0]
@@ -1083,7 +1108,11 @@ async def group_generation_page(group_id: str) -> None:
                 ui.notify("LLMプロファイルが見つかりません", type="negative")
                 return
             if not profile.model_id:
-                ui.notify("モデルIDが未設定です。設定画面でLLMプロファイルのモデルを設定してください。", type="negative", timeout=8000)
+                ui.notify(
+                    "モデルIDが未設定です。設定画面でLLMプロファイルのモデルを設定してください。",
+                    type="negative",
+                    timeout=8000,
+                )
                 return
             endpoint = ctx.api_config.get_endpoint(profile.endpoint_id)
             if not endpoint:
@@ -1091,7 +1120,11 @@ async def group_generation_page(group_id: str) -> None:
                 return
             api_key = ctx.api_config.get_api_key(profile.endpoint_id, get_vault_password())
             if ctx.api_config.is_api_key_locked(profile.endpoint_id, api_key):
-                ui.notify("このエンドポイントにはAPIキーが設定されています。APIキーボルトをロック解除してください。", type="warning", timeout=8000)
+                ui.notify(
+                    "このエンドポイントにはAPIキーが設定されています。APIキーボルトをロック解除してください。",
+                    type="warning",
+                    timeout=8000,
+                )
                 return
 
             job = ctx.generation.start_job(
@@ -1149,9 +1182,7 @@ async def group_persona_detail_page(group_id: str) -> None:
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props(
-                "flat color=primary"
-            )
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
         return
 
     persona = group.user_persona
@@ -1205,12 +1236,14 @@ async def group_persona_detail_page(group_id: str) -> None:
                     edit_btn = ui.button("編集", icon="edit", on_click=lambda: _enter_edit()).props(
                         "flat size=sm color=primary"
                     )
-                    save_btn = ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
-                        "unelevated size=sm color=primary"
-                    ).classes("hidden")
-                    cancel_btn = ui.button("キャンセル", on_click=lambda: _cancel_edit()).props(
-                        "flat size=sm"
-                    ).classes("hidden")
+                    save_btn = (
+                        ui.button("保存", icon="save", on_click=lambda: _save_edit())
+                        .props("unelevated size=sm color=primary")
+                        .classes("hidden")
+                    )
+                    cancel_btn = (
+                        ui.button("キャンセル", on_click=lambda: _cancel_edit()).props("flat size=sm").classes("hidden")
+                    )
 
             handle_input = {"ref": None}
             name_input = {"ref": None}
@@ -1238,22 +1271,38 @@ async def group_persona_detail_page(group_id: str) -> None:
             edit_mode["active"] = True
             detail_container.clear()
             with detail_container:
-                handle_input["ref"] = ui.input(
-                    label="ハンドル",
-                    value=persona.handle,
-                ).props("outlined dense mask=\"NNNNNNNNNNNN\"").classes("w-full")
-                display_name_input["ref"] = ui.input(
-                    label="表示名",
-                    value=persona.display_name,
-                ).props("outlined dense").classes("w-full")
-                name_input["ref"] = ui.input(
-                    label="名前",
-                    value=persona.name,
-                ).props("outlined dense").classes("w-full")
-                description_input["ref"] = ui.textarea(
-                    label="説明",
-                    value=persona.description,
-                ).props("outlined rows=8").classes("w-full")
+                handle_input["ref"] = (
+                    ui.input(
+                        label="ハンドル",
+                        value=persona.handle,
+                    )
+                    .props("outlined dense mask=\"NNNNNNNNNNNN\"")
+                    .classes("w-full")
+                )
+                display_name_input["ref"] = (
+                    ui.input(
+                        label="表示名",
+                        value=persona.display_name,
+                    )
+                    .props("outlined dense")
+                    .classes("w-full")
+                )
+                name_input["ref"] = (
+                    ui.input(
+                        label="名前",
+                        value=persona.name,
+                    )
+                    .props("outlined dense")
+                    .classes("w-full")
+                )
+                description_input["ref"] = (
+                    ui.textarea(
+                        label="説明",
+                        value=persona.description,
+                    )
+                    .props("outlined rows=8")
+                    .classes("w-full")
+                )
             edit_btn.classes("hidden")
             save_btn.classes(remove="hidden")
             cancel_btn.classes(remove="hidden")
@@ -1262,13 +1311,9 @@ async def group_persona_detail_page(group_id: str) -> None:
             nonlocal persona
 
             handle = str(handle_input["ref"].value if handle_input["ref"] is not None else "").strip()
-            display_name = str(
-                display_name_input["ref"].value if display_name_input["ref"] is not None else ""
-            ).strip()
+            display_name = str(display_name_input["ref"].value if display_name_input["ref"] is not None else "").strip()
             name = str(name_input["ref"].value if name_input["ref"] is not None else "").strip()
-            description = str(
-                description_input["ref"].value if description_input["ref"] is not None else ""
-            ).strip()
+            description = str(description_input["ref"].value if description_input["ref"] is not None else "").strip()
 
             sanitized_handle = sanitize_handle(handle, persona.handle or "User")
             used_handles = {member.handle.lower() for member in group.members}

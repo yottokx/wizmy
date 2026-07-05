@@ -113,13 +113,13 @@ def _build_user_prompt(prefs: GenerationPreferences) -> str:
         lines.append(f"- テーマ・雰囲気: {theme}")
     if extra:
         lines.append(f"- その他の要望: {extra}")
-    lines.append("\nフェーズA〜Dを順番に実行し、必ずツールで乱数選択してください。全完了後は[GENERATION_COMPLETE]を出力してください。")
+    lines.append(
+        "\nフェーズA〜Dを順番に実行し、必ずツールで乱数選択してください。全完了後は[GENERATION_COMPLETE]を出力してください。"
+    )
     return "\n".join(lines)
 
 
-def _build_related_user_prompt(
-    prefs: GenerationPreferences, base_sheet: str, new_char_name: str
-) -> str:
+def _build_related_user_prompt(prefs: GenerationPreferences, base_sheet: str, new_char_name: str) -> str:
     parsed = _parse_base_sheet(base_sheet)
     main_char = parsed["main_char_name"]
     relationships = parsed["relationships"]
@@ -186,10 +186,7 @@ def _base_sheet_context(base: GenerationBaseSheet, index: int = 1) -> str:
 def _related_base_context(base_sheets: list[GenerationBaseSheet]) -> str:
     if not base_sheets:
         return "（ベースメンバー指定なし）"
-    return "\n\n".join(
-        _base_sheet_context(base, index)
-        for index, base in enumerate(base_sheets, start=1)
-    )
+    return "\n\n".join(_base_sheet_context(base, index) for index, base in enumerate(base_sheets, start=1))
 
 
 def _build_group_user_prompt(
@@ -274,13 +271,9 @@ def _build_assembly_user(
     prefs: GenerationPreferences,
 ) -> str:
     d = prefs.to_dict()
-    pref_lines = "\n".join(
-        f"- {k}: {v}" for k, v in d.items() if v and v not in ("おまかせ", "")
-    ) or "（特に指定なし）"
+    pref_lines = "\n".join(f"- {k}: {v}" for k, v in d.items() if v and v not in ("おまかせ", "")) or "（特に指定なし）"
     primary_text = "\n".join(f"- {r}" for r in primary_results)
-    resolution_text = (
-        "\n".join(f"- {r}" for r in resolution_results) if resolution_results else "（矛盾解決なし）"
-    )
+    resolution_text = "\n".join(f"- {r}" for r in resolution_results) if resolution_results else "（矛盾解決なし）"
     return ASSEMBLY_USER_TEMPLATE.format(
         pref_lines=pref_lines,
         primary_text=primary_text,
@@ -297,13 +290,9 @@ def _build_group_assembly_user(
     new_char_name: str = "",
 ) -> str:
     d = prefs.to_dict()
-    pref_lines = "\n".join(
-        f"- {k}: {v}" for k, v in d.items() if v and v not in ("おまかせ", "")
-    ) or "（特に指定なし）"
+    pref_lines = "\n".join(f"- {k}: {v}" for k, v in d.items() if v and v not in ("おまかせ", "")) or "（特に指定なし）"
     primary_text = "\n".join(f"- {r}" for r in primary_results)
-    resolution_text = (
-        "\n".join(f"- {r}" for r in resolution_results) if resolution_results else "（矛盾解決なし）"
-    )
+    resolution_text = "\n".join(f"- {r}" for r in resolution_results) if resolution_results else "（矛盾解決なし）"
     name_in_header = new_char_name if new_char_name else "キャラクター名の選択結果"
     return GROUP_ASSEMBLY_USER_TEMPLATE.format(
         group_world=group_world.strip() or "未設定",
@@ -355,13 +344,9 @@ def _build_related_assembly_user(
     role_in_base = parsed["relationships"].get(new_char_name, "") if new_char_name else ""
 
     d = prefs.to_dict()
-    pref_lines = "\n".join(
-        f"- {k}: {v}" for k, v in d.items() if v and v not in ("おまかせ", "")
-    ) or "（特に指定なし）"
+    pref_lines = "\n".join(f"- {k}: {v}" for k, v in d.items() if v and v not in ("おまかせ", "")) or "（特に指定なし）"
     primary_text = "\n".join(f"- {r}" for r in primary_results)
-    resolution_text = (
-        "\n".join(f"- {r}" for r in resolution_results) if resolution_results else "（矛盾解決なし）"
-    )
+    resolution_text = "\n".join(f"- {r}" for r in resolution_results) if resolution_results else "（矛盾解決なし）"
 
     name_note = f"\n**名前は「{new_char_name}」で固定してください（変更禁止）**\n" if new_char_name else ""
     name_in_header = new_char_name if new_char_name else "キャラクター名の選択結果"
@@ -463,10 +448,12 @@ def _assemble_sheet(
     resolution_results: list[str],
     prefs: GenerationPreferences,
 ) -> str:
-    response = llm.invoke([
-        SystemMessage(content=ASSEMBLY_SYSTEM),
-        HumanMessage(content=_build_assembly_user(primary_results, resolution_results, prefs)),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=ASSEMBLY_SYSTEM),
+            HumanMessage(content=_build_assembly_user(primary_results, resolution_results, prefs)),
+        ]
+    )
     return _extract_text(response.content)
 
 
@@ -479,19 +466,21 @@ def _assemble_group_sheet(
     base_sheets: list[GenerationBaseSheet] | None = None,
     new_char_name: str = "",
 ) -> str:
-    response = llm.invoke([
-        SystemMessage(content=GROUP_ASSEMBLY_SYSTEM),
-        HumanMessage(
-            content=_build_group_assembly_user(
-                primary_results,
-                resolution_results,
-                prefs,
-                group_world,
-                base_sheets,
-                new_char_name,
-            )
-        ),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=GROUP_ASSEMBLY_SYSTEM),
+            HumanMessage(
+                content=_build_group_assembly_user(
+                    primary_results,
+                    resolution_results,
+                    prefs,
+                    group_world,
+                    base_sheets,
+                    new_char_name,
+                )
+            ),
+        ]
+    )
     return _extract_text(response.content)
 
 
@@ -501,10 +490,12 @@ def _assemble_modify_sheet(
     modification_results: list[str],
     modify_request: str,
 ) -> str:
-    response = llm.invoke([
-        SystemMessage(content=MODIFY_ASSEMBLY_SYSTEM),
-        HumanMessage(content=_build_modify_assembly_user(base_sheet, modification_results, modify_request)),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=MODIFY_ASSEMBLY_SYSTEM),
+            HumanMessage(content=_build_modify_assembly_user(base_sheet, modification_results, modify_request)),
+        ]
+    )
     return _extract_text(response.content)
 
 
@@ -515,17 +506,19 @@ def _assemble_group_modify_sheet(
     modify_request: str,
     group_world: str,
 ) -> str:
-    response = llm.invoke([
-        SystemMessage(content=GROUP_MODIFY_ASSEMBLY_SYSTEM),
-        HumanMessage(
-            content=_build_group_modify_assembly_user(
-                base_sheet,
-                modification_results,
-                modify_request,
-                group_world,
-            )
-        ),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=GROUP_MODIFY_ASSEMBLY_SYSTEM),
+            HumanMessage(
+                content=_build_group_modify_assembly_user(
+                    base_sheet,
+                    modification_results,
+                    modify_request,
+                    group_world,
+                )
+            ),
+        ]
+    )
     return _extract_text(response.content)
 
 
@@ -537,20 +530,20 @@ def _assemble_related_sheet(
     base_sheet: str,
     new_char_name: str,
 ) -> str:
-    response = llm.invoke([
-        SystemMessage(content=RELATED_ASSEMBLY_SYSTEM),
-        HumanMessage(
-            content=_build_related_assembly_user(
-                primary_results, resolution_results, prefs, base_sheet, new_char_name
-            )
-        ),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=RELATED_ASSEMBLY_SYSTEM),
+            HumanMessage(
+                content=_build_related_assembly_user(
+                    primary_results, resolution_results, prefs, base_sheet, new_char_name
+                )
+            ),
+        ]
+    )
     return _extract_text(response.content)
 
 
-def score_completion(
-    tool_calls: list[ToolCallRecord], sheet: str, mode: GenerationMode
-) -> dict:
+def score_completion(tool_calls: list[ToolCallRecord], sheet: str, mode: GenerationMode) -> dict:
     """ツール結果数・フェーズカバレッジ・必須ヘッダーから品質スコアを算出する。"""
     tool_count = len(tool_calls)
     header_score = sum(1 for h in REQUIRED_SHEET_HEADERS if h in sheet) / len(REQUIRED_SHEET_HEADERS)
@@ -663,9 +656,7 @@ def run_generation(
             )
         else:
             system_prompt = RELATED_BRAINSTORM_PROMPT
-            user_message = _build_related_user_prompt(
-                request.preferences, request.base_sheet, request.new_char_name
-            )
+            user_message = _build_related_user_prompt(request.preferences, request.base_sheet, request.new_char_name)
         complete_marker = "[GENERATION_COMPLETE]"
 
     graph = create_agent(llm, GENERATION_TOOLS, system_prompt=system_prompt)
@@ -721,9 +712,7 @@ def run_generation(
                             )
                             tool_calls.append(tc)
                             if progress_callback:
-                                progress_callback(ProgressEvent(
-                                    type=ProgressEventType.TOOL_CALLED, data=tc
-                                ))
+                                progress_callback(ProgressEvent(type=ProgressEventType.TOOL_CALLED, data=tc))
 
     except Exception as exc:
         error_msg = f"Stage 1 エラー: {exc}"
@@ -741,10 +730,12 @@ def run_generation(
     all_results = primary_results + resolution_results
 
     if progress_callback:
-        progress_callback(ProgressEvent(
-            type=ProgressEventType.STAGE1_DONE,
-            data={"tool_count": len(all_results), "complete_seen": complete_seen},
-        ))
+        progress_callback(
+            ProgressEvent(
+                type=ProgressEventType.STAGE1_DONE,
+                data={"tool_count": len(all_results), "complete_seen": complete_seen},
+            )
+        )
 
     if not all_results:
         error_msg = "ツール呼び出し結果が0件のためシートを生成できません。ツール対応モデルを確認してください。"
@@ -766,9 +757,7 @@ def run_generation(
             )
             if progress_callback:
                 progress_callback(ProgressEvent(type=ProgressEventType.ERROR, data=error_msg))
-            return GenerationResult(
-                success=False, error_message=error_msg, tool_calls=tool_calls, mode=mode
-            )
+            return GenerationResult(success=False, error_message=error_msg, tool_calls=tool_calls, mode=mode)
 
     if progress_callback:
         progress_callback(ProgressEvent(type=ProgressEventType.STAGE2_START))
@@ -784,9 +773,7 @@ def run_generation(
                     request.group_world,
                 )
             else:
-                sheet = _assemble_modify_sheet(
-                    llm, request.base_sheet, all_results, request.modify_request
-                )
+                sheet = _assemble_modify_sheet(llm, request.base_sheet, all_results, request.modify_request)
         elif mode == GenerationMode.RELATED:
             if is_group_generation:
                 sheet = _assemble_group_sheet(
@@ -800,8 +787,12 @@ def run_generation(
                 )
             else:
                 sheet = _assemble_related_sheet(
-                    llm, primary_results, resolution_results,
-                    request.preferences, request.base_sheet, request.new_char_name,
+                    llm,
+                    primary_results,
+                    resolution_results,
+                    request.preferences,
+                    request.base_sheet,
+                    request.new_char_name,
                 )
         else:
             if is_group_generation:
@@ -819,9 +810,7 @@ def run_generation(
         error_msg = f"Stage 2 エラー: {exc}"
         if progress_callback:
             progress_callback(ProgressEvent(type=ProgressEventType.ERROR, data=error_msg))
-        return GenerationResult(
-            success=False, error_message=error_msg, tool_calls=tool_calls, mode=mode
-        )
+        return GenerationResult(success=False, error_message=error_msg, tool_calls=tool_calls, mode=mode)
 
     score = score_completion(tool_calls, sheet, mode)
 

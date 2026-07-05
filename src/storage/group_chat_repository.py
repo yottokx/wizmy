@@ -18,7 +18,6 @@ from ..core.group_chat.schemas import (
 )
 from ..core.group_chat.sessions import DEFAULT_GROUP_CHAT_TITLE, GroupChatSessionRecord
 
-
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS group_chats (
     id TEXT PRIMARY KEY,
@@ -77,9 +76,7 @@ def _row_to_group(row: aiosqlite.Row) -> GroupChatRecord:
         world_source_character_id=data.get("world_source_character_id") or "",
         completion_profile_id=data.get("completion_profile_id") or "",
         members=[
-            GroupMember(**member)
-            for member in _loads_json(data.get("members", "[]"), [])
-            if isinstance(member, dict)
+            GroupMember(**member) for member in _loads_json(data.get("members", "[]"), []) if isinstance(member, dict)
         ],
         user_persona=persona,
         relationships=[
@@ -163,17 +160,11 @@ class GroupChatRepository:
             rows = await cursor.fetchall()
         columns = {row[1] for row in rows}
         if "world_source_type" not in columns:
-            await db.execute(
-                "ALTER TABLE group_chats ADD COLUMN world_source_type TEXT NOT NULL DEFAULT 'new'"
-            )
+            await db.execute("ALTER TABLE group_chats ADD COLUMN world_source_type TEXT NOT NULL DEFAULT 'new'")
         if "world_source_character_id" not in columns:
-            await db.execute(
-                "ALTER TABLE group_chats ADD COLUMN world_source_character_id TEXT NOT NULL DEFAULT ''"
-            )
+            await db.execute("ALTER TABLE group_chats ADD COLUMN world_source_character_id TEXT NOT NULL DEFAULT ''")
         if "relationships" not in columns:
-            await db.execute(
-                "ALTER TABLE group_chats ADD COLUMN relationships TEXT NOT NULL DEFAULT '[]'"
-            )
+            await db.execute("ALTER TABLE group_chats ADD COLUMN relationships TEXT NOT NULL DEFAULT '[]'")
 
     async def save(self, group: GroupChatRecord) -> GroupChatRecord:
         saved = group.model_copy(update={"updated_at": datetime.now()}, deep=True)
@@ -218,9 +209,7 @@ class GroupChatRepository:
     async def list_all(self) -> list[GroupChatRecord]:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM group_chats ORDER BY updated_at DESC"
-            ) as cursor:
+            async with db.execute("SELECT * FROM group_chats ORDER BY updated_at DESC") as cursor:
                 rows = await cursor.fetchall()
                 return [_row_to_group(row) for row in rows]
 

@@ -96,9 +96,7 @@ def _with_defaults(data: dict) -> dict:
         **app_llm_config,
     }
     if "chat_profile_id" not in app_llm_config:
-        merged["app_llm_config"]["chat_profile_id"] = merged["app_llm_config"].get(
-            "generation_profile_id", ""
-        )
+        merged["app_llm_config"]["chat_profile_id"] = merged["app_llm_config"].get("generation_profile_id", "")
     merged["tts_config"] = {
         **defaults["tts_config"],
         **(data.get("tts_config") or {}),
@@ -140,19 +138,14 @@ class ApiConfigStore:
     def _cleanup_defaults(self) -> None:
         """初期デフォルト値として自動生成されたモデル未設定プロファイルを除去する。"""
         profiles = self._data.get("llm_profiles", [])
-        cleaned = [
-            p for p in profiles
-            if not (p.get("id") == _DEFAULT_PROFILE_ID and p.get("model_id", "") == "")
-        ]
+        cleaned = [p for p in profiles if not (p.get("id") == _DEFAULT_PROFILE_ID and p.get("model_id", "") == "")]
         if len(cleaned) != len(profiles):
             self._data["llm_profiles"] = cleaned
             cfg = self._data.get("app_llm_config", {})
             if cfg.get("generation_profile_id") == _DEFAULT_PROFILE_ID:
                 cfg["generation_profile_id"] = cleaned[0]["id"] if cleaned else ""
             if cfg.get("chat_profile_id") == _DEFAULT_PROFILE_ID:
-                cfg["chat_profile_id"] = cfg.get("generation_profile_id") or (
-                    cleaned[0]["id"] if cleaned else ""
-                )
+                cfg["chat_profile_id"] = cfg.get("generation_profile_id") or (cleaned[0]["id"] if cleaned else "")
 
         cfg = self._data.setdefault("app_llm_config", {})
         valid_ids = [p.get("id") for p in self._data.get("llm_profiles", []) if p.get("id")]
@@ -269,25 +262,25 @@ class ApiConfigStore:
                     "base_url": url,
                 }
 
-            new_profiles.append({
-                "id": p.get("id", _new_id()),
-                "name": p.get("name", ""),
-                "endpoint_id": url_to_ep[url]["id"],
-                "model_id": p.get("model", ""),
-                "temperature": p.get("temperature", 0.8),
-                "reasoning_enabled": p.get("reasoning", False),
-                "max_tokens": None,
-                "extra_params": {},
-            })
+            new_profiles.append(
+                {
+                    "id": p.get("id", _new_id()),
+                    "name": p.get("name", ""),
+                    "endpoint_id": url_to_ep[url]["id"],
+                    "model_id": p.get("model", ""),
+                    "temperature": p.get("temperature", 0.8),
+                    "reasoning_enabled": p.get("reasoning", False),
+                    "max_tokens": None,
+                    "extra_params": {},
+                }
+            )
 
         migrated: dict[str, Any] = {
             "endpoints": list(url_to_ep.values()) or _default_data()["endpoints"],
             "llm_profiles": new_profiles or _default_data()["llm_profiles"],
             "generation_presets": data.get("generation_presets", []),
             "app_llm_config": {
-                "generation_profile_id": (
-                    data.get("selected_preset_id", "") or _DEFAULT_PROFILE_ID
-                ),
+                "generation_profile_id": (data.get("selected_preset_id", "") or _DEFAULT_PROFILE_ID),
             },
         }
         for key in ("vault_salt", "vault_verifier", "vault_keys"):
@@ -314,9 +307,7 @@ class ApiConfigStore:
         endpoints.append(endpoint.model_dump())
 
     def delete_endpoint(self, endpoint_id: str) -> None:
-        self._data["endpoints"] = [
-            ep for ep in self._data.get("endpoints", []) if ep["id"] != endpoint_id
-        ]
+        self._data["endpoints"] = [ep for ep in self._data.get("endpoints", []) if ep["id"] != endpoint_id]
         if self._vault:
             self._vault.delete_key(endpoint_id)
 
@@ -344,9 +335,7 @@ class ApiConfigStore:
         profiles.append(profile.model_dump())
 
     def delete_llm_profile(self, profile_id: str) -> None:
-        self._data["llm_profiles"] = [
-            p for p in self._data.get("llm_profiles", []) if p["id"] != profile_id
-        ]
+        self._data["llm_profiles"] = [p for p in self._data.get("llm_profiles", []) if p["id"] != profile_id]
         cfg = self._data.setdefault("app_llm_config", {})
         remaining_ids = [p.get("id") for p in self._data.get("llm_profiles", []) if p.get("id")]
         fallback_id = remaining_ids[0] if remaining_ids else ""
@@ -389,9 +378,7 @@ class ApiConfigStore:
         presets.append(preset.model_dump())
 
     def delete_generation_preset(self, preset_id: str) -> None:
-        self._data["generation_presets"] = [
-            p for p in self._data.get("generation_presets", []) if p["id"] != preset_id
-        ]
+        self._data["generation_presets"] = [p for p in self._data.get("generation_presets", []) if p["id"] != preset_id]
 
     def reorder_generation_presets(self, ordered_ids: list[str]) -> None:
         presets = self._data.setdefault("generation_presets", [])
@@ -417,9 +404,7 @@ class ApiConfigStore:
         modes.append(mode.model_dump())
 
     def delete_chat_mode(self, mode_id: str) -> None:
-        self._data["chat_modes"] = [
-            mode for mode in self._data.get("chat_modes", []) if mode["id"] != mode_id
-        ]
+        self._data["chat_modes"] = [mode for mode in self._data.get("chat_modes", []) if mode["id"] != mode_id]
 
     def reorder_chat_modes(self, ordered_ids: list[str]) -> None:
         modes = self._data.setdefault("chat_modes", [])
@@ -459,10 +444,11 @@ class ApiConfigStore:
     def get_option_lists(self) -> dict[str, list[str]]:
         """世界観・年齢帯・性別の選択肢リストを取得する。未設定ならデフォルトを返す。"""
         from ..core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS, WORLD_OPTIONS
+
         stored = self._data.get("generation_option_lists", {})
         return {
             "world": list(stored.get("world", WORLD_OPTIONS)),
-            "age":   list(stored.get("age",   AGE_OPTIONS)),
+            "age": list(stored.get("age", AGE_OPTIONS)),
             "gender": list(stored.get("gender", GENDER_OPTIONS)),
         }
 
@@ -520,10 +506,7 @@ class ApiConfigStore:
     def reorder_image_generation_profiles(self, ordered_ids: list[str]) -> None:
         config = self.get_image_generation_config()
         records = [profile.model_dump() for profile in config.profiles]
-        config.profiles = [
-            ImageGenerationProfile(**record)
-            for record in _ordered_records(records, ordered_ids)
-        ]
+        config.profiles = [ImageGenerationProfile(**record) for record in _ordered_records(records, ordered_ids)]
         self.save_image_generation_config(config)
 
     # ─── TTS設定 ───
@@ -600,9 +583,7 @@ class ApiConfigStore:
         config = self.get_gen_server_config()
         config.endpoints = [ep for ep in config.endpoints if ep.id != endpoint_id]
         config.mode_assignments = {
-            mode: current_id
-            for mode, current_id in config.mode_assignments.items()
-            if current_id != endpoint_id
+            mode: current_id for mode, current_id in config.mode_assignments.items() if current_id != endpoint_id
         }
         self.save_gen_server_config(config)
         image_config = self.get_image_generation_config()

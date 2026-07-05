@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 ImageGenerationProvider = Literal["wizmy_gen_server"]
 IMAGE_PROVIDER_WIZMY_GEN_SERVER: ImageGenerationProvider = "wizmy_gen_server"
 
@@ -27,10 +26,7 @@ IMAGE_GENERATION_PARAMETER_FIELDS: dict[str, dict[str, Any]] = {
 
 def default_image_generation_params() -> dict[str, Any]:
     """画像生成パラメータの標準値を返す。"""
-    return {
-        key: spec.get("default")
-        for key, spec in IMAGE_GENERATION_PARAMETER_FIELDS.items()
-    }
+    return {key: spec.get("default") for key, spec in IMAGE_GENERATION_PARAMETER_FIELDS.items()}
 
 
 def clean_image_generation_params(params: dict[str, Any] | None) -> dict[str, Any]:

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-
 DEFAULT_GROUP_CHAT_TITLE = "新しいグループチャット"
 
 

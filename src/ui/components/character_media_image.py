@@ -23,7 +23,6 @@ from ...services.danbooru_prompt import DanbooruPromptServiceError
 from ...services.image_generation import ImageGenerationError
 from ..state import get_vault_password
 
-
 _GENERATED_PROMPT_RE = re.compile(
     r"<(?:span|strong)\b(?=[^>]*(?:data-wizmy-generated-prompt|wizmy-generated-prompt))[^>]*>"
     r".*?</(?:span|strong)>\s*",

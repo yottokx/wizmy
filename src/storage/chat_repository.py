@@ -11,8 +11,7 @@ from typing import Any
 
 import aiosqlite
 
-from ..core.chat.sessions import ChatSessionRecord, DEFAULT_CHAT_TITLE
-
+from ..core.chat.sessions import DEFAULT_CHAT_TITLE, ChatSessionRecord
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -105,9 +104,7 @@ class ChatRepository:
     async def get(self, session_id: str) -> ChatSessionRecord | None:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
-            ) as cursor:
+            async with db.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)) as cursor:
                 row = await cursor.fetchone()
                 return _row_to_session(row) if row else None
 
@@ -127,9 +124,7 @@ class ChatRepository:
 
     async def delete(self, session_id: str) -> bool:
         async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
-                "DELETE FROM chat_sessions WHERE id = ?", (session_id,)
-            )
+            cursor = await db.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
             await db.commit()
             return cursor.rowcount > 0
 

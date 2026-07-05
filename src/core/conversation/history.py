@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from datetime import datetime, timedelta
-import re
 from typing import Any
 
 from ..group_chat.schemas import GroupMember, GroupUserPersona

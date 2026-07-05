@@ -6,14 +6,14 @@ import json
 
 from nicegui import app, ui
 
-from ...core.chat.schemas import ChatMode, UserPersona
-from ...core.chat.sessions import ChatSessionRecord, DEFAULT_CHAT_TITLE
 from ...core.character.schemas import (
     CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3,
     CHARACTER_TTS_API_GEN_SERVER,
     CHARACTER_TTS_API_TTS,
     CharacterSheet,
 )
+from ...core.chat.schemas import ChatMode, UserPersona
+from ...core.chat.sessions import DEFAULT_CHAT_TITLE, ChatSessionRecord
 from ...core.conversation.history import (
     chat_message_from_dict,
     chat_message_to_dict,
@@ -32,7 +32,14 @@ from ...core.conversation.solo import (
 )
 from ...core.tts.schemas import TTS_PROVIDER_IRODORI_SERVER
 from ...services.ai_jobs import AIJobKind, AIJobStatus
-from ...services.llm_runtime import API_KEY_LOCKED, ENDPOINT_NOT_FOUND, LLMRuntimeError, MODEL_ID_MISSING, PROFILE_NOT_FOUND, build_configured_llm
+from ...services.llm_runtime import (
+    API_KEY_LOCKED,
+    ENDPOINT_NOT_FOUND,
+    MODEL_ID_MISSING,
+    PROFILE_NOT_FOUND,
+    LLMRuntimeError,
+    build_configured_llm,
+)
 from ...services.tts import TTSServiceError
 from ..components.character_picker import open_character_picker
 from ..state import get_vault_password
@@ -90,13 +97,13 @@ class ChatPageController:
 
     def render_shell(self) -> None:
         with ui.element("div").classes("cs-chat-shell"):
-            ui.element("div").classes("cs-chat-mobile-backdrop").on(
-                "click", lambda: self.set_mobile_sidebar(False)
-            )
+            ui.element("div").classes("cs-chat-mobile-backdrop").on("click", lambda: self.set_mobile_sidebar(False))
 
             with ui.element("aside").classes("cs-chat-mobile-sidebar cs-chat-panel"):
-                with ui.row().classes("items-center justify-between px-3 py-2").style(
-                    "border-bottom: 1px solid var(--cs-border);"
+                with (
+                    ui.row()
+                    .classes("items-center justify-between px-3 py-2")
+                    .style("border-bottom: 1px solid var(--cs-border);")
                 ):
                     ui.label("チャット").classes("text-sm font-semibold")
                     ui.button(icon="close", on_click=lambda: self.set_mobile_sidebar(False)).props("flat round dense")
@@ -229,17 +236,9 @@ class ChatPageController:
             self.user_persona = None
             self.user_persona_character = character
             self.user_image = character.media.primary_image()
-            self.user_image_path = (
-                self.ctx.characters.media_path(self.user_image.path)
-                if self.user_image
-                else None
-            )
+            self.user_image_path = self.ctx.characters.media_path(self.user_image.path) if self.user_image else None
             self.user_voice = character.media.primary_voice()
-            self.user_voice_path = (
-                self.ctx.characters.media_path(self.user_voice.path)
-                if self.user_voice
-                else None
-            )
+            self.user_voice_path = self.ctx.characters.media_path(self.user_voice.path) if self.user_voice else None
             self.user_tts_configured = self._user_media_tts_configured(character.media.tts)
             return
         persona = self.ctx.user_personas.get_user_persona(settings.user_persona_id)
@@ -250,17 +249,9 @@ class ChatPageController:
         self.user_persona = persona
         self.user_persona_character = None
         self.user_image = persona.media.primary_image()
-        self.user_image_path = (
-            self.ctx.user_personas.media_path(self.user_image.path)
-            if self.user_image
-            else None
-        )
+        self.user_image_path = self.ctx.user_personas.media_path(self.user_image.path) if self.user_image else None
         self.user_voice = persona.media.primary_voice()
-        self.user_voice_path = (
-            self.ctx.user_personas.media_path(self.user_voice.path)
-            if self.user_voice
-            else None
-        )
+        self.user_voice_path = self.ctx.user_personas.media_path(self.user_voice.path) if self.user_voice else None
         self.user_tts_configured = self._user_media_tts_configured(persona.media.tts)
 
     def _user_media_tts_configured(self, tts_settings) -> bool:
@@ -283,9 +274,7 @@ class ChatPageController:
         config = self.ctx.user_personas.get_tts_config()
         settings = tts_settings or config.narrator
         narrator_voice_path = (
-            self.ctx.user_personas.media_path(config.narrator_voice.path)
-            if config.narrator_voice is not None
-            else None
+            self.ctx.user_personas.media_path(config.narrator_voice.path) if config.narrator_voice is not None else None
         )
         if settings.api_type == CHARACTER_TTS_API_GEN_SERVER:
             if settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
@@ -333,8 +322,7 @@ class ChatPageController:
     def set_mobile_sidebar(self, open_: bool) -> None:
         action = "add" if open_ else "remove"
         self.run_page_javascript(
-            "document.querySelector('.cs-chat-shell')"
-            f"?.classList.{action}('cs-mobile-sidebar-open');"
+            f"document.querySelector('.cs-chat-shell')?.classList.{action}('cs-mobile-sidebar-open');"
         )
 
     def chat_title(self) -> str:
@@ -554,12 +542,8 @@ class ChatPageController:
         target_label = message_target_label(message.speaker)
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
             ui.label(f"この{target_label}まで戻りますか？").classes("text-base font-semibold")
-            ui.label(f"この{target_label}以降の会話を削除し、本文を入力欄に戻します。").classes(
-                "text-sm text-grey-6"
-            )
-            ui.label(message.text).classes("text-sm").style(
-                "white-space: pre-wrap; overflow-wrap: anywhere;"
-            )
+            ui.label(f"この{target_label}以降の会話を削除し、本文を入力欄に戻します。").classes("text-sm text-grey-6")
+            ui.label(message.text).classes("text-sm").style("white-space: pre-wrap; overflow-wrap: anywhere;")
 
             async def _do_rewind() -> None:
                 dlg.close()
@@ -567,9 +551,7 @@ class ChatPageController:
 
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("OK", icon="undo", on_click=_do_rewind).props(
-                    "color=primary unelevated"
-                )
+                ui.button("OK", icon="undo", on_click=_do_rewind).props("color=primary unelevated")
         dlg.open()
 
     def open_rewrite_message_dialog(self, index: int) -> None:
@@ -589,10 +571,14 @@ class ChatPageController:
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-xl"):
             ui.label(f"{speaker_label}を書き換え").classes("text-base font-semibold")
             ui.label("保存しても、この後の会話は削除されません。").classes("text-sm text-grey-6")
-            rewrite_input = ui.textarea(
-                value=message.text,
-                placeholder="書き換え後の本文",
-            ).props("outlined rows=5 autogrow").classes("w-full")
+            rewrite_input = (
+                ui.textarea(
+                    value=message.text,
+                    placeholder="書き換え後の本文",
+                )
+                .props("outlined rows=5 autogrow")
+                .classes("w-full")
+            )
 
             async def _save_rewrite() -> None:
                 next_text = (rewrite_input.value or "").strip()
@@ -615,9 +601,7 @@ class ChatPageController:
 
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("保存", icon="save", on_click=_save_rewrite).props(
-                    "color=primary unelevated"
-                )
+                ui.button("保存", icon="save", on_click=_save_rewrite).props("color=primary unelevated")
         dlg.open()
 
     def configured_llm(self, settings: ChatSessionSettings):
@@ -717,9 +701,11 @@ class ChatPageController:
                 settings = self.user_persona.media.tts
                 voice = self.user_voice
                 voice_path = self.user_voice_path
-                playback_save = lambda audio, persona_id=user_persona_id: self.ctx.user_personas.save_user_persona_tts_playback(
-                    persona_id,
-                    audio,
+                playback_save = lambda audio, persona_id=user_persona_id: (
+                    self.ctx.user_personas.save_user_persona_tts_playback(
+                        persona_id,
+                        audio,
+                    )
                 )
 
         if (
@@ -732,6 +718,7 @@ class ChatPageController:
         self.state.tts_generating_index = index
         self.refresh_messages()
         try:
+
             def _save_playback(audio: bytes, job) -> dict[str, str]:
                 playback_path = playback_save(audio)
                 return {
@@ -769,10 +756,7 @@ class ChatPageController:
                 return
             audio_url = app.add_static_file(local_file=playback_path, max_cache_age=0)
             self.run_page_javascript(
-                "(() => {"
-                f"const audio = new Audio({json.dumps(audio_url)});"
-                "audio.play().catch(() => {});"
-                "})();"
+                f"(() => {{const audio = new Audio({json.dumps(audio_url)});audio.play().catch(() => {{}});}})();"
             )
         except TTSServiceError as err:
             ui.notify(f"読み上げに失敗しました: {err}", type="negative", timeout=10000)
@@ -1200,22 +1184,40 @@ setTimeout(() => {
             "user": "ユーザー",
         }
         presets = [
-            ("抽象的・曖昧な表現を避け、具体的な表現を用いる", "抽象的・曖昧な表現を避け、具体的な表現を用いる", "auto_awesome", "character"),
-            ("シーンを明確に進める描写(or セリフ)", "シーンを明確に進める描写(or セリフ)", "trending_flat", "character"),
+            (
+                "抽象的・曖昧な表現を避け、具体的な表現を用いる",
+                "抽象的・曖昧な表現を避け、具体的な表現を用いる",
+                "auto_awesome",
+                "character",
+            ),
+            (
+                "シーンを明確に進める描写(or セリフ)",
+                "シーンを明確に進める描写(or セリフ)",
+                "trending_flat",
+                "character",
+            ),
             ("場面を転換する(地の文のみ)", "場面を転換する", "alt_route", "narration"),
         ]
 
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-xl"):
             ui.label("次の行動").classes("text-base font-semibold")
-            target_select = ui.select(
-                options=target_options,
-                value="character",
-                label="次の行動",
-            ).props("outlined").classes("w-full")
-            direction_input = ui.textarea(
-                label="指示",
-                placeholder="キャラまたは地の文にだけ反映する任意の指示",
-            ).props("outlined rows=4 autogrow").classes("w-full")
+            target_select = (
+                ui.select(
+                    options=target_options,
+                    value="character",
+                    label="次の行動",
+                )
+                .props("outlined")
+                .classes("w-full")
+            )
+            direction_input = (
+                ui.textarea(
+                    label="指示",
+                    placeholder="キャラまたは地の文にだけ反映する任意の指示",
+                )
+                .props("outlined rows=4 autogrow")
+                .classes("w-full")
+            )
 
             def _sync_direction_input() -> None:
                 if target_select.value == "user":
@@ -1228,6 +1230,7 @@ setTimeout(() => {
 
             with ui.row().classes("gap-2 flex-wrap"):
                 for preset_label, preset_text, icon, target in presets:
+
                     def _apply_preset(text=preset_text, target_mode=target) -> None:
                         direction_input.set_value(text)
                         target_select.set_value(target_mode)
@@ -1264,9 +1267,7 @@ setTimeout(() => {
 
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("実行", icon="play_arrow", on_click=_run_directed_turn).props(
-                    "color=primary unelevated"
-                )
+                ui.button("実行", icon="play_arrow", on_click=_run_directed_turn).props("color=primary unelevated")
         dlg.open()
 
     async def execute_chat_command(self, settings: ChatSessionSettings, left_text: str, query: str) -> None:
@@ -1351,8 +1352,10 @@ setTimeout(() => {
             self.open_new_chat_dialog()
             return
 
-        raw_text = submitted_text if submitted_text is not None else (
-            self.refs.input.value if self.refs.input is not None else ""
+        raw_text = (
+            submitted_text
+            if submitted_text is not None
+            else (self.refs.input.value if self.refs.input is not None else "")
         )
         parsed_command = parse_command_input(raw_text or "")
         if parsed_command is not None:
@@ -1434,10 +1437,14 @@ setTimeout(() => {
             return
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-md"):
             ui.label("タイトル変更").classes("text-base font-semibold")
-            title_input = ui.input(
-                label="タイトル",
-                value=session.title or DEFAULT_CHAT_TITLE,
-            ).props("outlined clearable").classes("w-full")
+            title_input = (
+                ui.input(
+                    label="タイトル",
+                    value=session.title or DEFAULT_CHAT_TITLE,
+                )
+                .props("outlined clearable")
+                .classes("w-full")
+            )
 
             async def _save_title() -> None:
                 title = (title_input.value or "").strip()
@@ -1462,9 +1469,7 @@ setTimeout(() => {
 
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("保存", icon="save", on_click=_save_title).props(
-                    "color=primary unelevated"
-                )
+                ui.button("保存", icon="save", on_click=_save_title).props("color=primary unelevated")
         dlg.open()
 
     def confirm_delete_chat_session(self, session_id: str) -> None:
@@ -1497,9 +1502,7 @@ setTimeout(() => {
 
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("削除", icon="delete", on_click=_delete).props(
-                    "color=negative unelevated"
-                )
+                ui.button("削除", icon="delete", on_click=_delete).props("color=negative unelevated")
         dlg.open()
 
     async def enhance_situation(
@@ -1555,9 +1558,7 @@ setTimeout(() => {
         if self.refs.input is not None:
             self.refs.input.set_value("")
         if settings.situation.strip():
-            self.state.messages.append(
-                ChatMessagePreview("narration", settings.situation.strip(), time_label())
-            )
+            self.state.messages.append(ChatMessagePreview("narration", settings.situation.strip(), time_label()))
         saved = await self.ctx.chats.create_session(
             character_id=self.sheet.id,
             title=self.state.title,
@@ -1596,9 +1597,7 @@ setTimeout(() => {
         original_messages = list(self.state.messages)
         prior_messages = self.state.messages[:index]
         was_latest = index == len(original_messages) - 1
-        self.state.messages = prior_messages + [
-            ChatMessagePreview("character", "…", time_label())
-        ]
+        self.state.messages = prior_messages + [ChatMessagePreview("character", "…", time_label())]
         self.refresh_messages()
         session_id = self.active_session_id
         title = self.state.title
@@ -1662,9 +1661,7 @@ setTimeout(() => {
 
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm"):
             ui.label("この台詞から再生成しますか？").classes("text-base font-semibold")
-            ui.label("この台詞以降の会話を削除してから、新しい台詞を生成します。").classes(
-                "text-sm text-grey-6"
-            )
+            ui.label("この台詞以降の会話を削除してから、新しい台詞を生成します。").classes("text-sm text-grey-6")
             ui.label(self.state.messages[index].text).classes("text-sm").style(
                 "white-space: pre-wrap; overflow-wrap: anywhere;"
             )
@@ -1675,9 +1672,7 @@ setTimeout(() => {
 
             with ui.row().classes("justify-end gap-2 mt-4"):
                 ui.button("キャンセル", on_click=dlg.close).props("flat")
-                ui.button("再生成", icon="refresh", on_click=_do_regenerate).props(
-                    "color=primary unelevated"
-                )
+                ui.button("再生成", icon="refresh", on_click=_do_regenerate).props("color=primary unelevated")
         dlg.open()
 
 

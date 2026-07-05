@@ -10,14 +10,8 @@ from nicegui import ui
 from ...core.character.schemas import CharacterSheet
 from ..chat.media import cropped_background_style
 
-_AVATAR_STYLE = (
-    "border: 1px solid var(--cs-border); "
-    "box-shadow: 0 1px 2px rgba(42, 35, 24, 0.08);"
-)
-_EMPTY_AVATAR_STYLE = (
-    "background: var(--cs-surface-soft); "
-    "border: 1px solid var(--cs-border); color: var(--cs-muted);"
-)
+_AVATAR_STYLE = "border: 1px solid var(--cs-border); box-shadow: 0 1px 2px rgba(42, 35, 24, 0.08);"
+_EMPTY_AVATAR_STYLE = "background: var(--cs-surface-soft); border: 1px solid var(--cs-border); color: var(--cs-muted);"
 
 
 async def open_character_picker(
@@ -36,14 +30,14 @@ async def open_character_picker(
     search_query = {"value": ""}
     favorite_filter = {"value": False}
 
-    with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl").style(
-        "min-width: min(560px, 92vw);"
-    ):
+    with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl").style("min-width: min(560px, 92vw);"):
         ui.label(title).classes("text-base font-semibold mb-2")
         with ui.row().classes("w-full items-center gap-3 mb-2 flex-wrap"):
-            search_input = ui.input(placeholder="名前・世界観・職業で検索").props(
-                "clearable outlined dense"
-            ).classes("flex-1 min-w-[220px]")
+            search_input = (
+                ui.input(placeholder="名前・世界観・職業で検索")
+                .props("clearable outlined dense")
+                .classes("flex-1 min-w-[220px]")
+            )
             search_input.props("prepend-icon=search")
             favorite_switch = ui.switch("お気に入りのみ", value=False).props("dense color=amber")
         count_label = ui.label("").classes("text-xs mb-1").style("color: var(--cs-muted);")
@@ -68,12 +62,8 @@ async def open_character_picker(
                 with ui.scroll_area().style("height: 50vh; width: 100%"):
                     if not sheets:
                         with ui.column().classes("items-center justify-center py-10 w-full"):
-                            ui.icon("search_off").classes("text-4xl mb-2").style(
-                                "color: var(--cs-muted);"
-                            )
-                            ui.label("キャラクターが見つかりません").classes("text-sm").style(
-                                "color: var(--cs-muted);"
-                            )
+                            ui.icon("search_off").classes("text-4xl mb-2").style("color: var(--cs-muted);")
+                            ui.label("キャラクターが見つかりません").classes("text-sm").style("color: var(--cs-muted);")
                         return
 
                     with ui.list().props("dense separator").classes("w-full"):
@@ -93,14 +83,10 @@ async def open_character_picker(
                             ):
                                 _character_avatar(ctx, char)
                                 with ui.item_section().classes("min-w-0"):
-                                    ui.item_label(char.name).classes(
-                                        "font-medium whitespace-normal break-words"
-                                    )
+                                    ui.item_label(char.name).classes("font-medium whitespace-normal break-words")
                                     desc = " / ".join(filter(None, [char.world, char.occupation]))
                                     if desc:
-                                        ui.item_label(desc).props("caption").classes(
-                                            "whitespace-normal break-words"
-                                        )
+                                        ui.item_label(desc).props("caption").classes("whitespace-normal break-words")
                                 if char.is_favorite:
                                     with ui.item_section().props("side"):
                                         ui.icon("star").style("color: #D9A441;")
@@ -120,18 +106,14 @@ async def open_character_picker(
 def _character_avatar(ctx, sheet: CharacterSheet) -> None:
     image = sheet.media.primary_image()
     image_path = ctx.characters.media_path(image.path) if image else None
-    style = (
-        cropped_background_style(image, image_path, image.face_rect, 1.0)
-        if image and image_path
-        else ""
-    )
+    style = cropped_background_style(image, image_path, image.face_rect, 1.0) if image and image_path else ""
     if style:
-        ui.element("div").classes("w-11 h-11 rounded-md shrink-0").style(
-            f"{_AVATAR_STYLE} {style}"
-        )
+        ui.element("div").classes("w-11 h-11 rounded-md shrink-0").style(f"{_AVATAR_STYLE} {style}")
         return
 
-    with ui.element("div").classes(
-        "w-11 h-11 rounded-md shrink-0 flex items-center justify-center"
-    ).style(_EMPTY_AVATAR_STYLE):
+    with (
+        ui.element("div")
+        .classes("w-11 h-11 rounded-md shrink-0 flex items-center justify-center")
+        .style(_EMPTY_AVATAR_STYLE)
+    ):
         ui.icon("person").classes("text-lg")

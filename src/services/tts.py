@@ -27,8 +27,8 @@ from ..core.tts_clients import irodori as _irodori_clients
 from ..core.tts_clients import wizmy_gen_server as _wizmy_gen_server_clients
 from ..core.tts_clients.audio import DEFAULT_CHUNK_MIN_CHARS as _DEFAULT_CHUNK_MIN_CHARS
 from ..core.tts_clients.audio import TTSServiceError
-from .api_config import ApiConfigService
 from .ai_jobs import AIJobKind, AIJobRecord, AIJobService
+from .api_config import ApiConfigService
 
 
 class TTSService:
@@ -46,8 +46,10 @@ class TTSService:
     def has_voice_playback_api(self, api_type: str = "", endpoint_id: str = "") -> bool:
         gen_server_available = self._has_gen_server_voice_endpoint()
         endpoints = self.get_endpoints()
-        if api_type == CHARACTER_TTS_API_TTS and endpoint_id and any(
-            endpoint.id == endpoint_id for endpoint in endpoints
+        if (
+            api_type == CHARACTER_TTS_API_TTS
+            and endpoint_id
+            and any(endpoint.id == endpoint_id for endpoint in endpoints)
         ):
             return True
         return gen_server_available or bool(endpoints)
@@ -111,24 +113,21 @@ class TTSService:
         self,
         *,
         raise_on_missing: Literal[True] = True,
-    ) -> GenServerEndpoint:
-        ...
+    ) -> GenServerEndpoint: ...
 
     @overload
     def resolve_gen_server_voice_clone_endpoint(
         self,
         *,
         raise_on_missing: Literal[False],
-    ) -> GenServerEndpoint | None:
-        ...
+    ) -> GenServerEndpoint | None: ...
 
     @overload
     def resolve_gen_server_voice_clone_endpoint(
         self,
         *,
         raise_on_missing: bool,
-    ) -> GenServerEndpoint | None:
-        ...
+    ) -> GenServerEndpoint | None: ...
 
     def resolve_gen_server_voice_clone_endpoint(
         self,
@@ -146,24 +145,21 @@ class TTSService:
         self,
         *,
         raise_on_missing: Literal[True] = True,
-    ) -> GenServerEndpoint:
-        ...
+    ) -> GenServerEndpoint: ...
 
     @overload
     def resolve_gen_server_voice_design_endpoint(
         self,
         *,
         raise_on_missing: Literal[False],
-    ) -> GenServerEndpoint | None:
-        ...
+    ) -> GenServerEndpoint | None: ...
 
     @overload
     def resolve_gen_server_voice_design_endpoint(
         self,
         *,
         raise_on_missing: bool,
-    ) -> GenServerEndpoint | None:
-        ...
+    ) -> GenServerEndpoint | None: ...
 
     def resolve_gen_server_voice_design_endpoint(
         self,
@@ -183,8 +179,7 @@ class TTSService:
         label: str,
         *,
         raise_on_missing: Literal[True] = True,
-    ) -> GenServerEndpoint:
-        ...
+    ) -> GenServerEndpoint: ...
 
     @overload
     def _resolve_gen_server_endpoint(
@@ -193,8 +188,7 @@ class TTSService:
         label: str,
         *,
         raise_on_missing: Literal[False],
-    ) -> GenServerEndpoint | None:
-        ...
+    ) -> GenServerEndpoint | None: ...
 
     @overload
     def _resolve_gen_server_endpoint(
@@ -203,8 +197,7 @@ class TTSService:
         label: str,
         *,
         raise_on_missing: bool,
-    ) -> GenServerEndpoint | None:
-        ...
+    ) -> GenServerEndpoint | None: ...
 
     def _resolve_gen_server_endpoint(
         self,
@@ -464,9 +457,7 @@ class TTSService:
 
     def _resolve_api_type(self, api_type: str, endpoint_id: str = "") -> str:
         gen_server_available = self._has_gen_server_voice_endpoint()
-        endpoint_exists = bool(endpoint_id) and any(
-            endpoint.id == endpoint_id for endpoint in self.get_endpoints()
-        )
+        endpoint_exists = bool(endpoint_id) and any(endpoint.id == endpoint_id for endpoint in self.get_endpoints())
         if api_type == CHARACTER_TTS_API_GEN_SERVER and gen_server_available:
             return CHARACTER_TTS_API_GEN_SERVER
         if api_type == CHARACTER_TTS_API_TTS and endpoint_exists:
@@ -504,8 +495,6 @@ class TTSService:
         }
         model_id = str(merged.pop("model_id", "") or "").strip()
         params = {
-            key: value
-            for key, value in clean_gen_server_mode_defaults(mode, merged).items()
-            if value is not None
+            key: value for key, value in clean_gen_server_mode_defaults(mode, merged).items() if value is not None
         }
         return model_id, params

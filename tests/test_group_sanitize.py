@@ -20,7 +20,6 @@ from src.core.conversation.sanitize import (
     sanitize_group_narration,
 )
 from src.core.conversation.schemas import ChatDebugInfo
-
 from tests.group_chat_test_helpers import make_group_chat
 
 

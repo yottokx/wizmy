@@ -68,23 +68,27 @@ def test_prompt_requires_character_name() -> None:
 
 
 def test_generation_prompts_do_not_request_voice_image() -> None:
-    prompt_text = "\n".join([
-        ASSEMBLY_SYSTEM,
-        ASSEMBLY_USER_TEMPLATE,
-        MODIFY_ASSEMBLY_SYSTEM,
-        MODIFY_ASSEMBLY_USER_TEMPLATE,
-        RELATED_ASSEMBLY_SYSTEM,
-    ])
+    prompt_text = "\n".join(
+        [
+            ASSEMBLY_SYSTEM,
+            ASSEMBLY_USER_TEMPLATE,
+            MODIFY_ASSEMBLY_SYSTEM,
+            MODIFY_ASSEMBLY_USER_TEMPLATE,
+            RELATED_ASSEMBLY_SYSTEM,
+        ]
+    )
 
     assert "声のイメージ" not in prompt_text
 
 
 def test_group_generation_prompt_uses_fixed_world_context() -> None:
-    prompt_text = "\n".join([
-        GROUP_BRAINSTORM_PROMPT,
-        GROUP_RELATED_BRAINSTORM_PROMPT,
-        GROUP_ASSEMBLY_USER_TEMPLATE,
-    ])
+    prompt_text = "\n".join(
+        [
+            GROUP_BRAINSTORM_PROMPT,
+            GROUP_RELATED_BRAINSTORM_PROMPT,
+            GROUP_ASSEMBLY_USER_TEMPLATE,
+        ]
+    )
 
     assert "固定ワールド" in prompt_text
     assert "新しい世界観は作らず" in prompt_text

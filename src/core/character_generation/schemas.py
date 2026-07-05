@@ -22,6 +22,7 @@ class GenerationMode(str, Enum):
 @dataclass
 class GenerationPreferences:
     """ユーザーが指定する生成の好み。"""
+
     world: str = "おまかせ"
     gender: str = "おまかせ"
     age: str = "おまかせ"
@@ -41,6 +42,7 @@ class GenerationPreferences:
 @dataclass
 class GenerationBaseSheet:
     """関連キャラ生成で参照するベースキャラクター情報。"""
+
     id: str = ""
     name: str = ""
     handle: str = ""
@@ -50,6 +52,7 @@ class GenerationBaseSheet:
 @dataclass
 class GenerationRequest:
     """生成エージェントへの入力。"""
+
     preferences: GenerationPreferences
     mode: GenerationMode = GenerationMode.NEW
     base_sheet: str = ""
@@ -64,6 +67,7 @@ class GenerationRequest:
 @dataclass
 class ToolCallRecord:
     """ツール呼び出しの記録（ログ・UI表示用）。"""
+
     tool_name: str
     result: str
     is_resolution: bool = False
@@ -73,6 +77,7 @@ class ToolCallRecord:
 @dataclass
 class GenerationResult:
     """生成エージェントの出力。"""
+
     success: bool
     sheet_markdown: str = ""
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
@@ -100,5 +105,6 @@ class ProgressEventType(str, Enum):
 @dataclass
 class ProgressEvent:
     """生成進捗のストリーミングイベント。"""
+
     type: ProgressEventType
     data: Any = None

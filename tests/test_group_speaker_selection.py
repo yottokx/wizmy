@@ -15,7 +15,6 @@ from src.core.conversation.speaker_selection import (
     speaker_weights_from_llm_output,
     try_parse_json_fragment,
 )
-
 from tests.group_chat_test_helpers import make_group_members
 
 

@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from ..core.chat.sessions import ChatSessionRecord, DEFAULT_CHAT_TITLE
+from ..core.chat.sessions import DEFAULT_CHAT_TITLE, ChatSessionRecord
 from ..storage.chat_repository import ChatRepository
 
 

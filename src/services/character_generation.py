@@ -68,9 +68,7 @@ class GenerationJob:
     started_at: datetime | None = None
     updated_at: datetime = field(default_factory=datetime.now)
     completed_at: datetime | None = None
-    _listeners: set[asyncio.Queue[None]] = field(
-        default_factory=set, repr=False, compare=False
-    )
+    _listeners: set[asyncio.Queue[None]] = field(default_factory=set, repr=False, compare=False)
     _task: asyncio.Task | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -204,10 +202,13 @@ class CharacterGenerationService:
         job.started_at = datetime.now()
         job.updated_at = job.started_at
         loop = asyncio.get_event_loop()
-        self._record_event(job.id, ProgressEvent(
-            type=ProgressEventType.STARTED,
-            data={"profile": job.profile.name, "model": job.profile.model_id},
-        ))
+        self._record_event(
+            job.id,
+            ProgressEvent(
+                type=ProgressEventType.STARTED,
+                data={"profile": job.profile.name, "model": job.profile.model_id},
+            ),
+        )
 
         def on_progress(event: ProgressEvent) -> None:
             loop.call_soon_threadsafe(self._record_event, job.id, event)
@@ -231,20 +232,29 @@ class CharacterGenerationService:
                         job.saved_character_name = saved.name
                     except Exception as exc:
                         job.save_error_message = str(exc)
-                self._record_event(job.id, ProgressEvent(
-                    type=ProgressEventType.DONE,
-                    data=result,
-                ))
+                self._record_event(
+                    job.id,
+                    ProgressEvent(
+                        type=ProgressEventType.DONE,
+                        data=result,
+                    ),
+                )
             elif job.status not in _TERMINAL_STATUSES:
-                self._record_event(job.id, ProgressEvent(
-                    type=ProgressEventType.ERROR,
-                    data=result.error_message or "生成に失敗しました。",
-                ))
+                self._record_event(
+                    job.id,
+                    ProgressEvent(
+                        type=ProgressEventType.ERROR,
+                        data=result.error_message or "生成に失敗しました。",
+                    ),
+                )
         except Exception as exc:
-            self._record_event(job.id, ProgressEvent(
-                type=ProgressEventType.ERROR,
-                data=str(exc),
-            ))
+            self._record_event(
+                job.id,
+                ProgressEvent(
+                    type=ProgressEventType.ERROR,
+                    data=str(exc),
+                ),
+            )
         finally:
             self._stop_flag.pop(job.id, None)
 

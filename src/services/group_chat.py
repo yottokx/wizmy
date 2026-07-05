@@ -8,12 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..core.chat.schemas import UserPersona
 from ..core.character.schemas import (
     CharacterSheet,
     CharacterTTSSettings,
     FaceRect,
 )
+from ..core.chat.schemas import UserPersona
 from ..core.group_chat.schemas import (
     GroupChatRecord,
     GroupMember,
@@ -165,9 +165,7 @@ class GroupChatService:
                     world_adaptation_note=settings.get("world_adaptation_note", ""),
                 )
             )
-        return await self._repo.save(
-            group.model_copy(update={"members": [*group.members, *added]}, deep=True)
-        )
+        return await self._repo.save(group.model_copy(update={"members": [*group.members, *added]}, deep=True))
 
     async def add_generated_member(
         self,
@@ -189,9 +187,7 @@ class GroupChatService:
             arrival_reason="",
             world_adaptation_note="",
         )
-        saved = await self._repo.save(
-            group.model_copy(update={"members": [*group.members, member]}, deep=True)
-        )
+        saved = await self._repo.save(group.model_copy(update={"members": [*group.members, member]}, deep=True))
         return next((item for item in saved.members if item.id == member.id), member)
 
     async def update_member_character(
@@ -219,9 +215,7 @@ class GroupChatService:
         if updated_member is None:
             return None
 
-        saved = await self._repo.save(
-            group.model_copy(update={"members": updated_members}, deep=True)
-        )
+        saved = await self._repo.save(group.model_copy(update={"members": updated_members}, deep=True))
         for member in saved.members:
             if member.id == member_id:
                 return member
@@ -436,9 +430,7 @@ class GroupChatService:
             return None
 
         updated = persona.model_copy(deep=True)
-        saved = await self._repo.save(
-            group.model_copy(update={"user_persona": updated}, deep=True)
-        )
+        saved = await self._repo.save(group.model_copy(update={"user_persona": updated}, deep=True))
         return saved.user_persona
 
     async def save_relationship(
@@ -464,13 +456,10 @@ class GroupChatService:
         relationships = [
             item
             for item in group.relationships
-            if item.id != saved_relationship.id
-            and {item.participant_a_key, item.participant_b_key} != relation_keys
+            if item.id != saved_relationship.id and {item.participant_a_key, item.participant_b_key} != relation_keys
         ]
         relationships.append(saved_relationship)
-        return await self._repo.save(
-            group.model_copy(update={"relationships": relationships}, deep=True)
-        )
+        return await self._repo.save(group.model_copy(update={"relationships": relationships}, deep=True))
 
     async def delete_relationship(
         self,
@@ -481,14 +470,8 @@ class GroupChatService:
         if group is None:
             return None
 
-        relationships = [
-            relationship
-            for relationship in group.relationships
-            if relationship.id != relationship_id
-        ]
-        return await self._repo.save(
-            group.model_copy(update={"relationships": relationships}, deep=True)
-        )
+        relationships = [relationship for relationship in group.relationships if relationship.id != relationship_id]
+        return await self._repo.save(group.model_copy(update={"relationships": relationships}, deep=True))
 
     async def create_session(
         self,

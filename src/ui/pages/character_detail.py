@@ -33,16 +33,16 @@ async def character_detail_page(character_id: str) -> None:
             ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/characters")).props("flat round")
             ui.label(sheet.name).classes("text-2xl font-bold flex-1")
 
-            favorite_btn = ui.button(
-                icon="star" if sheet.is_favorite else "star_border",
-                on_click=lambda: _toggle_favorite(),
-            ).props("flat round").style(
-                f"color: {'#D9A441' if sheet.is_favorite else '#AAA8A0'};"
+            favorite_btn = (
+                ui.button(
+                    icon="star" if sheet.is_favorite else "star_border",
+                    on_click=lambda: _toggle_favorite(),
+                )
+                .props("flat round")
+                .style(f"color: {'#D9A441' if sheet.is_favorite else '#AAA8A0'};")
             )
             with favorite_btn:
-                favorite_tooltip = ui.tooltip(
-                    "お気に入りを解除" if sheet.is_favorite else "お気に入りに追加"
-                )
+                favorite_tooltip = ui.tooltip("お気に入りを解除" if sheet.is_favorite else "お気に入りに追加")
 
             with ui.button_group().props("flat"):
                 ui.button(
@@ -84,9 +84,7 @@ async def character_detail_page(character_id: str) -> None:
             sheet.is_favorite = saved.is_favorite
             favorite_btn.set_icon("star" if sheet.is_favorite else "star_border")
             favorite_btn.style(f"color: {'#D9A441' if sheet.is_favorite else '#AAA8A0'};")
-            favorite_tooltip.set_text(
-                "お気に入りを解除" if sheet.is_favorite else "お気に入りに追加"
-            )
+            favorite_tooltip.set_text("お気に入りを解除" if sheet.is_favorite else "お気に入りに追加")
             ui.notify(
                 "お気に入りに追加しました" if sheet.is_favorite else "お気に入りを解除しました",
                 type="positive",
@@ -140,12 +138,16 @@ async def character_detail_page(character_id: str) -> None:
                             edit_btn = ui.button("編集", icon="edit", on_click=lambda: _enter_edit()).props(
                                 "flat size=sm color=primary"
                             )
-                            save_edit_btn = ui.button("保存", icon="save", on_click=lambda: _save_edit()).props(
-                                "unelevated size=sm color=primary"
-                            ).classes("hidden")
-                            cancel_edit_btn = ui.button("キャンセル", on_click=lambda: _cancel_edit()).props(
-                                "flat size=sm"
-                            ).classes("hidden")
+                            save_edit_btn = (
+                                ui.button("保存", icon="save", on_click=lambda: _save_edit())
+                                .props("unelevated size=sm color=primary")
+                                .classes("hidden")
+                            )
+                            cancel_edit_btn = (
+                                ui.button("キャンセル", on_click=lambda: _cancel_edit())
+                                .props("flat size=sm")
+                                .classes("hidden")
+                            )
 
                     sheet_container = ui.element("div").classes("w-full")
                     edit_area: dict[str, Any] = {"ref": None}
@@ -180,9 +182,7 @@ async def character_detail_page(character_id: str) -> None:
             edit_mode["active"] = True
             sheet_container.clear()
             with sheet_container:
-                ta = ui.textarea(value=sheet.raw_markdown).classes("w-full font-mono text-sm").props(
-                    "rows=30 outlined"
-                )
+                ta = ui.textarea(value=sheet.raw_markdown).classes("w-full font-mono text-sm").props("rows=30 outlined")
                 edit_area["ref"] = ta
                 with ui.row().classes("justify-end gap-2 mt-2"):
                     ui.button("キャンセル", on_click=lambda: _cancel_edit()).props("flat size=sm")

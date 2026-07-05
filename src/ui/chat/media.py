@@ -93,4 +93,3 @@ def read_jpeg_size(f) -> tuple[int, int] | None:
                 return None
             return int.from_bytes(data[3:5], "big"), int.from_bytes(data[1:3], "big")
         f.seek(max(length - 2, 0), 1)
-

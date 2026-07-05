@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 GenServerMode = Literal[
     "irodori_voice_clone",
     "irodori_voice_design",
@@ -200,9 +199,7 @@ def _is_other_voice_mode_default_model_id(mode: str, value: Any) -> bool:
     for other_mode in voice_modes:
         if other_mode == mode:
             continue
-        default_model_id = str(
-            GEN_SERVER_DEFAULT_FIELDS[other_mode]["model_id"].get("default") or ""
-        ).strip()
+        default_model_id = str(GEN_SERVER_DEFAULT_FIELDS[other_mode]["model_id"].get("default") or "").strip()
         if model_id == default_model_id:
             return True
     return False

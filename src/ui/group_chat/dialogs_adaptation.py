@@ -11,6 +11,8 @@ from nicegui import ui
 
 from ...core.character.markdown import (
     base_character_markdown as _base_character_markdown,
+)
+from ...core.character.markdown import (
     sheet_from_markdown_preserving as _sheet_from_markdown_preserving,
 )
 from ...core.character.schemas import CharacterSheet
@@ -18,7 +20,11 @@ from ...core.conversation.prompts.common import compact_character_summary
 from ...core.conversation.prompts.group import group_participant_labels, group_user_persona_context
 from ...core.conversation.relationship_drafts import (
     next_relationship_draft_id as _next_relationship_draft_id,
+)
+from ...core.conversation.relationship_drafts import (
     relationship_draft_participants as _relationship_draft_participants,
+)
+from ...core.conversation.relationship_drafts import (
     upsert_relationship_draft as _upsert_relationship_draft,
 )
 from ...core.group_chat.schemas import GroupChatRecord, GroupRelationship

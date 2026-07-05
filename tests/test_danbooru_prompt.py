@@ -259,9 +259,7 @@ class DanbooruPromptTest(unittest.IsolatedAsyncioTestCase):
                 "style_directions": ["標準衣装"],
             },
             proposal={
-                "candidates": [
-                    {"label": "案1", "variant_tags": ["glasses"], "freeform_tags": ["smile", "calm mood"]}
-                ]
+                "candidates": [{"label": "案1", "variant_tags": ["glasses"], "freeform_tags": ["smile", "calm mood"]}]
             },
         )
         sheet = CharacterSheet(

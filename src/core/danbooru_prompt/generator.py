@@ -9,12 +9,11 @@ from typing import Any, Mapping, Protocol
 
 from ..character.schemas import CharacterSheet
 from .tag_dictionary import (
-    DanbooruTagDictionary,
     LOWER_BODY_CATEGORY,
+    DanbooruTagDictionary,
     TagRecord,
     normalize_tag,
 )
-
 
 FIXED_ALLOWED_TAGS = {
     "1boy",
@@ -94,10 +93,12 @@ class LangChainDanbooruPromptLLM:
     async def complete_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        response = await self._llm.ainvoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ])
+        response = await self._llm.ainvoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ]
+        )
         return parse_json_object(_message_text(response))
 
 
@@ -163,20 +164,24 @@ class DanbooruPromptGenerator:
             self._build_anchor_prompt(sheet, fixed_tags, tag_guide),
         )
         anchor_policy = _normalize_anchor_policy(anchor_policy)
-        appearance_anchor_tags = _dedupe_tags([
-            *appearance_anchor_tags,
-            *self._anchor_tags_from_policy(anchor_policy),
-        ])
+        appearance_anchor_tags = _dedupe_tags(
+            [
+                *appearance_anchor_tags,
+                *self._anchor_tags_from_policy(anchor_policy),
+            ]
+        )
         fixed_tags = _dedupe_tags([*fixed_tags, *appearance_anchor_tags])
         policy_freeform_anchor_tags, _ = _sanitize_freeform_tags(
             anchor_policy.get("freeform_feature_hints"),
             known_tags=set(fixed_tags),
             limit=8,
         )
-        freeform_anchor_tags = _dedupe_freeform_tags([
-            *age_style_anchor_tags,
-            *policy_freeform_anchor_tags,
-        ])
+        freeform_anchor_tags = _dedupe_freeform_tags(
+            [
+                *age_style_anchor_tags,
+                *policy_freeform_anchor_tags,
+            ]
+        )
 
         search_policy = await self.llm.complete_json(
             SEARCH_POLICY_SYSTEM_PROMPT,
@@ -190,10 +195,12 @@ class DanbooruPromptGenerator:
             ),
         )
         search_policy = _normalize_policy(search_policy)
-        appearance_anchor_tags = _dedupe_tags([
-            *appearance_anchor_tags,
-            *self._anchor_tags_from_policy(search_policy),
-        ])
+        appearance_anchor_tags = _dedupe_tags(
+            [
+                *appearance_anchor_tags,
+                *self._anchor_tags_from_policy(search_policy),
+            ]
+        )
         fixed_tags = _dedupe_tags([*fixed_tags, *appearance_anchor_tags])
         search_policy_hints = search_policy.get("freeform_feature_hints", [])
 
@@ -471,17 +478,16 @@ class DanbooruPromptGenerator:
             label = str(raw.get("label") or f"候補{index}")
             known_freeform_tags = self._known_tags_from_freeform(raw.get("freeform_tags"))
             raw_tags = (
-                _flatten_tags(raw.get("fixed_tags"))
-                + _flatten_tags(raw.get("variant_tags"))
-                + known_freeform_tags
+                _flatten_tags(raw.get("fixed_tags")) + _flatten_tags(raw.get("variant_tags")) + known_freeform_tags
             )
             variant_tags, dropped_tags, warnings = self._sanitize_variant_tags(raw_tags, fixed_set)
             variant_tags = _dedupe_tags(variant_tags)
             freeform_tags, freeform_warnings = _sanitize_freeform_tags(
                 raw.get("freeform_tags"),
-                known_tags=set(fixed_tags) | set(variant_tags) | {
-                    normalize_tag(tag) for tag in freeform_anchor_tags
-                } | set(known_freeform_tags),
+                known_tags=set(fixed_tags)
+                | set(variant_tags)
+                | {normalize_tag(tag) for tag in freeform_anchor_tags}
+                | set(known_freeform_tags),
             )
             warnings.extend(freeform_warnings)
             prompt_tags = _dedupe_tags([*fixed_tags, *variant_tags])
@@ -497,18 +503,20 @@ class DanbooruPromptGenerator:
                 else:
                     warnings.append("候補同士の完全一致を解消できませんでした。")
             seen_prompts.add(prompt)
-            candidates.append(DanbooruPromptCandidate(
-                prompt=prompt,
-                fixed_tags=list(fixed_tags),
-                variant_tags=variant_tags,
-                negative_tags=list(negative_tags),
-                negative_prompt=negative_prompt,
-                freeform_anchor_tags=freeform_anchor_tags,
-                freeform_tags=freeform_tags,
-                dropped_tags=dropped_tags,
-                warnings=warnings,
-                label=label,
-            ))
+            candidates.append(
+                DanbooruPromptCandidate(
+                    prompt=prompt,
+                    fixed_tags=list(fixed_tags),
+                    variant_tags=variant_tags,
+                    negative_tags=list(negative_tags),
+                    negative_prompt=negative_prompt,
+                    freeform_anchor_tags=freeform_anchor_tags,
+                    freeform_tags=freeform_tags,
+                    dropped_tags=dropped_tags,
+                    warnings=warnings,
+                    label=label,
+                )
+            )
 
         return candidates
 
@@ -612,10 +620,12 @@ class DanbooruPromptGenerator:
 
     def _appearance_anchor_tags(self, sheet: CharacterSheet) -> list[str]:
         """キャラクターシートに明記された外見特徴を全候補共通の固定タグにする。"""
-        text = "\n".join([
-            sheet.appearance,
-            sheet.raw_markdown,
-        ])
+        text = "\n".join(
+            [
+                sheet.appearance,
+                sheet.raw_markdown,
+            ]
+        )
         tags = self.tag_dictionary.match_tags(
             [
                 "髪/髪の長さ",
@@ -644,11 +654,13 @@ class DanbooruPromptGenerator:
             normalized = normalize_tag(tag)
             if self.tag_dictionary.has_tag(normalized):
                 tags.append(normalized)
-        tags.extend(self.tag_dictionary.resolve_anchor_tags(
-            policy.get("required_tag_terms", []),
-            per_term_limit=2,
-            total_limit=16,
-        ))
+        tags.extend(
+            self.tag_dictionary.resolve_anchor_tags(
+                policy.get("required_tag_terms", []),
+                per_term_limit=2,
+                total_limit=16,
+            )
+        )
         return _dedupe_tags(tags)
 
     def _visual_detail_guide(self, *, limit_per_category: int = 140) -> list[dict[str, object]]:
@@ -662,11 +674,13 @@ class DanbooruPromptGenerator:
             ]
             if not records:
                 continue
-            guide.append({
-                "category": category,
-                "count": len(records),
-                "tags": [record.tag for record in records[:limit_per_category]],
-            })
+            guide.append(
+                {
+                    "category": category,
+                    "count": len(records),
+                    "tags": [record.tag for record in records[:limit_per_category]],
+                }
+            )
         return guide
 
 
@@ -713,7 +727,7 @@ def parse_json_object(text: str) -> dict[str, Any]:
     decoder = json.JSONDecoder()
     for match in re.finditer(r"\{", stripped):
         try:
-            value, _ = decoder.raw_decode(stripped[match.start():])
+            value, _ = decoder.raw_decode(stripped[match.start() :])
         except json.JSONDecodeError:
             continue
         return value if isinstance(value, dict) else {}
@@ -919,13 +933,15 @@ def _sheet_text(sheet: CharacterSheet) -> str:
 
 
 def _identity_text(sheet: CharacterSheet) -> str:
-    return "\n".join([
-        sheet.occupation,
-        sheet.world,
-        sheet.background,
-        sheet.skills,
-        sheet.raw_markdown,
-    ])
+    return "\n".join(
+        [
+            sheet.occupation,
+            sheet.world,
+            sheet.background,
+            sheet.skills,
+            sheet.raw_markdown,
+        ]
+    )
 
 
 def _infer_person_tag(sheet: CharacterSheet) -> str:
@@ -973,9 +989,31 @@ def _extract_age_number(value: str) -> int | None:
 def _looks_like_plain_human(text: str) -> bool:
     normalized = _normalize_text(text)
     nonhuman_markers = (
-        "elf", "demon", "angel", "android", "robot", "oni", "vampire", "monster",
-        "cat ears", "cat_ears", "fox ears", "fox_ears", "tail", "wings", "horns",
-        "エルフ", "悪魔", "天使", "アンドロイド", "鬼", "吸血鬼", "獣耳", "尻尾", "翼", "角",
+        "elf",
+        "demon",
+        "angel",
+        "android",
+        "robot",
+        "oni",
+        "vampire",
+        "monster",
+        "cat ears",
+        "cat_ears",
+        "fox ears",
+        "fox_ears",
+        "tail",
+        "wings",
+        "horns",
+        "エルフ",
+        "悪魔",
+        "天使",
+        "アンドロイド",
+        "鬼",
+        "吸血鬼",
+        "獣耳",
+        "尻尾",
+        "翼",
+        "角",
     )
     if any(marker in normalized for marker in nonhuman_markers):
         return False

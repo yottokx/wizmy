@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..character.schemas import CharacterTTSSettings, CharacterVoiceAsset
 
-
 TTSProvider = Literal["irodori_gradio_07dfa74", "irodori_tts_server"]
 TTS_PROVIDER_IRODORI_GRADIO: TTSProvider = "irodori_gradio_07dfa74"
 TTS_PROVIDER_IRODORI_SERVER: TTSProvider = "irodori_tts_server"
@@ -51,19 +50,23 @@ class TTSConfig(BaseModel):
         gradio_url = str(value.get("irodori_gradio_url") or "").strip()
         server_url = str(value.get("irodori_server_url") or "").strip()
         if gradio_url:
-            endpoints.append({
-                "id": "tts-irodori-gradio",
-                "name": "Irodori-TTS Gradio",
-                "provider": TTS_PROVIDER_IRODORI_GRADIO,
-                "base_url": gradio_url,
-            })
+            endpoints.append(
+                {
+                    "id": "tts-irodori-gradio",
+                    "name": "Irodori-TTS Gradio",
+                    "provider": TTS_PROVIDER_IRODORI_GRADIO,
+                    "base_url": gradio_url,
+                }
+            )
         if server_url:
-            endpoints.append({
-                "id": "tts-irodori-server",
-                "name": "Irodori-TTS-Server",
-                "provider": TTS_PROVIDER_IRODORI_SERVER,
-                "base_url": server_url,
-            })
+            endpoints.append(
+                {
+                    "id": "tts-irodori-server",
+                    "name": "Irodori-TTS-Server",
+                    "provider": TTS_PROVIDER_IRODORI_SERVER,
+                    "base_url": server_url,
+                }
+            )
 
         legacy_provider = value.get("provider")
         default_endpoint_id = ""
@@ -95,14 +98,7 @@ def validate_tts_base_url(value: str) -> str:
 
     if parsed.scheme != "http" or not parsed.hostname or port is None:
         raise ValueError(_URL_MESSAGE)
-    if (
-        parsed.username
-        or parsed.password
-        or parsed.path
-        or parsed.params
-        or parsed.query
-        or parsed.fragment
-    ):
+    if parsed.username or parsed.password or parsed.path or parsed.params or parsed.query or parsed.fragment:
         raise ValueError(_URL_MESSAGE)
 
     return url

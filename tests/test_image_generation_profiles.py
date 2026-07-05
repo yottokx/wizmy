@@ -19,31 +19,36 @@ class ImageGenerationProfileTest(unittest.TestCase):
     def test_old_sdxl_defaults_are_migrated_to_image_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "api-config.json"
-            path.write_text(json.dumps({
-                "llm_profiles": [],
-                "gen_server_config": {
-                    "endpoints": [
-                        {
-                            "id": "gen-1",
-                            "name": "Local Gen",
-                            "base_url": "http://127.0.0.1:8008/v1",
-                        }
-                    ],
-                    "mode_assignments": {
-                        GEN_SERVER_MODE_SDXL_IMAGE: "gen-1",
-                    },
-                    "mode_defaults": {
-                        GEN_SERVER_MODE_SDXL_IMAGE: {
-                            "model_id": "sdxl-test",
-                            "prompt": "1girl, solo",
-                            "negative_prompt": "lowres",
-                            "width": 768,
-                            "height": 1024,
-                            "steps": 24,
-                        }
-                    },
-                }
-            }), encoding="utf-8")
+            path.write_text(
+                json.dumps(
+                    {
+                        "llm_profiles": [],
+                        "gen_server_config": {
+                            "endpoints": [
+                                {
+                                    "id": "gen-1",
+                                    "name": "Local Gen",
+                                    "base_url": "http://127.0.0.1:8008/v1",
+                                }
+                            ],
+                            "mode_assignments": {
+                                GEN_SERVER_MODE_SDXL_IMAGE: "gen-1",
+                            },
+                            "mode_defaults": {
+                                GEN_SERVER_MODE_SDXL_IMAGE: {
+                                    "model_id": "sdxl-test",
+                                    "prompt": "1girl, solo",
+                                    "negative_prompt": "lowres",
+                                    "width": 768,
+                                    "height": 1024,
+                                    "steps": 24,
+                                }
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             store = ApiConfigStore(path)
             config = store.get_image_generation_config()

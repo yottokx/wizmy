@@ -27,16 +27,16 @@ class AIJobServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(finished.status, AIJobStatus.SUCCEEDED)
         self.assertEqual(finished.result, {"value": "ok"})
         self.assertEqual(finished.progress_message, "完了")
-        replayed = [
-            event
-            async for event in service.stream_events(job.id, from_index=0)
-        ]
-        self.assertEqual([event.status for event in replayed], [
-            AIJobStatus.QUEUED,
-            AIJobStatus.RUNNING,
-            AIJobStatus.RUNNING,
-            AIJobStatus.SUCCEEDED,
-        ])
+        replayed = [event async for event in service.stream_events(job.id, from_index=0)]
+        self.assertEqual(
+            [event.status for event in replayed],
+            [
+                AIJobStatus.QUEUED,
+                AIJobStatus.RUNNING,
+                AIJobStatus.RUNNING,
+                AIJobStatus.SUCCEEDED,
+            ],
+        )
         self.assertIn("処理中", [event.message for event in replayed])
 
     async def test_failure_records_error(self) -> None:

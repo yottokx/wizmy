@@ -4,12 +4,12 @@ import uuid
 
 from nicegui import ui
 
-from ....core.chat.schemas import UserPersona
 from ....core.character.schemas import (
     CHARACTER_TTS_API_DEFAULT,
     CharacterImageAsset,
     CharacterTTSSettings,
 )
+from ....core.chat.schemas import UserPersona
 from ....core.tts.options import (
     GEN_SERVER_TTS_MODE_OPTIONS,
     PERSONA_GEN_SERVER_VOICE_API_VALUE,
@@ -36,7 +36,6 @@ from .common import (
     notify_order_saved,
     short_text,
 )
-
 
 PERSONA_TTS_API_PREFIX = TTS_API_PREFIX
 PERSONA_GEN_SERVER_VOICE_API = PERSONA_GEN_SERVER_VOICE_API_VALUE

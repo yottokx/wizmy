@@ -58,9 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_characters_favorite ON characters(is_favorite)
 
 def _row_to_sheet(row: aiosqlite.Row) -> CharacterSheet:
     d = dict(row)
-    d["relationships"] = [
-        Relationship(**r) for r in json.loads(d.get("relationships", "[]"))
-    ]
+    d["relationships"] = [Relationship(**r) for r in json.loads(d.get("relationships", "[]"))]
     d["tags"] = json.loads(d.get("tags", "[]"))
     d["generation_meta"] = GenerationMeta(**json.loads(d.get("generation_meta", "{}")))
     try:
@@ -89,9 +87,7 @@ def _sheet_to_row(sheet: CharacterSheet) -> dict:
         "weakness": sheet.weakness,
         "background": sheet.background,
         "skills": sheet.skills,
-        "relationships": json.dumps(
-            [r.model_dump() for r in sheet.relationships], ensure_ascii=False
-        ),
+        "relationships": json.dumps([r.model_dump() for r in sheet.relationships], ensure_ascii=False),
         "quirks": sheet.quirks,
         "story_hooks": sheet.story_hooks,
         "self_intro": sheet.self_intro,
@@ -171,15 +167,11 @@ class CharacterRepository:
     async def get(self, character_id: str) -> CharacterSheet | None:
         async with aiosqlite.connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM characters WHERE id = ?", (character_id,)
-            ) as cursor:
+            async with db.execute("SELECT * FROM characters WHERE id = ?", (character_id,)) as cursor:
                 row = await cursor.fetchone()
                 return _row_to_sheet(row) if row else None
 
-    async def list_all(
-        self, search: str = "", tag: str = "", favorites_only: bool = False
-    ) -> list[CharacterSheet]:
+    async def list_all(self, search: str = "", tag: str = "", favorites_only: bool = False) -> list[CharacterSheet]:
         conditions: list[str] = []
         params: list[object] = []
 
@@ -204,9 +196,7 @@ class CharacterRepository:
 
     async def delete(self, character_id: str) -> bool:
         async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
-                "DELETE FROM characters WHERE id = ?", (character_id,)
-            )
+            cursor = await db.execute("DELETE FROM characters WHERE id = ?", (character_id,))
             await db.commit()
             return cursor.rowcount > 0
 

@@ -14,16 +14,16 @@ import asyncio
 from nicegui import app, ui
 
 from ...app_context import get_context
+from ...core.character_generation.prompts import (
+    AGE_OPTIONS,
+    GENDER_OPTIONS,
+    WORLD_OPTIONS,
+)
 from ...core.character_generation.schemas import (
     GenerationMode,
     GenerationPreferences,
     GenerationRequest,
     ProgressEventType,
-)
-from ...core.character_generation.prompts import (
-    AGE_OPTIONS,
-    GENDER_OPTIONS,
-    WORLD_OPTIONS,
 )
 from ...services.character_generation import GenerationJob, GenerationJobStatus
 from ..components.character_picker import open_character_picker
@@ -43,7 +43,6 @@ from ..state import (
     set_active_generation_id,
     set_vault_password,
 )
-
 
 _GROUP_DISPLAY_ORDER = ["基本情報", "人物像", "背景設定", "会話設定"]
 
@@ -88,10 +87,14 @@ async def generation_page() -> None:
         preset_char = await ctx.characters.get(preset_char_id)
 
     current_result: dict = {
-        "sheet": "", "gen_id": None,
-        "mode": GenerationMode.NEW, "base_char": None,
-        "saved_char": None, "gen_result": None,
-        "request": None, "profile": None,
+        "sheet": "",
+        "gen_id": None,
+        "mode": GenerationMode.NEW,
+        "base_char": None,
+        "saved_char": None,
+        "gen_result": None,
+        "request": None,
+        "profile": None,
     }
     watching_job_id: dict[str, str] = {"value": ""}
     prompted_modify_review: set[str] = set()
@@ -113,6 +116,7 @@ async def generation_page() -> None:
             exp.set_value(False)
             exp.classes("hidden")
             cont.clear()
+
     progress_panel = ProgressPanel()
 
     with page_layout("キャラクター生成"):
@@ -133,7 +137,7 @@ async def generation_page() -> None:
         # ─── 設定からカスタム選択肢を読み込む ───
         _opt = ctx.api_config.get_option_lists()
         _world_opts = _opt.get("world", WORLD_OPTIONS)
-        _age_opts   = _opt.get("age",   AGE_OPTIONS)
+        _age_opts = _opt.get("age", AGE_OPTIONS)
         _gender_opts = _opt.get("gender", GENDER_OPTIONS)
 
         # ─── プロファイル + 生成ボタン行 ───
@@ -145,31 +149,44 @@ async def generation_page() -> None:
             ):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("info").style("color: var(--cs-accent);")
-                    ui.label("LLMプロファイルが未設定です。先に設定を行ってください。").classes("text-sm").style("color: var(--cs-text);")
+                    ui.label("LLMプロファイルが未設定です。先に設定を行ってください。").classes("text-sm").style(
+                        "color: var(--cs-text);"
+                    )
                 ui.button(
-                    "設定ページへ", icon="settings",
+                    "設定ページへ",
+                    icon="settings",
                     on_click=lambda: ui.navigate.to("/settings"),
                 ).props("flat size=sm color=primary").style("margin-top: 6px;")
             return
 
-        with ui.row().classes("w-full items-center gap-3 mb-4 flex-wrap").style(
-            "background: var(--cs-surface-soft); border: 1px solid var(--cs-border); "
-            "border-radius: 10px; padding: 10px 14px;"
+        with (
+            ui.row()
+            .classes("w-full items-center gap-3 mb-4 flex-wrap")
+            .style(
+                "background: var(--cs-surface-soft); border: 1px solid var(--cs-border); "
+                "border-radius: 10px; padding: 10px 14px;"
+            )
         ):
             ui.icon("computer").style("color: var(--cs-muted); font-size: 1.1rem; flex-shrink: 0;")
             ui.label("LLMプロファイル").classes("text-xs font-semibold shrink-0").style("color: var(--cs-muted);")
             default_profile_id = _default_generation_profile_id(profile_options)
-            profile_select = ui.select(
-                options=profile_options,
-                value=default_profile_id,
-                label="",
-            ).props("dense borderless").classes("flex-1 min-w-[200px]")
+            profile_select = (
+                ui.select(
+                    options=profile_options,
+                    value=default_profile_id,
+                    label="",
+                )
+                .props("dense borderless")
+                .classes("flex-1 min-w-[200px]")
+            )
             job_status_badge = ui.badge("").classes("hidden")
             ui.space()
             stop_btn = ui.button("停止", icon="stop").props("outline size=sm color=negative").classes("hidden")
-            generate_btn = ui.button("生成する", icon="auto_awesome").props(
-                "color=primary unelevated"
-            ).style("font-weight: 600; min-width: 110px; border-radius: 8px;")
+            generate_btn = (
+                ui.button("生成する", icon="auto_awesome")
+                .props("color=primary unelevated")
+                .style("font-weight: 600; min-width: 110px; border-radius: 8px;")
+            )
 
         # ─── メインレイアウト ───
         with ui.row().classes("w-full gap-4 flex-col lg:flex-row"):
@@ -201,14 +218,30 @@ async def generation_page() -> None:
                         with ui.tab_panel(tab_new):
                             preset_opts = {"": "（プリセット未使用）"} | _preset_options()
                             preset_select_new = ui.select(
-                                options=preset_opts, value="", label="生成プリセット",
+                                options=preset_opts,
+                                value="",
+                                label="生成プリセット",
                             ).classes("w-full")
 
-                            world_select = ui.select(options=_world_opts, value=_world_opts[0] if _world_opts else "おまかせ", label="世界観").classes("w-full")
-                            gender_select = ui.select(options=_gender_opts, value=_gender_opts[0] if _gender_opts else "おまかせ", label="性別").classes("w-full")
-                            age_select = ui.select(options=_age_opts, value=_age_opts[0] if _age_opts else "おまかせ", label="年齢帯").classes("w-full")
-                            theme_input = ui.input(label="テーマ・雰囲気", placeholder="例: 孤独な戦士").classes("w-full")
-                            extra_input = ui.textarea(label="その他の要望", placeholder="自由記述").classes("w-full").props("rows=3")
+                            world_select = ui.select(
+                                options=_world_opts, value=_world_opts[0] if _world_opts else "おまかせ", label="世界観"
+                            ).classes("w-full")
+                            gender_select = ui.select(
+                                options=_gender_opts,
+                                value=_gender_opts[0] if _gender_opts else "おまかせ",
+                                label="性別",
+                            ).classes("w-full")
+                            age_select = ui.select(
+                                options=_age_opts, value=_age_opts[0] if _age_opts else "おまかせ", label="年齢帯"
+                            ).classes("w-full")
+                            theme_input = ui.input(label="テーマ・雰囲気", placeholder="例: 孤独な戦士").classes(
+                                "w-full"
+                            )
+                            extra_input = (
+                                ui.textarea(label="その他の要望", placeholder="自由記述")
+                                .classes("w-full")
+                                .props("rows=3")
+                            )
 
                             # 同じプリセットで on_value_change が再発火したときの上書きを防ぐ
                             _last_preset_dropdown: dict[str, str] = {"id": ""}
@@ -233,9 +266,7 @@ async def generation_page() -> None:
                                 g = _safe_select_value(
                                     _gender_opts, (preset.gender or "").strip() or "おまかせ", "おまかせ"
                                 )
-                                a = _safe_select_value(
-                                    _age_opts, (preset.age or "").strip() or "おまかせ", "おまかせ"
-                                )
+                                a = _safe_select_value(_age_opts, (preset.age or "").strip() or "おまかせ", "おまかせ")
                                 world_select.set_value(w)
                                 gender_select.set_value(g)
                                 age_select.set_value(a)
@@ -265,6 +296,7 @@ async def generation_page() -> None:
                                         "font-weight: 700; color: var(--cs-accent); font-size: 0.95rem;"
                                     )
                                     _refresh_base_char(c)
+
                                 await open_character_picker(ctx, _on_select)
 
                             with ui.element("div").style(
@@ -274,14 +306,18 @@ async def generation_page() -> None:
                                 with ui.row().classes("items-center gap-2 w-full"):
                                     ui.icon("person").style("color: var(--cs-accent); font-size: 1.5rem;")
                                     with ui.column().classes("gap-0 flex-1 min-w-0"):
-                                        modify_name_label = ui.label(
-                                            preset_char.name if _m_has else "未選択"
-                                        ).classes("truncate").style(
-                                            "font-weight: 700; color: var(--cs-accent); font-size: 0.95rem;"
-                                            if _m_has else
-                                            "color: var(--cs-muted); font-style: italic; font-size: 0.85rem;"
+                                        modify_name_label = (
+                                            ui.label(preset_char.name if _m_has else "未選択")
+                                            .classes("truncate")
+                                            .style(
+                                                "font-weight: 700; color: var(--cs-accent); font-size: 0.95rem;"
+                                                if _m_has
+                                                else "color: var(--cs-muted); font-style: italic; font-size: 0.85rem;"
+                                            )
                                         )
-                                        ui.label("ベースキャラクター").classes("text-xs").style("color: var(--cs-muted);")
+                                        ui.label("ベースキャラクター").classes("text-xs").style(
+                                            "color: var(--cs-muted);"
+                                        )
                                     ui.button(
                                         icon="swap_horiz",
                                         on_click=_pick_modify_char,
@@ -290,10 +326,14 @@ async def generation_page() -> None:
                             if _m_has:
                                 modify_base["char"] = preset_char
 
-                            modify_request_input = ui.textarea(
-                                label="修正の要望",
-                                placeholder="例: 職業を魔法使いに変更してほしい",
-                            ).classes("w-full").props("rows=4")
+                            modify_request_input = (
+                                ui.textarea(
+                                    label="修正の要望",
+                                    placeholder="例: 職業を魔法使いに変更してほしい",
+                                )
+                                .classes("w-full")
+                                .props("rows=4")
+                            )
 
                         # ── 関連キャラ ──
                         with ui.tab_panel(tab_related):
@@ -308,6 +348,7 @@ async def generation_page() -> None:
                                         "font-weight: 700; color: var(--cs-text); font-size: 0.95rem;"
                                     )
                                     _refresh_base_char(c)
+
                                 await open_character_picker(ctx, _on_select)
 
                             with ui.element("div").style(
@@ -317,14 +358,18 @@ async def generation_page() -> None:
                                 with ui.row().classes("items-center gap-2 w-full"):
                                     ui.icon("group_add").style("color: var(--cs-muted); font-size: 1.5rem;")
                                     with ui.column().classes("gap-0 flex-1 min-w-0"):
-                                        related_name_label = ui.label(
-                                            preset_char.name if _r_has else "未選択"
-                                        ).classes("truncate").style(
-                                            "font-weight: 700; color: var(--cs-text); font-size: 0.95rem;"
-                                            if _r_has else
-                                            "color: var(--cs-muted); font-style: italic; font-size: 0.85rem;"
+                                        related_name_label = (
+                                            ui.label(preset_char.name if _r_has else "未選択")
+                                            .classes("truncate")
+                                            .style(
+                                                "font-weight: 700; color: var(--cs-text); font-size: 0.95rem;"
+                                                if _r_has
+                                                else "color: var(--cs-muted); font-style: italic; font-size: 0.85rem;"
+                                            )
                                         )
-                                        ui.label("ベースキャラクター").classes("text-xs").style("color: var(--cs-muted);")
+                                        ui.label("ベースキャラクター").classes("text-xs").style(
+                                            "color: var(--cs-muted);"
+                                        )
                                     ui.button(
                                         icon="swap_horiz",
                                         on_click=_pick_related_char,
@@ -334,24 +379,30 @@ async def generation_page() -> None:
                                 related_base["char"] = preset_char
 
                             related_name_input = ui.input(label="新キャラクターの名前（任意）").classes("w-full")
-                            related_gender_select = ui.select(options=GENDER_OPTIONS, value="おまかせ", label="性別").classes("w-full")
-                            related_age_select = ui.select(options=AGE_OPTIONS, value="おまかせ", label="年齢帯").classes("w-full")
+                            related_gender_select = ui.select(
+                                options=GENDER_OPTIONS, value="おまかせ", label="性別"
+                            ).classes("w-full")
+                            related_age_select = ui.select(
+                                options=AGE_OPTIONS, value="おまかせ", label="年齢帯"
+                            ).classes("w-full")
                             related_theme_input = ui.input(label="テーマ・雰囲気").classes("w-full")
                             related_extra_input = ui.textarea(label="その他の要望").classes("w-full").props("rows=3")
 
             # ── 右パネル: 進捗 + 結果 ──
             with ui.column().classes("flex-1 gap-3 min-w-0"):
                 # ベースキャラクター確認パネル（修正/関連キャラ選択時に展開）
-                base_char_expansion = ui.expansion(
-                    "ベースキャラクター確認", icon="person", value=False
-                ).classes("w-full hidden").style(
-                    "background: var(--cs-surface); border: 1px solid var(--cs-border); "
-                    "border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);"
+                base_char_expansion = (
+                    ui.expansion("ベースキャラクター確認", icon="person", value=False)
+                    .classes("w-full hidden")
+                    .style(
+                        "background: var(--cs-surface); border: 1px solid var(--cs-border); "
+                        "border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);"
+                    )
                 )
                 with base_char_expansion:
-                    base_char_content = ui.element("div").classes(
-                        "w-full max-h-[480px] overflow-y-auto"
-                    ).style("padding: 4px 0;")
+                    base_char_content = (
+                        ui.element("div").classes("w-full max-h-[480px] overflow-y-auto").style("padding: 4px 0;")
+                    )
                 base_char_panel["expansion"] = base_char_expansion
                 base_char_panel["container"] = base_char_content
 
@@ -364,35 +415,66 @@ async def generation_page() -> None:
                             ui.label("生成結果").classes("text-sm font-semibold").style("color: var(--cs-text);")
                         with ui.row().classes("gap-1 items-center flex-wrap"):
                             quality_badge = ui.badge("").classes("hidden")
-                            result_sheet_btn = ui.button(
-                                "シートを開く", icon="person",
-                                on_click=lambda: ui.navigate.to(
-                                    f"/characters/{current_result['saved_char'].id}"
-                                ) if current_result.get("saved_char") else None,
-                            ).props("flat size=xs color=primary").classes("hidden")
-                            result_modify_btn = ui.button(
-                                "修正する", icon="edit",
-                                on_click=lambda: _send_result_to_modify(current_result["saved_char"])
-                                if current_result.get("saved_char") else None,
-                            ).props("flat size=xs color=primary").classes("hidden")
-                            result_related_btn = ui.button(
-                                "関連キャラ", icon="person_add",
-                                on_click=lambda: _send_result_to_related(current_result["saved_char"])
-                                if current_result.get("saved_char") else None,
-                            ).props("flat size=xs color=secondary").classes("hidden")
-                            log_download_btn = ui.button(
-                                icon="assignment_late",
-                                on_click=lambda: _download_log(),
-                            ).props("flat round dense").style("color: var(--cs-muted);").classes("hidden").tooltip("詳細ログをダウンロード")
-                            download_btn = ui.button(
-                                icon="download", on_click=lambda: _download_sheet()
-                            ).props("flat round dense").style("color: var(--cs-muted);").classes("hidden").tooltip("シートをダウンロード")
+                            result_sheet_btn = (
+                                ui.button(
+                                    "シートを開く",
+                                    icon="person",
+                                    on_click=lambda: (
+                                        ui.navigate.to(f"/characters/{current_result['saved_char'].id}")
+                                        if current_result.get("saved_char")
+                                        else None
+                                    ),
+                                )
+                                .props("flat size=xs color=primary")
+                                .classes("hidden")
+                            )
+                            result_modify_btn = (
+                                ui.button(
+                                    "修正する",
+                                    icon="edit",
+                                    on_click=lambda: (
+                                        _send_result_to_modify(current_result["saved_char"])
+                                        if current_result.get("saved_char")
+                                        else None
+                                    ),
+                                )
+                                .props("flat size=xs color=primary")
+                                .classes("hidden")
+                            )
+                            result_related_btn = (
+                                ui.button(
+                                    "関連キャラ",
+                                    icon="person_add",
+                                    on_click=lambda: (
+                                        _send_result_to_related(current_result["saved_char"])
+                                        if current_result.get("saved_char")
+                                        else None
+                                    ),
+                                )
+                                .props("flat size=xs color=secondary")
+                                .classes("hidden")
+                            )
+                            log_download_btn = (
+                                ui.button(
+                                    icon="assignment_late",
+                                    on_click=lambda: _download_log(),
+                                )
+                                .props("flat round dense")
+                                .style("color: var(--cs-muted);")
+                                .classes("hidden")
+                                .tooltip("詳細ログをダウンロード")
+                            )
+                            download_btn = (
+                                ui.button(icon="download", on_click=lambda: _download_sheet())
+                                .props("flat round dense")
+                                .style("color: var(--cs-muted);")
+                                .classes("hidden")
+                                .tooltip("シートをダウンロード")
+                            )
 
                     save_status_label = ui.label("").classes("text-xs hidden").style("color: var(--cs-accent);")
 
-                    result_area = ui.element("div").classes(
-                        "w-full max-h-[640px] overflow-y-auto"
-                    )
+                    result_area = ui.element("div").classes("w-full max-h-[640px] overflow-y-auto")
                     show_sheet_placeholder(result_area)
 
         # ─── タブ切り替え時のベースキャラパネル制御 ───
@@ -424,9 +506,7 @@ async def generation_page() -> None:
             """生成結果キャラを修正モードのベースに設定してタブを切り替える。"""
             modify_base["char"] = char
             modify_name_label.set_text(char.name)
-            modify_name_label.style(
-                "font-weight: 700; color: var(--cs-accent); font-size: 0.95rem;"
-            )
+            modify_name_label.style("font-weight: 700; color: var(--cs-accent); font-size: 0.95rem;")
             mode_tabs.set_value(TAB_MODIFY)
             _refresh_base_char(char)
 
@@ -434,9 +514,7 @@ async def generation_page() -> None:
             """生成結果キャラを関連キャラモードのベースに設定してタブを切り替える。"""
             related_base["char"] = char
             related_name_label.set_text(char.name)
-            related_name_label.style(
-                "font-weight: 700; color: var(--cs-text); font-size: 0.95rem;"
-            )
+            related_name_label.style("font-weight: 700; color: var(--cs-text); font-size: 0.95rem;")
             mode_tabs.set_value(TAB_RELATED)
             _refresh_base_char(char)
 
@@ -452,7 +530,8 @@ async def generation_page() -> None:
                 return
             mode_val = getattr(current_result.get("mode"), "value", "generate")
             log_text = build_generation_log(
-                r, mode_val,
+                r,
+                mode_val,
                 current_result.get("sheet", ""),
                 current_result.get("request"),
                 current_result.get("profile"),
@@ -537,8 +616,7 @@ async def generation_page() -> None:
                 updated.generation_meta = GenerationMeta(
                     llm_profile_name=job.profile.name,
                     model_id=job.profile.model_id,
-                    temperature=job.profile.temperature
-                    if not job.profile.reasoning_enabled else None,
+                    temperature=job.profile.temperature if not job.profile.reasoning_enabled else None,
                     reasoning_enabled=job.profile.reasoning_enabled,
                     mode=result.mode.value,
                     tool_count=result.tool_count,
@@ -550,9 +628,7 @@ async def generation_page() -> None:
                 ctx.generation.mark_job_saved(job.id, saved.id, saved.name)
                 _show_result_actions(saved)
 
-            await open_modify_approve_dialog(
-                base.name, diff_html, _save_approved, save_status_label
-            )
+            await open_modify_approve_dialog(base.name, diff_html, _save_approved, save_status_label)
 
         def _prepare_job_view(job: GenerationJob) -> None:
             current_result["gen_id"] = job.id
@@ -674,7 +750,8 @@ async def generation_page() -> None:
                 mode = GenerationMode.MODIFY
                 prefs = GenerationPreferences()
                 request = GenerationRequest(
-                    preferences=prefs, mode=mode,
+                    preferences=prefs,
+                    mode=mode,
                     base_sheet=base_char.raw_markdown,
                     modify_request=modify_request_input.value,
                 )
@@ -693,7 +770,8 @@ async def generation_page() -> None:
                     extra=related_extra_input.value,
                 )
                 request = GenerationRequest(
-                    preferences=prefs, mode=mode,
+                    preferences=prefs,
+                    mode=mode,
                     base_sheet=base_char.raw_markdown,
                     new_char_name=related_name_input.value.strip(),
                 )
@@ -704,8 +782,11 @@ async def generation_page() -> None:
                 ui.notify("LLMプロファイルが見つかりません", type="negative")
                 return
             if not profile.model_id:
-                ui.notify("モデルIDが未設定です。設定画面でLLMプロファイルのモデルを設定してください。",
-                          type="negative", timeout=8000)
+                ui.notify(
+                    "モデルIDが未設定です。設定画面でLLMプロファイルのモデルを設定してください。",
+                    type="negative",
+                    timeout=8000,
+                )
                 return
             endpoint = ctx.api_config.get_endpoint(profile.endpoint_id)
             if not endpoint:

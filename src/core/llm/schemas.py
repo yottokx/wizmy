@@ -48,6 +48,7 @@ class LLMParameterCapabilities(BaseModel):
 
 class GenerationPreset(BaseModel):
     """生成画面のフォームへ一括コピーするテンプレート（生成時はフォームの入力が使われる）。"""
+
     id: str
     name: str
     world: str = ""
@@ -59,5 +60,6 @@ class GenerationPreset(BaseModel):
 
 class AppLLMConfig(BaseModel):
     """機能ごとのデフォルトLLMプロファイル設定。"""
+
     generation_profile_id: str = ""
     chat_profile_id: str = ""

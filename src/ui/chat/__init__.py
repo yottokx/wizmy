@@ -1,2 +1,1 @@
 """Character chat UI modules."""
-

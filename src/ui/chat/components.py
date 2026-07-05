@@ -8,9 +8,9 @@ from typing import Any
 
 from nicegui import ui
 
+from ...core.character.schemas import CharacterImageAsset, CharacterSheet, FaceRect
 from ...core.chat.schemas import ChatMode, UserPersona
 from ...core.chat.templates import TemplateError
-from ...core.character.schemas import CharacterImageAsset, CharacterSheet, FaceRect
 from ...core.conversation.solo import USER_PERSONA_SOURCE_CHARACTER, USER_PERSONA_SOURCE_PERSONA
 from .commands import (
     command_suggestions,
@@ -27,7 +27,6 @@ from .models import (
     ChatState,
     ChatThreadPreview,
 )
-
 
 _PERSONA_SELECT_PREFIX = "persona:"
 _CHARACTER_SELECT_PREFIX = "character:"
@@ -193,9 +192,12 @@ def render_history(
                 if thread.active:
                     classes += " cs-chat-thread-active"
                 with ui.element("div").classes(classes):
-                    with ui.element("button").props("type=button").classes(
-                        "cs-chat-thread-open"
-                    ).on("click", _select_handler(thread.id)):
+                    with (
+                        ui.element("button")
+                        .props("type=button")
+                        .classes("cs-chat-thread-open")
+                        .on("click", _select_handler(thread.id))
+                    ):
                         with ui.element("div").classes("cs-chat-thread-title-row"):
                             ui.label(thread.title).classes("cs-chat-thread-title")
                             ui.label(thread.time_label).classes("cs-chat-thread-time")
@@ -205,16 +207,14 @@ def render_history(
                             ui.button(
                                 icon="edit",
                                 on_click=lambda thread_id=thread.id: rename_thread(thread_id),
-                            ).props("flat round dense size=sm").classes(
-                                "cs-chat-thread-action"
-                            ).tooltip("タイトル変更")
+                            ).props("flat round dense size=sm").classes("cs-chat-thread-action").tooltip("タイトル変更")
                         if delete_thread is not None:
                             ui.button(
                                 icon="delete",
                                 on_click=lambda thread_id=thread.id: delete_thread(thread_id),
-                            ).props("flat round dense size=sm color=negative").classes(
-                                "cs-chat-thread-action"
-                            ).tooltip("チャット削除")
+                            ).props("flat round dense size=sm color=negative").classes("cs-chat-thread-action").tooltip(
+                                "チャット削除"
+                            )
 
 
 def _chat_header_menu_handler(menu, action: Callable[[], Any]):
@@ -253,12 +253,12 @@ def render_chat_header_menu(
     open_rename_current_chat: Callable[[], Any],
     confirm_delete_current_chat: Callable[[], Any],
 ) -> None:
-    with ui.button(icon="keyboard_arrow_down").props(
-        "flat round dense aria-label=チャットメニュー"
-    ).classes("cs-chat-main-menu-trigger"):
-        with ui.menu().props('anchor="bottom right" self="top right"').classes(
-            "cs-chat-main-menu"
-        ) as menu:
+    with (
+        ui.button(icon="keyboard_arrow_down")
+        .props("flat round dense aria-label=チャットメニュー")
+        .classes("cs-chat-main-menu-trigger")
+    ):
+        with ui.menu().props('anchor="bottom right" self="top right"').classes("cs-chat-main-menu") as menu:
             _render_chat_header_menu_item(
                 menu,
                 icon="add_comment",
@@ -313,9 +313,9 @@ def render_chat(
     tts_playable_speakers: set[str] | None = None,
 ) -> None:
     with ui.element("div").classes("cs-chat-main-head"):
-        ui.button(icon="menu", on_click=lambda: set_mobile_sidebar(True)).props(
-            "flat round dense"
-        ).classes("cs-chat-mobile-toggle")
+        ui.button(icon="menu", on_click=lambda: set_mobile_sidebar(True)).props("flat round dense").classes(
+            "cs-chat-mobile-toggle"
+        )
         with ui.column().classes("gap-0 cs-chat-main-title"):
             refs.title = ui.label(title).classes("text-base font-bold")
             refs.subtitle = ui.label(subtitle).classes("text-xs text-grey-6")
@@ -346,12 +346,8 @@ def render_chat(
             )
 
     with ui.element("div").classes("cs-chat-composer-shell"):
-        command_palette = ui.element("div").classes(
-            "cs-chat-command-palette cs-chat-command-palette-hidden"
-        )
-        swipe_action_menu = ui.element("div").classes(
-            "cs-chat-swipe-action-menu cs-chat-swipe-action-menu-hidden"
-        )
+        command_palette = ui.element("div").classes("cs-chat-command-palette cs-chat-command-palette-hidden")
+        swipe_action_menu = ui.element("div").classes("cs-chat-swipe-action-menu cs-chat-swipe-action-menu-hidden")
 
         async def _apply_command_suggestion(command: str) -> None:
             input_box = refs.input
@@ -406,10 +402,13 @@ def render_chat(
                     classes = "cs-chat-command-option"
                     if index == 0:
                         classes += " cs-chat-command-option-active"
-                    with ui.element("button").props(
-                        f"type=button data-command={command.name} aria-selected={'true' if index == 0 else 'false'}"
-                    ).classes(classes).on(
-                        "click", _command_click_handler(command.name)
+                    with (
+                        ui.element("button")
+                        .props(
+                            f"type=button data-command={command.name} aria-selected={'true' if index == 0 else 'false'}"
+                        )
+                        .classes(classes)
+                        .on("click", _command_click_handler(command.name))
                     ):
                         ui.label(f"/{command.name}").classes("cs-chat-command-name")
                         ui.label(command.description).classes("cs-chat-command-desc")
@@ -420,10 +419,11 @@ def render_chat(
                 ("fill", "続きを補完", "auto_fix_high"),
                 ("tailor", "書き直す", "edit_note"),
             ):
-                with ui.element("button").props(
-                    f"type=button data-swipe-command={command}"
-                ).classes("cs-chat-swipe-action-option").on(
-                    "click", _swipe_action_click_handler(command)
+                with (
+                    ui.element("button")
+                    .props(f"type=button data-swipe-command={command}")
+                    .classes("cs-chat-swipe-action-option")
+                    .on("click", _swipe_action_click_handler(command))
                 ):
                     ui.icon(icon).classes("cs-chat-swipe-action-icon")
                     ui.label(f"/{command}").classes("cs-chat-swipe-action-command")
@@ -440,12 +440,19 @@ def render_chat(
                 set_input_mode=set_input_mode,
             )
             with ui.element("div").classes("cs-chat-composer-input-wrap"):
-                refs.input = ui.textarea(
-                    placeholder="メッセージを入力",
-                ).props("outlined dense rows=1 autogrow").classes("cs-chat-composer-input")
-                voice_input_btn = ui.button(icon="mic").props(
-                    "round flat dense aria-label=音声入力"
-                ).classes("cs-chat-voice-input").tooltip("音声入力")
+                refs.input = (
+                    ui.textarea(
+                        placeholder="メッセージを入力",
+                    )
+                    .props("outlined dense rows=1 autogrow")
+                    .classes("cs-chat-composer-input")
+                )
+                voice_input_btn = (
+                    ui.button(icon="mic")
+                    .props("round flat dense aria-label=音声入力")
+                    .classes("cs-chat-voice-input")
+                    .tooltip("音声入力")
+                )
                 voice_input_btn.on(
                     "click",
                     js_handler=VOICE_INPUT_CLICK_JS,
@@ -458,9 +465,7 @@ def render_chat(
                     value = str(e.args or "")
                 await send_message(False, value)
 
-            refs.input.on_value_change(
-                lambda e: _refresh_command_palette(str(e.value or ""))
-            )
+            refs.input.on_value_change(lambda e: _refresh_command_palette(str(e.value or "")))
             refs.input.on(
                 "input",
                 js_handler="""
@@ -701,37 +706,44 @@ def open_new_chat_dialog_for_sheet(
                 "text-sm text-negative mt-3"
             )
         if not persona_options:
-            ui.label("ユーザーペルソナが登録されていません。キャラクターシートもユーザー役として選択できます。").classes(
-                "text-sm text-negative mt-3"
+            ui.label(
+                "ユーザーペルソナが登録されていません。キャラクターシートもユーザー役として選択できます。"
+            ).classes("text-sm text-negative mt-3")
+
+        profile_select = (
+            ui.select(
+                options=profile_options,
+                value=default_profile_id,
+                label="LLMプロファイル",
             )
+            .props("outlined")
+            .classes("w-full mt-3")
+        )
 
-        profile_select = ui.select(
-            options=profile_options,
-            value=default_profile_id,
-            label="LLMプロファイル",
-        ).props("outlined").classes("w-full mt-3")
+        title_input = (
+            ui.input(
+                label="タイトル（任意）",
+                placeholder="未入力なら「新しいチャット」",
+            )
+            .props("outlined clearable")
+            .classes("w-full")
+        )
 
-        title_input = ui.input(
-            label="タイトル（任意）",
-            placeholder="未入力なら「新しいチャット」",
-        ).props("outlined clearable").classes("w-full")
-
-        mode_select = ui.select(
-            options=mode_options,
-            value=default_mode_id,
-            label="チャットモード",
-        ).props("outlined").classes("w-full")
+        mode_select = (
+            ui.select(
+                options=mode_options,
+                value=default_mode_id,
+                label="チャットモード",
+            )
+            .props("outlined")
+            .classes("w-full")
+        )
 
         persona_select_options = {
-            f"{_PERSONA_SELECT_PREFIX}{persona_id}": label
-            for persona_id, label in persona_options.items()
+            f"{_PERSONA_SELECT_PREFIX}{persona_id}": label for persona_id, label in persona_options.items()
         }
         selected_character_persona: dict[str, CharacterSheet | None] = {"value": None}
-        default_persona_value = (
-            f"{_PERSONA_SELECT_PREFIX}{default_persona_id}"
-            if default_persona_id
-            else None
-        )
+        default_persona_value = f"{_PERSONA_SELECT_PREFIX}{default_persona_id}" if default_persona_id else None
 
         async def _pick_character_persona() -> None:
             if pick_character_persona is None:
@@ -753,17 +765,19 @@ def open_new_chat_dialog_for_sheet(
             await pick_character_persona(_on_select)
 
         with ui.row().classes("w-full items-end gap-2"):
-            persona_select = ui.select(
-                options=persona_select_options,
-                value=default_persona_value,
-                label="ユーザーペルソナ",
-            ).props("outlined").classes("flex-1 min-w-0")
+            persona_select = (
+                ui.select(
+                    options=persona_select_options,
+                    value=default_persona_value,
+                    label="ユーザーペルソナ",
+                )
+                .props("outlined")
+                .classes("flex-1 min-w-0")
+            )
             ui.button(
                 icon="person_search",
                 on_click=_pick_character_persona,
-            ).props("outline color=secondary").classes("mb-1").tooltip(
-                "キャラクターシートをユーザー役にする"
-            )
+            ).props("outline color=secondary").classes("mb-1").tooltip("キャラクターシートをユーザー役にする")
 
         def _selected_mode() -> ChatMode | None:
             mode_id = mode_select.value or ""
@@ -772,9 +786,9 @@ def open_new_chat_dialog_for_sheet(
         def _selected_persona_source_and_id() -> tuple[str, str]:
             selected = str(persona_select.value or "")
             if selected.startswith(_CHARACTER_SELECT_PREFIX):
-                return USER_PERSONA_SOURCE_CHARACTER, selected[len(_CHARACTER_SELECT_PREFIX):]
+                return USER_PERSONA_SOURCE_CHARACTER, selected[len(_CHARACTER_SELECT_PREFIX) :]
             if selected.startswith(_PERSONA_SELECT_PREFIX):
-                return USER_PERSONA_SOURCE_PERSONA, selected[len(_PERSONA_SELECT_PREFIX):]
+                return USER_PERSONA_SOURCE_PERSONA, selected[len(_PERSONA_SELECT_PREFIX) :]
             if selected in persona_options:
                 return USER_PERSONA_SOURCE_PERSONA, selected
             return "", ""
@@ -805,15 +819,22 @@ def open_new_chat_dialog_for_sheet(
 
         situation_default = {"value": _initial_situation()}
         with ui.element("div").classes("cs-chat-situation-field"):
-            situation_input = ui.textarea(
-                label="シチュエーション",
-                value=situation_default["value"],
-                placeholder="チャットで話したい状況や、特筆したいことを記入",
-            ).props("outlined rows=3").classes("w-full")
-            enhance_button = ui.button(
-                icon="auto_awesome",
-            ).props("flat round dense size=sm").classes("cs-chat-situation-enhance").tooltip(
-                "シチュエーションを補完"
+            situation_input = (
+                ui.textarea(
+                    label="シチュエーション",
+                    value=situation_default["value"],
+                    placeholder="チャットで話したい状況や、特筆したいことを記入",
+                )
+                .props("outlined rows=3")
+                .classes("w-full")
+            )
+            enhance_button = (
+                ui.button(
+                    icon="auto_awesome",
+                )
+                .props("flat round dense size=sm")
+                .classes("cs-chat-situation-enhance")
+                .tooltip("シチュエーションを補完")
             )
 
         preview_container = ui.column().classes("w-full gap-1")
@@ -1024,9 +1045,7 @@ def render_input_mode_selector(
     *,
     set_input_mode: Callable[[str], None],
 ) -> None:
-    with ui.button().props("flat dense unelevated aria-label=入力ロールを変更").classes(
-        "cs-chat-mode-icon"
-    ):
+    with ui.button().props("flat dense unelevated aria-label=入力ロールを変更").classes("cs-chat-mode-icon"):
         with ui.element("div").classes("cs-chat-mode-icon-display") as mode_icon:
             refs.input_mode_icon = mode_icon
             render_input_mode_indicator(mode, image, image_path, user_image, user_image_path)
@@ -1120,18 +1139,25 @@ def render_message(
             ui.label(message.text).classes("cs-chat-message-text")
             with ui.element("div").classes("cs-chat-message-meta"):
                 with ui.element("div").classes("cs-chat-message-actions"):
-                    if message.speaker in tts_playable_speakers and play_tts_message is not None and message.text.strip():
+                    if (
+                        message.speaker in tts_playable_speakers
+                        and play_tts_message is not None
+                        and message.text.strip()
+                    ):
                         if is_character:
                             play_tip = "この台詞を読み上げ"
                         elif is_narration:
                             play_tip = "この地の文を読み上げ"
                         else:
                             play_tip = "この発言を読み上げ"
-                        play_btn = ui.button(
-                            icon="play_arrow",
-                            on_click=lambda i=index: play_tts_message(i),
-                        ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
-                            play_tip
+                        play_btn = (
+                            ui.button(
+                                icon="play_arrow",
+                                on_click=lambda i=index: play_tts_message(i),
+                            )
+                            .props("flat round dense size=sm")
+                            .classes("cs-chat-message-action")
+                            .tooltip(play_tip)
                         )
                         if tts_generating:
                             play_btn.props("loading")
@@ -1147,9 +1173,7 @@ def render_message(
                         ui.button(
                             icon="bug_report",
                             on_click=lambda d=message.debug: open_debug(d),
-                        ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip(
-                            "LLM入出力"
-                        )
+                        ).props("flat round dense size=sm").classes("cs-chat-message-action").tooltip("LLM入出力")
                     if rewrite_message is not None:
                         ui.button(
                             icon="edit",

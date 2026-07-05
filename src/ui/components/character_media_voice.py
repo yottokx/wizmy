@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import re
 import inspect
+import re
 from pathlib import Path
 from typing import Any
 
@@ -42,15 +42,14 @@ from ...services.ai_jobs import AIJobStatus
 from ...services.llm_runtime import (
     API_KEY_LOCKED,
     ENDPOINT_NOT_FOUND,
-    LLMRuntimeError,
     MODEL_ID_MISSING,
     PROFILE_NOT_FOUND,
+    LLMRuntimeError,
     build_configured_llm,
 )
 from ...services.tts import TTSServiceError
 from ..state import get_vault_password
 from .character_media_image import _read_gen_server_param_value
-
 
 _TTS_API_PREFIX = TTS_API_PREFIX
 

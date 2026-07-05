@@ -4,8 +4,8 @@ from .characters import characters_page
 from .generation import generation_page
 from .group_chat import (
     group_chat_detail_page,
-    group_generation_page,
     group_chat_page,
+    group_generation_page,
     group_member_detail_page,
     group_persona_detail_page,
 )

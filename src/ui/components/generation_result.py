@@ -11,7 +11,6 @@ from nicegui import ui
 
 from ...core.character.markdown import extract_character_name_from_markdown
 
-
 _SECTION_GROUPS: dict[str, list[str]] = {
     "基本情報": ["基本情報"],
     "人物像": ["世界観・舞台", "外見", "性格・内面", "弱点・コンプレックス", "個性・クセ・口癖"],

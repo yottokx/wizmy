@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pydantic import ValidationError
-
 from nicegui import ui
+from pydantic import ValidationError
 
 from ....core.gen_server.schemas import (
     GEN_SERVER_DEFAULT_FIELDS,
@@ -33,7 +32,6 @@ from .common import (
     notify_order_saved,
     read_gen_server_default_value,
 )
-
 
 GEN_SERVER_ASSIGNABLE_MODES = tuple(mode for mode in GEN_SERVER_MODES if mode != GEN_SERVER_MODE_SDXL_IMAGE)
 

@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-
 LOWER_BODY_CATEGORY = "服装/ボトムス"
 SMALL_CATEGORY_LIMIT = 80
 
@@ -89,11 +88,7 @@ class TagRecord:
     @classmethod
     def from_csv_row(cls, row: dict[str, str]) -> "TagRecord":
         tag = (row.get("tag") or "").strip()
-        categories = tuple(
-            part.strip()
-            for part in (row.get("categories") or "").split(";")
-            if part.strip()
-        )
+        categories = tuple(part.strip() for part in (row.get("categories") or "").split(";") if part.strip())
         return cls(
             tag=tag,
             categories=categories,
@@ -151,29 +146,30 @@ class DanbooruTagDictionary:
             usable = [
                 record
                 for record in self._by_category[category]
-                if not self.is_noise_tag(record.tag)
-                and not self.is_emoticon_tag(record.tag)
+                if not self.is_noise_tag(record.tag) and not self.is_emoticon_tag(record.tag)
             ]
             if len(usable) <= small_category_limit:
-                small_categories.append({
-                    "category": category,
-                    "count": len(usable),
-                    "tags": [record.tag for record in usable],
-                })
+                small_categories.append(
+                    {
+                        "category": category,
+                        "count": len(usable),
+                        "tags": [record.tag for record in usable],
+                    }
+                )
                 continue
 
             representatives = self._representative_records(usable, representative_limit)
-            large_categories.append({
-                "category": category,
-                "count": len(usable),
-                "representative_tags": [record.tag for record in representatives],
-                "frequent_tokens": self._frequent_tokens(usable, token_limit),
-                "excluded_examples": [
-                    record.tag
-                    for record in usable
-                    if self.should_exclude_from_prompt(record)
-                ][: representative_limit // 2],
-            })
+            large_categories.append(
+                {
+                    "category": category,
+                    "count": len(usable),
+                    "representative_tags": [record.tag for record in representatives],
+                    "frequent_tokens": self._frequent_tokens(usable, token_limit),
+                    "excluded_examples": [record.tag for record in usable if self.should_exclude_from_prompt(record)][
+                        : representative_limit // 2
+                    ],
+                }
+            )
 
         return {
             "small_category_limit": small_category_limit,
@@ -473,11 +469,7 @@ def _text_match_score(record: TagRecord, haystack: str) -> int:
     if not useful_tokens:
         return 0
 
-    matched = [
-        token
-        for token in useful_tokens
-        if f"_{token}_" in haystack or token in haystack
-    ]
+    matched = [token for token in useful_tokens if f"_{token}_" in haystack or token in haystack]
     if len(useful_tokens) == 1:
         return 4 if matched else 0
     if len(matched) >= min(2, len(useful_tokens)):

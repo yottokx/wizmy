@@ -5,15 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from src.core.chat.schemas import UserPersona
 from src.core.character.schemas import CharacterSheet, FaceRect
+from src.core.chat.schemas import UserPersona
 from src.services.character import CharacterService
 from src.services.group_chat import GroupChatService
 from src.services.user_persona import UserPersonaService
 from src.storage.api_config_store import ApiConfigStore
 from src.storage.character_repository import CharacterRepository
 from src.storage.group_chat_repository import GroupChatRepository
-
 
 UUID_RE = r"[0-9a-f]{32}"
 

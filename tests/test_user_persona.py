@@ -1,7 +1,7 @@
 import asyncio
 
-from src.core.chat.schemas import ChatMode, UserPersona
 from src.core.character.schemas import CharacterSheet, FaceRect
+from src.core.chat.schemas import ChatMode, UserPersona
 from src.core.conversation.history import chat_settings_from_dict, chat_settings_to_dict
 from src.core.conversation.schemas import ChatSessionSettings
 from src.core.conversation.solo import render_mode_for_sheet
@@ -72,11 +72,13 @@ def test_user_persona_keeps_default_empty_media() -> None:
 def test_user_persona_image_bytes_are_saved(tmp_path) -> None:
     store = ApiConfigStore(tmp_path / "config.json")
     service = UserPersonaService(store, tmp_path)
-    persona = service.create_user_persona(UserPersona(
-        id="persona-1",
-        name="会話内の名前",
-        description="設定",
-    ))
+    persona = service.create_user_persona(
+        UserPersona(
+            id="persona-1",
+            name="会話内の名前",
+            description="設定",
+        )
+    )
 
     saved = asyncio.run(
         service.save_user_persona_image_bytes(
@@ -100,11 +102,13 @@ def test_user_persona_image_bytes_are_saved(tmp_path) -> None:
 def test_user_persona_face_rect_is_clamped_and_saved(tmp_path) -> None:
     store = ApiConfigStore(tmp_path / "config.json")
     service = UserPersonaService(store, tmp_path)
-    persona = service.create_user_persona(UserPersona(
-        id="persona-1",
-        name="会話内の名前",
-        description="設定",
-    ))
+    persona = service.create_user_persona(
+        UserPersona(
+            id="persona-1",
+            name="会話内の名前",
+            description="設定",
+        )
+    )
     asyncio.run(
         service.save_user_persona_image_bytes(
             persona.id,

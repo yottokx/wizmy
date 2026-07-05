@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 import unittest
-import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,8 +23,8 @@ from src.core.gen_server.schemas import (
     default_gen_server_mode_defaults,
 )
 from src.core.tts_clients.wizmy_gen_server import WizmyGenServerVoiceDesignClient
-from src.services.api_config import ApiConfigService
 from src.services.ai_jobs import AIJobKind, AIJobService, AIJobStatus
+from src.services.api_config import ApiConfigService
 from src.services.tts import (
     TTSService,
     TTSServiceError,
@@ -34,10 +34,12 @@ from src.storage.api_config_store import ApiConfigStore
 
 class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
     def test_tts_settings_keep_backward_compatibility(self) -> None:
-        settings = CharacterTTSSettings.model_validate({
-            "api_type": CHARACTER_TTS_API_GEN_SERVER,
-            "gen_server_params": {"steps": 20},
-        })
+        settings = CharacterTTSSettings.model_validate(
+            {
+                "api_type": CHARACTER_TTS_API_GEN_SERVER,
+                "gen_server_params": {"steps": 20},
+            }
+        )
 
         self.assertEqual(settings.gen_server_tts_mode, CHARACTER_GEN_SERVER_TTS_MODE_CLONE)
         self.assertEqual(settings.voice_caption, "")
@@ -83,13 +85,15 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
                     voice_path_arg: Path | None,
                     **kwargs,
                 ) -> bytes:
-                    calls.append({
-                        "endpoint_id": self.endpoint.id,
-                        "text": text,
-                        "caption": caption,
-                        "voice_path": voice_path_arg,
-                        "kwargs": kwargs,
-                    })
+                    calls.append(
+                        {
+                            "endpoint_id": self.endpoint.id,
+                            "text": text,
+                            "caption": caption,
+                            "voice_path": voice_path_arg,
+                            "kwargs": kwargs,
+                        }
+                    )
                     return b"audio"
 
             with patch(
@@ -133,12 +137,14 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
                     voice_path_arg: Path | None,
                     **kwargs,
                 ) -> bytes:
-                    calls.append({
-                        "endpoint_id": self.endpoint.id,
-                        "text": text,
-                        "voice_path": voice_path_arg,
-                        "kwargs": kwargs,
-                    })
+                    calls.append(
+                        {
+                            "endpoint_id": self.endpoint.id,
+                            "text": text,
+                            "voice_path": voice_path_arg,
+                            "kwargs": kwargs,
+                        }
+                    )
                     return b"audio"
 
             with patch(
@@ -192,11 +198,7 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
                 if request.method == "GET" and request.url.path == "/v1/jobs/job-1/result":
                     return httpx.Response(
                         200,
-                        json={
-                            "artifacts": [
-                                {"type": "audio", "url": "/v1/artifacts/job-1/audio.wav"}
-                            ]
-                        },
+                        json={"artifacts": [{"type": "audio", "url": "/v1/artifacts/job-1/audio.wav"}]},
                     )
                 if request.method == "GET" and request.url.path == "/v1/artifacts/job-1/audio.wav":
                     return httpx.Response(200, content=b"audio")
@@ -298,22 +300,24 @@ class TTSVoiceDesignV3Test(unittest.IsolatedAsyncioTestCase):
 def _tts_service(tmp_path: Path) -> TTSService:
     config_path = tmp_path / "api-config.json"
     config_path.write_text(
-        json.dumps({
-            "llm_profiles": [],
-            "gen_server_config": {
-                "endpoints": [
-                    {
-                        "id": "gen-1",
-                        "name": "Local Gen",
-                        "base_url": "http://127.0.0.1:8008/v1",
-                    }
-                ],
-                "mode_assignments": {
-                    GEN_SERVER_MODE_IRODORI_VOICE_CLONE: "gen-1",
-                    GEN_SERVER_MODE_IRODORI_VOICE_DESIGN: "gen-1",
+        json.dumps(
+            {
+                "llm_profiles": [],
+                "gen_server_config": {
+                    "endpoints": [
+                        {
+                            "id": "gen-1",
+                            "name": "Local Gen",
+                            "base_url": "http://127.0.0.1:8008/v1",
+                        }
+                    ],
+                    "mode_assignments": {
+                        GEN_SERVER_MODE_IRODORI_VOICE_CLONE: "gen-1",
+                        GEN_SERVER_MODE_IRODORI_VOICE_DESIGN: "gen-1",
+                    },
                 },
-            },
-        }),
+            }
+        ),
         encoding="utf-8",
     )
     return TTSService(ApiConfigService(ApiConfigStore(config_path)))

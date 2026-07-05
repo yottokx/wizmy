@@ -16,7 +16,13 @@
 uv sync --dev
 ```
 
-全テストは次のコマンドで実行します。
+全チェックは次のコマンドでまとめて実行します。
+
+```powershell
+uv run python tools/check.py
+```
+
+個別に全テストを実行する場合は、次のコマンドを使います。
 
 ```powershell
 uv run pytest
@@ -34,8 +40,6 @@ uv run ruff format --check .
 ```powershell
 uv run mypy
 ```
-
-現在は既存ファイルの一括整形を避けるため、`ruff format` の対象外ファイルを `pyproject.toml` に明記しています。新規ファイルは除外リストへ追加せず、formatter の確認対象にしてください。
 
 ## 依存関係ファイルの更新方法
 

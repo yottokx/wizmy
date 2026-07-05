@@ -7,7 +7,6 @@ from datetime import datetime
 
 from .schemas import CharacterSheet, Relationship
 
-
 UNSET_CHARACTER_NAME = "名称未設定"
 
 

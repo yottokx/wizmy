@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -21,8 +21,8 @@ from ..core.image_generation.schemas import (
     clean_image_generation_params,
     image_generation_profile_values,
 )
-from .api_config import ApiConfigService
 from .ai_jobs import AIJobKind, AIJobRecord, AIJobService
+from .api_config import ApiConfigService
 
 
 class ImageGenerationError(RuntimeError):
@@ -157,11 +157,7 @@ class ImageGenerationService:
         if not prompt:
             raise ImageGenerationError("プロンプトを入力してください。")
 
-        payload = {
-            key: value
-            for key, value in clean_image_generation_params(merged).items()
-            if value is not None
-        }
+        payload = {key: value for key, value in clean_image_generation_params(merged).items() if value is not None}
         negative_prompt = str(merged.get("negative_prompt") or "").strip()
         payload["model_id"] = model_id
         payload["prompt"] = prompt
@@ -313,11 +309,7 @@ def _safe_int(value: Any) -> int:
 
 def _clean_image_generation_overrides(overrides: dict[str, Any]) -> dict[str, Any]:
     allowed = {"model_id", "prompt", "negative_prompt"} | set(clean_image_generation_params({}))
-    return {
-        key: value
-        for key, value in overrides.items()
-        if key in allowed
-    }
+    return {key: value for key, value in overrides.items() if key in allowed}
 
 
 def _raise_for_error(response: httpx.Response, provider_name: str) -> None:

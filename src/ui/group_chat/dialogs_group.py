@@ -17,10 +17,14 @@ from ...core.conversation.group_setup import (
 from ...core.conversation.prompts.common import compact_character_summary
 from ...core.conversation.relationship_drafts import (
     merge_relationship_drafts as _merge_relationship_drafts,
+)
+from ...core.conversation.relationship_drafts import (
     relationship_draft_participants as _relationship_draft_participants,
 )
 from ...core.conversation.world_adaptation import (
     prepare_group_character_for_world as _prepare_group_character_for_world,
+)
+from ...core.conversation.world_adaptation import (
     prepare_group_user_world_settings as _prepare_group_user_world_settings,
 )
 from ...core.group_chat.schemas import GroupChatRecord, GroupRelationship, GroupUserPersona
@@ -32,13 +36,16 @@ from ..state import get_vault_password
 from .common import (
     HANDLE_RE,
     default_persona_id,
-    default_profile_id as resolve_default_profile_id,
     notify_on_client,
     notify_setup_llm_runtime_error,
-    profile_options as build_profile_options,
     selected_persona,
 )
-from .rendering import render_group_user_menu_face
+from .common import (
+    default_profile_id as resolve_default_profile_id,
+)
+from .common import (
+    profile_options as build_profile_options,
+)
 from .dialogs_adaptation import (
     adapt_character_to_world,
     adapt_user_persona_to_world,
@@ -47,6 +54,7 @@ from .dialogs_adaptation import (
     generate_relationship_drafts,
     open_relationship_draft_dialog,
 )
+from .rendering import render_group_user_menu_face
 
 
 def open_new_group_dialog(

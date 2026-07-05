@@ -12,6 +12,7 @@ from src.core.character.schemas import (
     GenerationMeta,
 )
 from src.core.chat.schemas import UserPersona
+from src.core.conversation.group_setup import clean_generated_group_name
 from src.core.conversation.history import (
     format_group_history,
     group_message,
@@ -19,7 +20,6 @@ from src.core.conversation.history import (
     settings_with_participant,
     settings_without_participant,
 )
-from src.core.conversation.group_setup import clean_generated_group_name
 from src.core.conversation.prompts.group import (
     format_group_participant_overview,
     format_group_relationship_section,
@@ -58,11 +58,13 @@ from src.ui.group_chat.dialogs_group import (
 
 class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
     def test_world_source_options_include_only_characters_with_world(self) -> None:
-        options = _world_source_options_for_characters([
-            CharacterSheet(id="character-a", name="世界あり", world="共有する世界"),
-            CharacterSheet(id="character-b", name="世界なし", world=""),
-            CharacterSheet(id="character-c", name="空白のみ", world="  "),
-        ])
+        options = _world_source_options_for_characters(
+            [
+                CharacterSheet(id="character-a", name="世界あり", world="共有する世界"),
+                CharacterSheet(id="character-b", name="世界なし", world=""),
+                CharacterSheet(id="character-c", name="空白のみ", world="  "),
+            ]
+        )
 
         self.assertEqual("完全に新しいワールド", options["new"])
         self.assertIn("character:character-a", options)
@@ -74,13 +76,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             id="character-1",
             name="テスト人物",
             world="元の世界",
-            raw_markdown=(
-                "# テスト人物\n\n"
-                "## 世界観・舞台\n"
-                "元の世界\n\n"
-                "## 性格・内面\n"
-                "穏やか。"
-            ),
+            raw_markdown=("# テスト人物\n\n## 世界観・舞台\n元の世界\n\n## 性格・内面\n穏やか。"),
             tags=["tag-a"],
             is_favorite=True,
             generation_meta=GenerationMeta(model_id="model-a"),
@@ -111,13 +107,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             id="character-source",
             name="引き継ぎ元",
             world="引き継ぐワールド",
-            raw_markdown=(
-                "# 引き継ぎ元\n\n"
-                "## 世界観・舞台\n"
-                "引き継ぐワールド\n\n"
-                "## 性格・内面\n"
-                "明るい。"
-            ),
+            raw_markdown=("# 引き継ぎ元\n\n## 世界観・舞台\n引き継ぐワールド\n\n## 性格・内面\n明るい。"),
         )
 
         updated, settings = prepare_group_character_for_world(
@@ -139,13 +129,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             id="character-1",
             name="来訪者",
             world="元の世界",
-            raw_markdown=(
-                "# 来訪者\n\n"
-                "## 世界観・舞台\n"
-                "元の世界\n\n"
-                "## 性格・内面\n"
-                "冷静。"
-            ),
+            raw_markdown=("# 来訪者\n\n## 世界観・舞台\n元の世界\n\n## 性格・内面\n冷静。"),
         )
 
         updated, settings = prepare_group_character_for_world(
@@ -291,10 +275,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
                 ("character:b", "character:c", "B-C"),
                 ("user", "character:d", "User-D"),
             ],
-            [
-                (item["participant_a_key"], item["participant_b_key"], item["description"])
-                for item in limited
-            ],
+            [(item["participant_a_key"], item["participant_b_key"], item["description"]) for item in limited],
         )
         counts = {key: 0 for key in valid_keys}
         for item in limited:
@@ -394,10 +375,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             visitor_key = f"member:{members_by_source['character-visitor'].id}"
             native_key = f"member:{members_by_source['character-native'].id}"
             user_key = f"user:{reloaded.user_persona.id}"
-            pairs = {
-                frozenset({item.participant_a_key, item.participant_b_key})
-                for item in reloaded.relationships
-            }
+            pairs = {frozenset({item.participant_a_key, item.participant_b_key}) for item in reloaded.relationships}
             self.assertEqual(
                 {frozenset({source_key, visitor_key}), frozenset({native_key, user_key})},
                 pairs,
@@ -536,10 +514,7 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             reloaded = await service.get(group.id)
             self.assertIsNotNone(reloaded)
             assert reloaded is not None
-            pairs = {
-                frozenset({item.participant_a_key, item.participant_b_key})
-                for item in reloaded.relationships
-            }
+            pairs = {frozenset({item.participant_a_key, item.participant_b_key}) for item in reloaded.relationships}
             self.assertEqual(
                 {
                     frozenset({f"member:{generated_member.id}", f"member:{group.members[0].id}"}),
@@ -946,9 +921,11 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("観察者。", participants[1]["summary"])
 
     def test_system_event_is_included_in_group_history(self) -> None:
-        history = format_group_history([
-            group_system_event_message("アリスが入場しました"),
-        ])
+        history = format_group_history(
+            [
+                group_system_event_message("アリスが入場しました"),
+            ]
+        )
 
         self.assertIn("システム: アリスが入場しました", history)
 
@@ -959,9 +936,11 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("酒場のマスター【ゲスト】", guest_display_name("guest:酒場のマスター"))
 
     def test_guest_message_is_included_in_group_history(self) -> None:
-        history = format_group_history([
-            group_message("guest", "実験の話なら、酒場の外で頼むよ。", guest_name="酒場のマスター"),
-        ])
+        history = format_group_history(
+            [
+                group_message("guest", "実験の話なら、酒場の外で頼むよ。", guest_name="酒場のマスター"),
+            ]
+        )
 
         self.assertIn("酒場のマスター【ゲスト】: 実験の話なら、酒場の外で頼むよ。", history)
 

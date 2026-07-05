@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import re
+
 from nicegui import ui
 
 from ...services.llm_runtime import (
     API_KEY_LOCKED,
     ENDPOINT_NOT_FOUND,
-    LLMRuntimeError,
     MODEL_ID_MISSING,
     PROFILE_NOT_FOUND,
+    LLMRuntimeError,
 )
-
 
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{3,12}$")
 

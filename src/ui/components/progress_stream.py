@@ -10,13 +10,13 @@ import html as _html
 
 from nicegui import ui
 
+from ...core.character_generation.prompts import PHASE_KEYWORDS, PHASE_LABELS
 from ...core.character_generation.schemas import ProgressEvent, ProgressEventType, ToolCallRecord
-from ...core.character_generation.prompts import PHASE_LABELS, PHASE_KEYWORDS
 
 _PHASE_LETTERS: dict[str, str] = {
-    "A: 世界観・基本":   "A",
-    "B: 外見・性格":     "B",
-    "C: 背景・スキル":   "C",
+    "A: 世界観・基本": "A",
+    "B: 外見・性格": "B",
+    "C: 背景・スキル": "C",
     "D: 名前・整合性": "D",
 }
 
@@ -52,17 +52,12 @@ class ProgressPanel:
                     letter = _PHASE_LETTERS.get(label, "?")
                     step = ui.element("div").classes("cs-phase-step")
                     with step:
-                        ui.html(
-                            f'<span style="font-size:0.65rem;opacity:0.7;">{letter}</span>'
-                            f'<span>{label[3:]}</span>'
-                        )
+                        ui.html(f'<span style="font-size:0.65rem;opacity:0.7;">{letter}</span><span>{label[3:]}</span>')
                     self._phase_steps[label] = step
 
             # ステータスラベル
             self._status_label = (
-                ui.label("待機中 ─ 生成ボタンを押してください")
-                .classes("text-xs")
-                .style("color: var(--cs-muted);")
+                ui.label("待機中 ─ 生成ボタンを押してください").classes("text-xs").style("color: var(--cs-muted);")
             )
 
             # ツールログ
@@ -85,12 +80,8 @@ class ProgressPanel:
 
             # Stage2 スピナー
             with ui.row().classes("items-center gap-2 mt-2"):
-                self._stage2_spinner = (
-                    ui.spinner("dots").classes("hidden").style("color: var(--cs-accent);")
-                )
-                self._stage2_label = (
-                    ui.label("").classes("text-xs").style("color: var(--cs-muted);")
-                )
+                self._stage2_spinner = ui.spinner("dots").classes("hidden").style("color: var(--cs-accent);")
+                self._stage2_label = ui.label("").classes("text-xs").style("color: var(--cs-muted);")
 
     def handle_event(self, event: ProgressEvent) -> None:
         try:

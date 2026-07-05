@@ -1,4 +1,3 @@
-from src.ui.chat.models import ChatMessagePreview
 from src.core.conversation.prompts.solo import (
     build_llm_messages,
     build_response_choice_messages,
@@ -6,6 +5,7 @@ from src.core.conversation.prompts.solo import (
     build_user_completion_messages,
     chat_history_for_prompt,
 )
+from src.ui.chat.models import ChatMessagePreview
 from tests.chat_test_helpers import make_chat_settings as make_settings
 from tests.chat_test_helpers import make_chat_sheet as make_sheet
 
@@ -25,9 +25,11 @@ def test_memo_messages_are_not_in_chat_history_prompt() -> None:
 
 
 def test_only_memo_history_is_empty_for_prompt() -> None:
-    history = chat_history_for_prompt([
-        ChatMessagePreview("memo", "LLMに渡さないコメント", "12:00"),
-    ])
+    history = chat_history_for_prompt(
+        [
+            ChatMessagePreview("memo", "LLMに渡さないコメント", "12:00"),
+        ]
+    )
 
     assert history == "（まだ会話はありません）"
 

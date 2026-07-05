@@ -79,13 +79,9 @@ class AIJobRecord:
     updated_at: datetime = field(default_factory=datetime.now)
     completed_at: datetime | None = None
     events: list[AIJobEvent] = field(default_factory=list)
-    _listeners: set[asyncio.Queue[None]] = field(
-        default_factory=set, repr=False, compare=False
-    )
+    _listeners: set[asyncio.Queue[None]] = field(default_factory=set, repr=False, compare=False)
     _task: asyncio.Task | None = field(default=None, repr=False, compare=False)
-    _cancel_callbacks: list[AIJobCancelCallback] = field(
-        default_factory=list, repr=False, compare=False
-    )
+    _cancel_callbacks: list[AIJobCancelCallback] = field(default_factory=list, repr=False, compare=False)
 
     @property
     def is_active(self) -> bool:
@@ -362,19 +358,13 @@ class AIJobService:
 
     def _prune_completed_jobs(self) -> None:
         now = datetime.now()
-        completed = [
-            job for job in self._jobs.values()
-            if not job.is_active and job.completed_at is not None
-        ]
+        completed = [job for job in self._jobs.values() if not job.is_active and job.completed_at is not None]
         for job in completed:
             completed_at = job.completed_at
             if completed_at is not None and now - completed_at > self._completed_ttl:
                 self._jobs.pop(job.id, None)
 
-        completed = [
-            job for job in self._jobs.values()
-            if not job.is_active and job.completed_at is not None
-        ]
+        completed = [job for job in self._jobs.values() if not job.is_active and job.completed_at is not None]
         completed.sort(key=lambda item: item.completed_at or item.created_at, reverse=True)
-        for job in completed[self._max_completed_jobs:]:
+        for job in completed[self._max_completed_jobs :]:
             self._jobs.pop(job.id, None)

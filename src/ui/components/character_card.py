@@ -23,16 +23,19 @@ def character_card(
     on_toggle_favorite: Callable | None = None,
 ) -> None:
     """キャラクター一覧用カード。"""
-    with ui.card().classes(
-        "cursor-pointer w-full h-full overflow-hidden transition-all flex flex-col"
-    ).style(
-        "min-height: 320px; border-radius: 12px;"
-    ).on("click", lambda: on_click(sheet.id) if on_click else None):
+    with (
+        ui.card()
+        .classes("cursor-pointer w-full h-full overflow-hidden transition-all flex flex-col")
+        .style("min-height: 320px; border-radius: 12px;")
+        .on("click", lambda: on_click(sheet.id) if on_click else None)
+    ):
         with ui.card_section().classes("min-w-0 overflow-hidden pb-0 flex-1 flex flex-col"):
             with ui.row().classes("items-start gap-3 mb-3 min-w-0 flex-nowrap"):
                 _avatar(sheet)
-                with ui.column().classes("gap-0.5 min-w-0 flex-1 overflow-hidden").style(
-                    "min-width: 0; max-width: 100%;"
+                with (
+                    ui.column()
+                    .classes("gap-0.5 min-w-0 flex-1 overflow-hidden")
+                    .style("min-width: 0; max-width: 100%;")
                 ):
                     _wrap_label(
                         sheet.name,
@@ -50,15 +53,13 @@ def character_card(
                         favorite_icon = "star" if sheet.is_favorite else "star_border"
                         favorite_color = "#D9A441" if sheet.is_favorite else "var(--cs-muted)"
                         favorite_tip = "お気に入りを解除" if sheet.is_favorite else "お気に入りに追加"
-                        ui.button(icon=favorite_icon).props(
-                            "flat round dense size=sm"
-                        ).style(f"color: {favorite_color};").on(
-                            "click.stop", on_toggle_favorite
-                        ).tooltip(favorite_tip)
+                        ui.button(icon=favorite_icon).props("flat round dense size=sm").style(
+                            f"color: {favorite_color};"
+                        ).on("click.stop", on_toggle_favorite).tooltip(favorite_tip)
                     if on_delete:
-                        ui.button(icon="delete_outline").props(
-                            "flat round dense size=sm color=negative"
-                        ).on("click.stop", on_delete).tooltip("削除")
+                        ui.button(icon="delete_outline").props("flat round dense size=sm color=negative").on(
+                            "click.stop", on_delete
+                        ).tooltip("削除")
 
             summary = _summary_text(sheet)
             if summary:
@@ -93,18 +94,16 @@ def character_card(
         with ui.card_section().classes("pt-0 pb-4"):
             with ui.row().classes("items-center gap-3 flex-nowrap"):
                 with ui.row().classes("items-center gap-2 min-w-0 flex-1 flex-nowrap"):
-                    ui.icon("schedule").classes("shrink-0").style(
-                        "color: var(--cs-muted); font-size: 1.1rem;"
-                    )
-                    ui.label(
-                        sheet.updated_at.strftime("%Y/%m/%d %H:%M") if sheet.updated_at else ""
-                    ).classes("text-xs min-w-0 whitespace-nowrap").style("color: var(--cs-muted);")
+                    ui.icon("schedule").classes("shrink-0").style("color: var(--cs-muted); font-size: 1.1rem;")
+                    ui.label(sheet.updated_at.strftime("%Y/%m/%d %H:%M") if sheet.updated_at else "").classes(
+                        "text-xs min-w-0 whitespace-nowrap"
+                    ).style("color: var(--cs-muted);")
                 if on_chat:
-                    ui.button("チャット", icon="chat_bubble").props(
-                        "unelevated color=primary size=sm"
-                    ).classes("shrink-0 px-4").style(
-                        "border-radius: 8px; font-weight: 700;"
-                    ).on("click.stop", lambda: on_chat(sheet.id)).tooltip("このキャラクターとチャットする")
+                    ui.button("チャット", icon="chat_bubble").props("unelevated color=primary size=sm").classes(
+                        "shrink-0 px-4"
+                    ).style("border-radius: 8px; font-weight: 700;").on(
+                        "click.stop", lambda: on_chat(sheet.id)
+                    ).tooltip("このキャラクターとチャットする")
 
 
 def _wrap_label(text: str, classes: str = "", extra_style: str = "") -> None:
@@ -114,10 +113,7 @@ def _wrap_label(text: str, classes: str = "", extra_style: str = "") -> None:
 
 
 def _line_clamp_style(lines: int) -> str:
-    return (
-        f"display: -webkit-box; -webkit-line-clamp: {lines}; "
-        "-webkit-box-orient: vertical; overflow: hidden;"
-    )
+    return f"display: -webkit-box; -webkit-line-clamp: {lines}; -webkit-box-orient: vertical; overflow: hidden;"
 
 
 def _summary_text(sheet: CharacterSheet) -> str:
@@ -144,9 +140,11 @@ def _gender_icon(gender: str) -> str:
 
 def _info_item(icon: str, label: str, value: str, color: str) -> None:
     with ui.row().classes("items-center gap-2 min-w-0 flex-nowrap"):
-        with ui.element("div").classes(
-            "w-7 h-7 rounded-md shrink-0 flex items-center justify-center"
-        ).style("background: var(--cs-surface-soft); border: 1px solid var(--cs-border);"):
+        with (
+            ui.element("div")
+            .classes("w-7 h-7 rounded-md shrink-0 flex items-center justify-center")
+            .style("background: var(--cs-surface-soft); border: 1px solid var(--cs-border);")
+        ):
             ui.icon(icon).style(f"color: {color}; font-size: 1rem;")
         with ui.row().classes("items-baseline gap-2 min-w-0 flex-nowrap"):
             ui.label(label).classes("text-xs shrink-0").style("color: var(--cs-muted);")
@@ -161,14 +159,16 @@ def _avatar(sheet: CharacterSheet) -> None:
     image = sheet.media.primary_image()
     style = _face_avatar_style(image) if image else ""
     if style:
-        ui.element("div").classes(
-            "w-16 h-16 rounded-full shrink-0"
-        ).style(f"border: 2px solid var(--cs-border); {style}")
+        ui.element("div").classes("w-16 h-16 rounded-full shrink-0").style(
+            f"border: 2px solid var(--cs-border); {style}"
+        )
         return
 
-    with ui.element("div").classes(
-        "w-16 h-16 rounded-full shrink-0 flex items-center justify-center"
-    ).style("background: var(--cs-accent-bg); border: 2px solid var(--cs-accent-border);"):
+    with (
+        ui.element("div")
+        .classes("w-16 h-16 rounded-full shrink-0 flex items-center justify-center")
+        .style("background: var(--cs-accent-bg); border: 2px solid var(--cs-accent-border);")
+    ):
         ui.icon("person").style("color: var(--cs-accent); font-size: 1.65rem;")
 
 

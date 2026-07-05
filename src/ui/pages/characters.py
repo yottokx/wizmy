@@ -26,24 +26,32 @@ async def characters_page() -> None:
     with page_layout("キャラクター一覧"):
         # 検索・フィルターバー
         with ui.row().classes("w-full items-center gap-3 mb-4 flex-wrap"):
-            search_input = ui.input(
-                placeholder="名前・世界観・職業で検索",
-                on_change=lambda e: _refresh(
-                    e.value,
-                    tag_filter["value"],
-                    favorite_filter["value"],
-                ),
-            ).props("clearable outlined dense").classes("flex-1 min-w-[200px]")
+            search_input = (
+                ui.input(
+                    placeholder="名前・世界観・職業で検索",
+                    on_change=lambda e: _refresh(
+                        e.value,
+                        tag_filter["value"],
+                        favorite_filter["value"],
+                    ),
+                )
+                .props("clearable outlined dense")
+                .classes("flex-1 min-w-[200px]")
+            )
             search_input.props("prepend-icon=search")
 
             all_tags = await ctx.characters.get_all_tags()
             tag_opts: dict[str, str] = {"": "全タグ"} | {t: t for t in all_tags}
-            tag_select = ui.select(
-                options=tag_opts,
-                value="",
-                label="タグ絞り込み",
-                on_change=lambda e: _refresh(search_query["value"], e.value, favorite_filter["value"]),
-            ).props("outlined dense").classes("min-w-[160px]")
+            tag_select = (
+                ui.select(
+                    options=tag_opts,
+                    value="",
+                    label="タグ絞り込み",
+                    on_change=lambda e: _refresh(search_query["value"], e.value, favorite_filter["value"]),
+                )
+                .props("outlined dense")
+                .classes("min-w-[160px]")
+            )
 
             ui.switch(
                 "お気に入りのみ",
@@ -62,11 +70,12 @@ async def characters_page() -> None:
             ).props("flat").style("color: #8A8880;").tooltip("Markdownファイルからインポート")
 
             ui.button(
-                "新規生成", icon="add",
+                "新規生成",
+                icon="add",
                 on_click=lambda: ui.navigate.to("/"),
-            ).props("color=primary unelevated").style(
-                "border-radius: 8px; font-weight: 600;"
-            ).tooltip("新しいキャラを生成")
+            ).props("color=primary unelevated").style("border-radius: 8px; font-weight: 600;").tooltip(
+                "新しいキャラを生成"
+            )
 
         count_label = ui.label("").classes("text-xs mb-2").style("color: #8A8880;")
 
@@ -92,9 +101,7 @@ async def characters_page() -> None:
                             favorite_filter["value"],
                         )
 
-                    ui.button("削除", icon="delete", on_click=_do_delete).props(
-                        "color=negative unelevated"
-                    )
+                    ui.button("削除", icon="delete", on_click=_do_delete).props("color=negative unelevated")
             dlg.open()
 
         async def _refresh(search: str = "", tag: str = "", favorites_only: bool = False) -> None:
@@ -120,9 +127,11 @@ async def characters_page() -> None:
                             ).props("flat color=primary").style("margin-top: 8px;")
                 else:
                     for sheet in sheets:
+
                         def _make_delete(s):
                             async def _handler():
                                 await _confirm_delete(s.id, s.name)
+
                             return _handler
 
                         def _make_toggle_favorite(s):
@@ -139,6 +148,7 @@ async def characters_page() -> None:
                                     tag_filter["value"],
                                     favorite_filter["value"],
                                 )
+
                             return _handler
 
                         character_card(
@@ -152,9 +162,9 @@ async def characters_page() -> None:
         def _open_import_dialog() -> None:
             with ui.dialog() as dlg, ui.card().classes("min-w-[400px]"):
                 ui.label("Markdownからインポート").classes("text-base font-semibold mb-2")
-                ui.label(
-                    "キャラクターシート形式の .md ファイルをアップロードしてください。"
-                ).classes("text-sm text-grey-6 mb-3")
+                ui.label("キャラクターシート形式の .md ファイルをアップロードしてください。").classes(
+                    "text-sm text-grey-6 mb-3"
+                )
 
                 upload_result: dict = {"text": None, "filename": ""}
 
@@ -197,9 +207,7 @@ async def characters_page() -> None:
 
                 with ui.row().classes("justify-end gap-2 mt-4"):
                     ui.button("キャンセル", on_click=dlg.close).props("flat")
-                    ui.button("インポート", icon="upload", on_click=_do_import).props(
-                        "color=primary unelevated"
-                    )
+                    ui.button("インポート", icon="upload", on_click=_do_import).props("color=primary unelevated")
             dlg.open()
 
         await _refresh()

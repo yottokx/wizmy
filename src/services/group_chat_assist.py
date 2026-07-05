@@ -10,12 +10,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ..core.character.markdown import base_character_markdown, remove_markdown_section
 from ..core.character.schemas import CharacterSheet
 from ..core.chat.schemas import UserPersona
-from ..core.conversation.history import group_message
 from ..core.conversation.group_setup import (
     clean_generated_group_name,
     clean_world_enhancement,
     parse_handle_response,
 )
+from ..core.conversation.history import group_message
 from ..core.conversation.input_assist import merge_completion, parse_response_choices
 from ..core.conversation.llm_io import (
     build_debug_info,

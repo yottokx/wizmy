@@ -5,7 +5,6 @@ from nicegui import ui
 from ....core.gen_server.schemas import GEN_SERVER_MODE_LABELS
 from ....core.tts.options import TTS_PROVIDER_LABELS as TTS_PROVIDER_LABELS
 
-
 _SORTABLE_FILTER = "button, input, textarea, select, .q-btn, .q-field, .q-checkbox, .q-slider, .q-menu, [role=button]"
 
 

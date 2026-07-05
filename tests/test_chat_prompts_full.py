@@ -1,4 +1,3 @@
-from src.ui.chat.models import ChatMessagePreview
 from src.core.conversation.prompts.solo import (
     build_chat_title_messages,
     build_llm_messages,
@@ -15,14 +14,13 @@ from src.core.conversation.prompts.solo import (
     is_first_character_turn,
     sanitize_narration,
 )
-
+from src.ui.chat.models import ChatMessagePreview
 from tests.chat_test_helpers import (
     make_chat_messages,
     make_chat_settings,
     make_chat_sheet,
     message_roles_and_contents,
 )
-
 
 CHARACTER_SUMMARY = (
     "名前: テストキャラ\n"

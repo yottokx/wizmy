@@ -8,7 +8,7 @@ from .common import enable_drag_sort, moved_order, notify_order_saved
 
 
 async def build_presets_tab(ctx) -> None:
-    from ....core.character_generation.prompts import WORLD_OPTIONS, GENDER_OPTIONS, AGE_OPTIONS
+    from ....core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS, WORLD_OPTIONS
 
     presets_container = ui.column().classes("w-full gap-3")
 
@@ -44,7 +44,7 @@ async def build_presets_tab(ctx) -> None:
 
 
 def preset_card(preset, ctx, refresh_fn) -> None:
-    from ....core.character_generation.prompts import WORLD_OPTIONS, GENDER_OPTIONS, AGE_OPTIONS
+    from ....core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS, WORLD_OPTIONS
 
     with ui.card().classes("w-full cursor-grab"):
         with ui.card_section():

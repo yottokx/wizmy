@@ -9,7 +9,6 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
-
 CHUNK_BOUNDARIES = frozenset("。、，,．.!！?？\n\r")
 DEFAULT_CHUNK_MIN_CHARS = 80
 

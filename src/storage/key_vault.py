@@ -43,6 +43,7 @@ def _decrypt(encrypted: str, password: str, salt: bytes) -> str | None:
 @dataclass
 class VaultData:
     """ファイルに保存されるボルトのデータ構造。"""
+
     salt_b64: str = ""
     verifier: str = ""
     keys: dict[str, str] = field(default_factory=dict)
@@ -92,10 +93,7 @@ class KeyVault:
         salt_b64 = base64.b64encode(salt).decode()
         self._data.salt_b64 = salt_b64
         self._data.verifier = _encrypt(_VAULT_VERIFIER_PLAINTEXT, password, salt)
-        self._data.keys = {
-            ep_id: _encrypt(k, password, salt)
-            for ep_id, k in (carry_keys or {}).items()
-        }
+        self._data.keys = {ep_id: _encrypt(k, password, salt) for ep_id, k in (carry_keys or {}).items()}
 
     def save_key(self, endpoint_id: str, api_key: str, password: str) -> None:
         if not self._data.is_setup():

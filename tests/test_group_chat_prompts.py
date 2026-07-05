@@ -13,14 +13,12 @@ from src.core.conversation.prompts.group import (
     group_input_target_context,
     group_user_persona_context,
 )
-
 from tests.group_chat_test_helpers import (
     make_group_chat,
     make_group_messages,
     make_group_settings,
     message_roles_and_contents,
 )
-
 
 AKARI_SUMMARY = (
     "名前: 灯里\n"

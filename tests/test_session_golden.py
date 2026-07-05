@@ -23,9 +23,7 @@ from src.core.conversation.schemas import ChatDebugInfo, ChatMessagePreview, Cha
 from src.core.group_chat.sessions import GroupChatSessionRecord
 from src.storage.chat_repository import ChatRepository
 from src.storage.group_chat_repository import GroupChatRepository
-
 from tests.group_chat_test_helpers import make_group_chat, make_group_settings
-
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 FIXED_CREATED_AT = datetime(2026, 1, 2, 3, 4, 5)

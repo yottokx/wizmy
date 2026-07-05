@@ -10,12 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..core.chat.schemas import UserPersona
 from ..core.character.schemas import (
     CharacterTTSSettings,
     CharacterVoiceAsset,
     FaceRect,
 )
+from ..core.chat.schemas import UserPersona
 from ..core.tts.schemas import TTSConfig
 from ..storage.api_config_store import ApiConfigStore
 from .media import MediaFileService, MediaOwner, VoiceAssetOwner

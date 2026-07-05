@@ -33,9 +33,7 @@ class CharacterService:
     async def get(self, character_id: str) -> CharacterSheet | None:
         return await self._repo.get(character_id)
 
-    async def list_all(
-        self, search: str = "", tag: str = "", favorites_only: bool = False
-    ) -> list[CharacterSheet]:
+    async def list_all(self, search: str = "", tag: str = "", favorites_only: bool = False) -> list[CharacterSheet]:
         return await self._repo.list_all(
             search=search,
             tag=tag,
