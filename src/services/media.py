@@ -70,6 +70,30 @@ class MediaFileService:
             return None
         return path
 
+    def copy_media_file(self, source_relative: str, target_relative: Path) -> str | None:
+        """データディレクトリ内でメディア実体を複製し、複製先の相対パスを返す。
+
+        複製元が存在しない・データディレクトリ外・コピー失敗の場合は None を返す
+        (呼び出し側は元の参照を維持する)。複製元と複製先が同一の場合はコピーせず
+        そのまま相対パスを返す。
+        """
+        source = self.media_path(source_relative)
+        if source is None:
+            return None
+        data_root = self._data_dir.resolve()
+        target = (self._data_dir / target_relative).resolve()
+        if not target.is_relative_to(data_root):
+            return None
+        relative = Path(target_relative).as_posix()
+        if source == target:
+            return relative
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        except OSError:
+            return None
+        return relative
+
     async def save_image_upload(self, owner: MediaOwner[ResultT], upload: Any) -> ResultT:
         filename = getattr(upload, "name", "") or ""
         content_type = getattr(upload, "content_type", "") or ""

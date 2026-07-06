@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.character.schemas import (
+    CharacterMedia,
     CharacterSheet,
     CharacterTTSSettings,
     FaceRect,
@@ -65,6 +66,7 @@ class GroupChatService:
         relationships: list[GroupRelationship] | None = None,
     ) -> GroupChatRecord:
         now = datetime.now()
+        group_id = self._repo.new_id()
         member_world_settings = member_world_settings or {}
         user_world_settings = user_world_settings or {}
         created_members: list[GroupMember] = []
@@ -80,6 +82,7 @@ class GroupChatService:
                 arrival_reason=settings.get("arrival_reason", ""),
                 world_adaptation_note=settings.get("world_adaptation_note", ""),
             )
+            self._localize_member_media(group_id, member)
             created_members.append(member)
             relationship_key_map[f"character:{sheet.id}"] = f"member:{member.id}"
             relationship_key_map[f"member:{sheet.id}"] = f"member:{member.id}"
@@ -96,6 +99,7 @@ class GroupChatService:
             arrival_reason=user_world_settings.get("arrival_reason", ""),
             world_adaptation_note=user_world_settings.get("world_adaptation_note", ""),
         )
+        self._localize_media(created_user_persona.media, self._persona_media_root(group_id, created_user_persona.id))
         relationship_key_map["user"] = f"user:{created_user_persona.id}"
         relationship_key_map[f"user:{user_persona.id}"] = f"user:{created_user_persona.id}"
 
@@ -126,7 +130,7 @@ class GroupChatService:
             )
 
         group = GroupChatRecord(
-            id=self._repo.new_id(),
+            id=group_id,
             name=name.strip(),
             world=world.strip(),
             world_source_type=world_source_type if world_source_type in {"new", "character"} else "new",
@@ -165,6 +169,8 @@ class GroupChatService:
                     world_adaptation_note=settings.get("world_adaptation_note", ""),
                 )
             )
+        for member in added:
+            self._localize_member_media(group.id, member)
         return await self._repo.save(group.model_copy(update={"members": [*group.members, *added]}, deep=True))
 
     async def add_generated_member(
@@ -187,6 +193,7 @@ class GroupChatService:
             arrival_reason="",
             world_adaptation_note="",
         )
+        self._localize_member_media(group.id, member)
         saved = await self._repo.save(group.model_copy(update={"members": [*group.members, member]}, deep=True))
         return next((item for item in saved.members if item.id == member.id), member)
 
@@ -208,6 +215,8 @@ class GroupChatService:
                     update={"character": character.model_copy(deep=True)},
                     deep=True,
                 )
+                # 旧データ等でグループ外(元キャラ)参照が残っていれば、この機会に取り込む
+                self._localize_member_media(group_id, updated_member)
                 updated_members.append(updated_member)
             else:
                 updated_members.append(member)
@@ -430,6 +439,7 @@ class GroupChatService:
             return None
 
         updated = persona.model_copy(deep=True)
+        self._localize_media(updated.media, self._persona_media_root(group_id, updated.id))
         saved = await self._repo.save(group.model_copy(update={"user_persona": updated}, deep=True))
         return saved.user_persona
 
@@ -577,6 +587,79 @@ class GroupChatService:
     @staticmethod
     def _member_media_root(group_id: str, member_id: str) -> Path:
         return Path("groups") / group_id / "members" / member_id
+
+    @staticmethod
+    def _persona_media_root(group_id: str, persona_id: str) -> Path:
+        return Path("groups") / group_id / "persona" / persona_id
+
+    def _localize_media(
+        self,
+        media: CharacterMedia,
+        relative_root: Path,
+        *,
+        dry_run: bool = False,
+    ) -> list[tuple[str, str]]:
+        """media 内のグループ外参照(元キャラ等)の実体を relative_root 配下へ複製する。
+
+        グループは箱庭として完全独立が原則であり、元キャラクターの削除で
+        グループ側の画像・音声が失われないよう、実体をグループ所有パスへコピーして
+        参照を書き換える。コピーできない資産は元の参照のまま残す(従来挙動)。
+        戻り値は (旧パス, 新パス) のリスト。dry_run 時は書き換えもコピーもしない。
+        """
+        changes: list[tuple[str, str]] = []
+        for assets, kind in ((media.images, "images"), (media.voices, "voices")):
+            for asset in assets:
+                if not asset.path:
+                    continue
+                target_relative = relative_root / kind / Path(asset.path).name
+                new_path = target_relative.as_posix()
+                if asset.path == new_path:
+                    continue
+                if dry_run:
+                    if self._media_files.media_path(asset.path) is not None:
+                        changes.append((asset.path, new_path))
+                    continue
+                copied = self._media_files.copy_media_file(asset.path, target_relative)
+                if copied is None:
+                    continue
+                changes.append((asset.path, copied))
+                asset.path = copied
+        return changes
+
+    def _localize_member_media(
+        self,
+        group_id: str,
+        member: GroupMember,
+        *,
+        dry_run: bool = False,
+    ) -> list[tuple[str, str]]:
+        return self._localize_media(
+            member.character.media,
+            self._member_media_root(group_id, member.id),
+            dry_run=dry_run,
+        )
+
+    async def localize_group_media(self, group_id: str, *, dry_run: bool = False) -> list[tuple[str, str, str]]:
+        """グループ内の全メディア参照をグループ所有パスへ移す(既存データの移行用)。
+
+        戻り値は (対象, 旧パス, 新パス) のリスト。dry_run 時はコピーも保存もしない。
+        tools/migrate_group_member_media.py から使用する。
+        """
+        group = await self._repo.get(group_id)
+        if group is None:
+            return []
+        updated = group.model_copy(deep=True)
+        report: list[tuple[str, str, str]] = []
+        for member in updated.members:
+            for old_path, new_path in self._localize_member_media(group.id, member, dry_run=dry_run):
+                report.append((f"member:{member.handle}", old_path, new_path))
+        if updated.user_persona is not None:
+            persona_root = self._persona_media_root(group.id, updated.user_persona.id)
+            for old_path, new_path in self._localize_media(updated.user_persona.media, persona_root, dry_run=dry_run):
+                report.append((f"persona:{updated.user_persona.handle}", old_path, new_path))
+        if report and not dry_run:
+            await self._repo.save(updated)
+        return report
 
     def _delete_group_files(self, group_id: str) -> None:
         self._media_files.delete_owner_files(Path("groups") / group_id)

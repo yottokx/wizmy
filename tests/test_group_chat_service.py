@@ -8,6 +8,7 @@ from src.core.character.schemas import (
     CharacterMedia,
     CharacterSheet,
     CharacterTTSSettings,
+    CharacterVoiceAsset,
     FaceRect,
     GenerationMeta,
 )
@@ -595,6 +596,140 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(saved_again)
             self.assertFalse(first_path.exists())
             self.assertEqual(b"source-image", source_path.read_bytes())
+
+    async def test_create_group_copies_member_and_persona_media_into_group(self) -> None:
+        """適応コピー作成時にメディア実体がグループ所有パスへ複製される。
+
+        元キャラクター削除(characters/{id}/ ごと削除)でグループ側の画像・音声が
+        道連れに壊れないための独立化(2026-07-07 確定仕様)。
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir) / "data"
+            service = GroupChatService(
+                GroupChatRepository(Path(tmp_dir) / "wizmy.db"),
+                data_dir,
+            )
+            await service.initialize()
+
+            image_rel = Path("characters") / "character-1" / "images" / "portrait.png"
+            (data_dir / image_rel).parent.mkdir(parents=True, exist_ok=True)
+            (data_dir / image_rel).write_bytes(b"source-image")
+            voice_rel = Path("characters") / "character-1" / "voices" / "sample.wav"
+            (data_dir / voice_rel).parent.mkdir(parents=True, exist_ok=True)
+            (data_dir / voice_rel).write_bytes(b"source-voice")
+            persona_image_rel = Path("user_personas") / "persona-1" / "images" / "me.png"
+            (data_dir / persona_image_rel).parent.mkdir(parents=True, exist_ok=True)
+            (data_dir / persona_image_rel).write_bytes(b"persona-image")
+
+            original = CharacterSheet(
+                id="character-1",
+                name="独立化テスト",
+                media=CharacterMedia(
+                    images=[CharacterImageAsset(id="img-1", path=image_rel.as_posix())],
+                    voices=[CharacterVoiceAsset(id="voice-1", path=voice_rel.as_posix())],
+                    primary_image_id="img-1",
+                ),
+            )
+            persona = UserPersona(
+                id="persona-1",
+                name="テストユーザー",
+                media=CharacterMedia(
+                    images=[CharacterImageAsset(id="p-img-1", path=persona_image_rel.as_posix())],
+                ),
+            )
+
+            group = await service.create_group(
+                name="独立化グループ",
+                world="テスト用の世界",
+                completion_profile_id="",
+                members=[(original, "Alice")],
+                user_persona=persona,
+                user_handle="User",
+            )
+            member = group.members[0]
+
+            image = member.character.media.primary_image()
+            assert image is not None
+            self.assertEqual(
+                f"groups/{group.id}/members/{member.id}/images/portrait.png",
+                image.path,
+            )
+            copied_image = service.media_path(image.path)
+            assert copied_image is not None
+            self.assertEqual(b"source-image", copied_image.read_bytes())
+
+            voice = member.character.media.voices[0]
+            self.assertEqual(
+                f"groups/{group.id}/members/{member.id}/voices/sample.wav",
+                voice.path,
+            )
+
+            assert group.user_persona is not None
+            persona_image = group.user_persona.media.images[0]
+            self.assertEqual(
+                f"groups/{group.id}/persona/{group.user_persona.id}/images/me.png",
+                persona_image.path,
+            )
+
+            # 元キャラクター側のファイルは無傷(コピーであって移動ではない)
+            self.assertEqual(b"source-image", (data_dir / image_rel).read_bytes())
+            self.assertEqual(b"source-voice", (data_dir / voice_rel).read_bytes())
+            self.assertEqual(b"persona-image", (data_dir / persona_image_rel).read_bytes())
+
+            # 元キャラクターのメディアを削除してもグループ側は生きている
+            (data_dir / image_rel).unlink()
+            self.assertIsNotNone(service.media_path(image.path))
+
+    async def test_localize_group_media_migrates_legacy_shared_paths(self) -> None:
+        """旧実装で作られた共有参照のグループを localize_group_media で移行できる。"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_dir = Path(tmp_dir) / "data"
+            repo = GroupChatRepository(Path(tmp_dir) / "wizmy.db")
+            service = GroupChatService(repo, data_dir)
+            await service.initialize()
+
+            image_rel = Path("characters") / "legacy-char" / "images" / "old.png"
+            (data_dir / image_rel).parent.mkdir(parents=True, exist_ok=True)
+            (data_dir / image_rel).write_bytes(b"legacy-image")
+
+            legacy_group = GroupChatRecord(
+                id="legacy-group",
+                name="旧グループ",
+                members=[
+                    GroupMember(
+                        id="member-1",
+                        source_character_id="legacy-char",
+                        handle="Alice",
+                        character=CharacterSheet(
+                            id="legacy-char",
+                            name="旧メンバー",
+                            media=CharacterMedia(
+                                images=[CharacterImageAsset(id="img-1", path=image_rel.as_posix())],
+                            ),
+                        ),
+                    )
+                ],
+            )
+            await repo.save(legacy_group)
+
+            # dry-run はコピーも保存もしない
+            planned = await service.localize_group_media("legacy-group", dry_run=True)
+            self.assertEqual(1, len(planned))
+            reloaded = await service.get("legacy-group")
+            assert reloaded is not None
+            self.assertEqual(image_rel.as_posix(), reloaded.members[0].character.media.images[0].path)
+
+            applied = await service.localize_group_media("legacy-group")
+            self.assertEqual(1, len(applied))
+            migrated = await service.get("legacy-group")
+            assert migrated is not None
+            new_path = migrated.members[0].character.media.images[0].path
+            self.assertEqual("groups/legacy-group/members/member-1/images/old.png", new_path)
+            copied = service.media_path(new_path)
+            assert copied is not None
+            self.assertEqual(b"legacy-image", copied.read_bytes())
+            # 再実行しても変更なし(冪等)
+            self.assertEqual([], await service.localize_group_media("legacy-group"))
 
     async def test_group_member_voice_rect_and_tts_settings_are_saved(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
