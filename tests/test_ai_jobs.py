@@ -161,6 +161,27 @@ class AIJobServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.list_jobs(), [])
         self.assertIsNone(service.get_job(job.id))
 
+    async def test_wait_returns_failed_record_when_job_was_pruned(self) -> None:
+        service = AIJobService(max_completed_jobs=10, completed_ttl_minutes=1)
+
+        async def runner(_job):
+            return "done"
+
+        job = service.start_job(
+            kind=AIJobKind.LLM_ASSIST,
+            label="ttl",
+            runner=runner,
+        )
+        await service.wait(job.id)
+        job.completed_at = datetime.now() - timedelta(minutes=2)
+
+        finished = await service.wait(job.id)
+
+        self.assertEqual(finished.id, job.id)
+        self.assertEqual(finished.status, AIJobStatus.FAILED)
+        self.assertEqual(finished.error_message, "AIジョブが見つかりません。")
+        self.assertEqual([event.type for event in finished.events], ["missing"])
+
 
 if __name__ == "__main__":
     unittest.main()

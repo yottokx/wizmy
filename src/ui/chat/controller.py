@@ -908,7 +908,7 @@ class ChatPageController:
 
     async def send_user_turn(self, text: str) -> None:
         settings = self.state.settings
-        if settings is None:
+        if self.active_session_id is None or settings is None:
             ui.notify("先に「新しいチャット」を作成してください", type="warning")
             self.open_new_chat_dialog()
             return

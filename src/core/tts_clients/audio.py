@@ -185,6 +185,8 @@ def audio_download_candidates(base_url: str, audio_ref: str) -> list[str]:
         return [audio_ref]
     if audio_ref.startswith("/"):
         return [audio_ref]
+    if audio_ref.startswith("file="):
+        audio_ref = audio_ref.split("=", 1)[1]
     encoded = quote(audio_ref, safe="/:")
     return [
         f"/gradio_api/file={encoded}",

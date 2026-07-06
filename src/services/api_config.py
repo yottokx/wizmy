@@ -481,9 +481,10 @@ class ApiConfigService:
             models = response.json().get("models", [])
             if not isinstance(models, list):
                 return []
+            models = [model for model in models if isinstance(model, dict) and model.get("id")]
             if mode:
                 models = [model for model in models if model.get("mode") == mode]
-            return [model for model in models if isinstance(model, dict) and model.get("id")]
+            return models
 
     # ─── KeyVault ───
 

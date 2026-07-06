@@ -216,7 +216,10 @@ class AIJobService:
 
     async def wait(self, job_id: str) -> AIJobRecord:
         """ジョブが終端状態になるまで待つ。"""
-        job = self._jobs[job_id]
+        self._prune_completed_jobs()
+        job = self._jobs.get(job_id)
+        if job is None:
+            return self._missing_job_record(job_id)
         if job._task is not None:
             try:
                 await asyncio.shield(job._task)
@@ -368,3 +371,19 @@ class AIJobService:
         completed.sort(key=lambda item: item.completed_at or item.created_at, reverse=True)
         for job in completed[self._max_completed_jobs :]:
             self._jobs.pop(job.id, None)
+
+    def _missing_job_record(self, job_id: str) -> AIJobRecord:
+        now = datetime.now()
+        job = AIJobRecord(
+            id=job_id,
+            kind="",
+            label="AIジョブ",
+            status=AIJobStatus.FAILED,
+            progress_message="失敗",
+            error_message="AIジョブが見つかりません。",
+            created_at=now,
+            updated_at=now,
+            completed_at=now,
+        )
+        self._record_event(job, "missing", job.error_message)
+        return job

@@ -17,8 +17,14 @@ def merge_completion(left_text: str, raw_completion: str) -> str:
     if left and completion.startswith(left[-min(len(left), 20) :]):
         overlap = min(len(left), 20)
         return left + completion[overlap:]
-    separator = "" if not left or left[-1].isspace() or completion[:1] in "、。！？,.!?" else ""
+    separator = " " if _needs_completion_separator(left, completion) else ""
     return f"{left}{separator}{completion}"
+
+
+def _needs_completion_separator(left: str, completion: str) -> bool:
+    if not left or not completion or left[-1].isspace() or completion[:1] in "、。！？,.!?":
+        return False
+    return left[-1].isascii() and completion[0].isascii()
 
 
 def parse_response_choices(raw_output: str) -> list[str]:
