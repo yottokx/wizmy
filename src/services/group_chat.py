@@ -47,6 +47,10 @@ class GroupChatService:
     async def list_sessions_for_group(self, group_id: str) -> list[GroupChatSessionRecord]:
         return await self._repo.list_sessions_for_group(group_id)
 
+    async def list_recent_sessions(self, limit: int = 10) -> list[GroupChatSessionRecord]:
+        """全グループ横断で更新日時の新しい順にセッションを返す(ホーム用)。"""
+        return await self._repo.list_recent_sessions(limit)
+
     async def get_session(self, session_id: str) -> GroupChatSessionRecord | None:
         return await self._repo.get_session(session_id)
 

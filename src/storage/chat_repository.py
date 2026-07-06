@@ -122,6 +122,21 @@ class ChatRepository:
                 rows = await cursor.fetchall()
                 return [_row_to_session(row) for row in rows]
 
+    async def list_recent(self, limit: int = 10) -> list[ChatSessionRecord]:
+        """全キャラクター横断で更新日時の新しい順にセッションを返す。"""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM chat_sessions
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (max(limit, 0),),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [_row_to_session(row) for row in rows]
+
     async def delete(self, session_id: str) -> bool:
         async with aiosqlite.connect(self._db_path) as db:
             cursor = await db.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))

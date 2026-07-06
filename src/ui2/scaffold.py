@@ -444,7 +444,7 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
                     link.on("click", lambda r=route: ui.navigate.to(r))
         ui.element("div").classes("grow")
 
-        ai_badge = ui.element("button").classes("wz-ai-badge hidden")
+        ai_badge = ui.element("button").classes("wz-ai-badge hidden").mark("ui2-ai-jobs-badge")
         with ai_badge:
             ui.element("span").classes("dot")
             ui.html("AI使用中")

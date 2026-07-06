@@ -20,6 +20,10 @@ class ChatService:
     async def list_for_character(self, character_id: str) -> list[ChatSessionRecord]:
         return await self._repo.list_for_character(character_id)
 
+    async def list_recent(self, limit: int = 10) -> list[ChatSessionRecord]:
+        """全キャラクター横断で更新日時の新しい順にセッションを返す(ホーム用)。"""
+        return await self._repo.list_recent(limit)
+
     async def get(self, session_id: str) -> ChatSessionRecord | None:
         return await self._repo.get(session_id)
 
