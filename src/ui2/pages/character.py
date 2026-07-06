@@ -432,7 +432,7 @@ async def ui2_character_page(character_id: str) -> None:
                     with ui.element("div").classes("media-links"):
                         _chip_button("アップロード", _open_voice_upload)
                         _chip_button(
-                            "音声を管理・録音",
+                            "音声を管理・ボイスデザイン",
                             lambda: ui.navigate.to(f"/characters/{character_id}"),
                             title="旧ページが開きます(ボイスデザイン等は Phase 6 で /v2 版に)",
                         )
