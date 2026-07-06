@@ -27,6 +27,7 @@ from src.ui.server_noise import (
     install_asyncio_disconnect_handler,
     install_disconnect_noise_filters,
 )
+from src.ui2 import register_ui2
 
 
 def create_app(settings: AppSettings | None = None) -> None:
@@ -35,6 +36,7 @@ def create_app(settings: AppSettings | None = None) -> None:
 
     install_disconnect_noise_filters()
     ctx = init_context(settings)
+    register_ui2(ctx.settings)
 
     app.on_startup(ctx.startup)
     app.on_startup(install_asyncio_disconnect_handler)
