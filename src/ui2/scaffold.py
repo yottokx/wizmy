@@ -36,7 +36,7 @@ from .theme import (
 NAV_ITEMS: list[dict] = [
     {"label": "ホーム", "route": "/v2"},
     {"label": "キャラクター", "route": "/v2/characters"},
-    {"label": "チャット", "route": None},  # Phase 3
+    {"label": "チャット", "route": "/v2/chat"},
     {"label": "グループ", "route": None},  # Phase 4: /v2/groups
     {"label": "生成", "route": None},  # Phase 5: /v2/generation
     {"label": "設定", "route": None},  # Phase 6: /v2/settings

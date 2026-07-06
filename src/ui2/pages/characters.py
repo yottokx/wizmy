@@ -4,7 +4,7 @@
 - 上段: 劇場ストリップ(ピックアップ)。選出は components/pickup.py の純関数
   (ポリシー選択値 `app.storage.user["ui2_pickup_policy"]`、既定 mixed)
 - 下段: ギャラリー(検索・タグ・お気に入り絞り込み+Markdownインポート+新規生成カード)
-- チャットボタンは ui2 版チャット完成(Phase 3)まで旧 /characters/{id}/chat へ、
+- チャットボタンは /v2/characters/{id}/chat へ。
   新規生成カードは Phase 5 まで旧 /(生成)へ暫定リンク
 """
 
@@ -252,8 +252,7 @@ def _say_text(sheet: CharacterSheet) -> str:
 
 
 def _chat_route(character_id: str) -> str:
-    # ui2 版チャットは Phase 3。それまでは旧チャットページへ暫定リンク
-    return f"/characters/{character_id}/chat"
+    return f"/v2/characters/{character_id}/chat"
 
 
 def _detail_route(character_id: str) -> str:

@@ -99,7 +99,7 @@ class RecentSessionItem:
     preview: str
     time_label: str
     updated_at: datetime
-    route: str  # ui2 版チャット完成までは旧UIルートへの暫定リンク
+    route: str  # 1:1 は /v2 チャット。グループは Phase 4 まで旧UIルートへの暫定リンク
 
 
 def merge_recent_sessions(
@@ -120,7 +120,7 @@ def merge_recent_sessions(
                 preview=latest_message_preview(session.messages),
                 time_label=session_time_label(session.updated_at),
                 updated_at=session.updated_at,
-                route=f"/characters/{session.character_id}/chat",
+                route=f"/v2/characters/{session.character_id}/chat",
             )
         )
     for session in group_sessions:

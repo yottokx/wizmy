@@ -4,8 +4,8 @@
 - 相方切替: `app.storage.user["ui2_companion"]` に永続化
 - 挨拶 v1: 時間帯定型+self_intro 流用(LLM呼び出し無し。home_logic 参照)
 - 最近のセッション: ChatService.list_recent + GroupChatService.list_recent_sessions を
-  updated_at 降順に統合して 3 件。ui2 版チャット完成までは旧UIルートへの暫定リンク
-  (1:1 → /characters/{id}/chat、グループ → /groups/{id})
+  updated_at 降順に統合して 3 件。1:1 は /v2/characters/{id}/chat、
+  グループは Phase 4 まで旧 /groups/{id} への暫定リンク
 """
 
 from __future__ import annotations
@@ -253,15 +253,11 @@ async def ui2_home_page() -> None:
                         cont_btn = ui.element("button").classes("btn primary").mark("ui2-continue")
                         with cont_btn:
                             ui.label("続きから話す")
-                        cont_btn.on("click", lambda: ui.navigate.to(f"/characters/{current['id']}/chat"))
-                        new_btn = (
-                            ui.element("button")
-                            .classes("btn")
-                            .props('title="旧チャット画面が開きます(Phase 3 で /v2 版に置き換え)"')
-                        )
+                        cont_btn.on("click", lambda: ui.navigate.to(f"/v2/characters/{current['id']}/chat"))
+                        new_btn = ui.element("button").classes("btn")
                         with new_btn:
                             ui.label("新しいセッション")
-                        new_btn.on("click", lambda: ui.navigate.to(f"/characters/{current['id']}/chat"))
+                        new_btn.on("click", lambda: ui.navigate.to(f"/v2/characters/{current['id']}/chat"))
 
                 # ---- 相方スイッチャ ----
                 avatar_buttons: dict[str, ui.element] = {}

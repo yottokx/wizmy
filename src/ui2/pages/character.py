@@ -367,9 +367,8 @@ async def ui2_character_page(character_id: str) -> None:
                 with ui.element("div").classes("side-actions"):
                     _p3_button(
                         "チャットする",
-                        lambda: ui.navigate.to(f"/characters/{character_id}/chat"),
+                        lambda: ui.navigate.to(f"/v2/characters/{character_id}/chat"),
                         classes="btn primary",
-                        title="旧チャット画面が開きます(Phase 3 で /v2 版に置き換え)",
                     )
                     _p3_button("修正して生成", lambda: _send_to_generation("modify"))
                     _p3_button("知りあいを生成", lambda: _send_to_generation("related"), classes="btn quiet")
