@@ -10,6 +10,7 @@ from src.ui2.chat_logic import (
     NEVER_TALKED_LABEL,
     build_partner_entries,
     character_persona_description,
+    filter_partner_entries,
     most_recent_partner_id,
     user_persona_from_character_sheet,
 )
@@ -53,6 +54,22 @@ def test_partner_entries_empty_sessions_keeps_sheet_order() -> None:
     entries = build_partner_entries(sheets, [])
     assert [entry.sheet.id for entry in entries] == ["a", "b"]
     assert all(entry.last_label == NEVER_TALKED_LABEL for entry in entries)
+
+
+def test_filter_partner_entries_by_search_and_favorites() -> None:
+    sheets = [
+        _sheet("a", "アステル", occupation="観測者", is_favorite=True),
+        _sheet("b", "ミラベル", world="夜霧の港町"),
+        _sheet("c", "トワ"),
+    ]
+    entries = build_partner_entries(sheets, [])
+
+    assert [e.sheet.id for e in filter_partner_entries(entries)] == ["a", "b", "c"]
+    assert [e.sheet.id for e in filter_partner_entries(entries, search="観測")] == ["a"]
+    assert [e.sheet.id for e in filter_partner_entries(entries, search="港町")] == ["b"]  # 世界観も対象
+    assert [e.sheet.id for e in filter_partner_entries(entries, favorites_only=True)] == ["a"]
+    assert filter_partner_entries(entries, search="トワ", favorites_only=True) == []
+    assert [e.sheet.id for e in filter_partner_entries(entries, search="  ")] == ["a", "b", "c"]
 
 
 def test_most_recent_partner_id() -> None:

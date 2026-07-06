@@ -132,6 +132,21 @@ async def test_v2_chat_user_turn_requires_llm_profile(nicegui_smoke_app) -> None
     await user.should_see("LLMプロファイルが見つかりません")
 
 
+async def test_v2_chat_picker_favorites_filter(nicegui_smoke_app) -> None:
+    context = nicegui_smoke_app.context
+    favorite = _sheet("char-a", "アステル", image=False)
+    favorite.is_favorite = True
+    await context.characters.save(favorite)
+    await context.characters.save(_sheet("char-b", "ミラベル", image=False))
+
+    user = nicegui_smoke_app.user
+    await user.open("/v2/characters/char-a/chat")
+    await user.should_see("ミラベル")  # ピッカーの候補カード
+    user.find(marker="ui2-chat-picker-fav").click()
+    await user.should_not_see("ミラベル")
+    await user.should_see("アステル")
+
+
 async def test_v2_chat_not_found(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
     await user.open("/v2/characters/no-such-id/chat")

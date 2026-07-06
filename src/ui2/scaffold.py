@@ -345,6 +345,10 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
 
     t = THEMES.get(theme, THEMES[DEFAULT_THEME])
     ui.colors(primary=t["q-primary"], secondary=t["q-secondary"], negative=t["q-negative"])
+    # Quasar の Dark は接続後に確実に適用される ui.dark_mode で切り替える。
+    # (body スクリプトの Quasar.Dark.set は初期ロード時に Quasar 未初期化で
+    #  空振りすることがあり、ダークテーマでドロップダウン等が黒文字になる)
+    dark_mode = ui.dark_mode(t["dark"])
     ui.add_body_html(f"<script>{apply_theme_js(theme)}</script>")
 
     # ---- AIジョブドロワー(P3スキン) ----
@@ -457,6 +461,7 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
         def _toggle_theme() -> None:
             new_theme = "hinata" if get_theme() == "hoshi" else "hoshi"
             set_theme(new_theme)
+            dark_mode.set_value(THEMES[new_theme]["dark"])
             ui.run_javascript(apply_theme_js(new_theme))
             theme_label.set_content(THEMES[new_theme]["button"])
 

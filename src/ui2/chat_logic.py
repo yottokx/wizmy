@@ -56,6 +56,26 @@ def build_partner_entries(
     return talked + fresh
 
 
+def filter_partner_entries(
+    entries: list[PartnerEntry],
+    search: str = "",
+    favorites_only: bool = False,
+) -> list[PartnerEntry]:
+    """相手ピッカーの絞り込み(検索=名前・職業・世界観の部分一致、★お気に入り)。"""
+    query = search.strip().lower()
+    result: list[PartnerEntry] = []
+    for entry in entries:
+        sheet = entry.sheet
+        if favorites_only and not sheet.is_favorite:
+            continue
+        if query:
+            haystack = " ".join((sheet.name, sheet.occupation, sheet.world)).lower()
+            if query not in haystack:
+                continue
+        result.append(entry)
+    return result
+
+
 def most_recent_partner_id(sessions: list[ChatSessionRecord]) -> str:
     """最後に話した相手の character_id(無ければ空文字)。"""
     latest: ChatSessionRecord | None = None

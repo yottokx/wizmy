@@ -71,6 +71,7 @@ from ..chat_commands import (
 from ..chat_logic import (
     PartnerEntry,
     build_partner_entries,
+    filter_partner_entries,
     most_recent_partner_id,
     user_persona_from_character_sheet,
 )
@@ -303,9 +304,22 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 }
 .picker.open { display: flex; }
 .picker-panel { max-width: 880px; width: 100%; }
-.picker-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 22px; }
+.picker-head { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
 .picker-head h2 { margin: 0; font-size: 21px; letter-spacing: .2em; font-weight: 600; }
 .picker-head .close { margin-left: auto; }
+.picker-head .psearch {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 18px;
+  color: var(--text);
+  font-size: 13px;
+  width: 190px;
+  outline: none;
+}
+.picker-head .psearch::placeholder { color: var(--muted); }
+.picker-head .psearch:focus { border-color: var(--peri); }
+.picker-empty { padding: 26px 4px; }
 .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
 .pcard {
   position: relative;
@@ -995,7 +1009,31 @@ class Ui2ChatController:
         self.refresh_messages(scroll_to_bottom=True)
         ui.timer(0.1, self.restore_active_ai_job, once=True)
 
+    def _render_partner_card(self, entry: PartnerEntry) -> None:
+        card = ui.element("div").classes("pcard on" if entry.sheet.id == self.sheet.id else "pcard")
+        card.on(
+            "click",
+            lambda cid=entry.sheet.id: ui.navigate.to(f"/v2/characters/{cid}/chat"),
+        )
+        with card:
+            image = entry.sheet.media.primary_image()
+            url = media_url(image.path) if image is not None else None
+            if url is not None:
+                raw_img(url).props('loading="lazy"').style(
+                    f"object-position: {image_object_position(image)};"
+                )
+            else:
+                with ui.element("div").classes("p-ph"):
+                    ui.html(html.escape((entry.sheet.name or "?")[:1]))
+            ui.element("div").classes("veil")
+            with ui.element("div").classes("info"):
+                with ui.element("div").classes("nm serif"):
+                    ui.html(html.escape(entry.sheet.name))
+                with ui.element("div").classes("st"):
+                    ui.html(html.escape(entry.last_label))
+
     def _render_picker(self) -> None:
+        state = {"search": "", "favorites": False}
         self.picker = ui.element("div").classes("picker")
         with self.picker:
             with ui.element("div").classes("picker-panel"):
@@ -1004,32 +1042,17 @@ class Ui2ChatController:
                         ui.html("誰と話しますか")
                     with ui.element("span").classes("note"):
                         ui.html("最近話した順")
+                    search_input = (
+                        ui.element("input")
+                        .classes("psearch")
+                        .props('placeholder="名前・世界観で検索" type="search"')
+                        .mark("ui2-chat-picker-search")
+                    )
+                    fav_chip = ui.element("button").classes("chip").mark("ui2-chat-picker-fav")
+                    with fav_chip:
+                        ui.html("★ お気に入り")
                     _p3_button("閉じる", self.close_picker, classes="btn quiet close")
-                with ui.element("div").classes("pgrid"):
-                    for entry in self.partners:
-                        card = ui.element("div").classes(
-                            "pcard on" if entry.sheet.id == self.sheet.id else "pcard"
-                        )
-                        card.on(
-                            "click",
-                            lambda cid=entry.sheet.id: ui.navigate.to(f"/v2/characters/{cid}/chat"),
-                        )
-                        with card:
-                            image = entry.sheet.media.primary_image()
-                            url = media_url(image.path) if image is not None else None
-                            if url is not None:
-                                raw_img(url).props('loading="lazy"').style(
-                                    f"object-position: {image_object_position(image)};"
-                                )
-                            else:
-                                with ui.element("div").classes("p-ph"):
-                                    ui.html(html.escape((entry.sheet.name or "?")[:1]))
-                            ui.element("div").classes("veil")
-                            with ui.element("div").classes("info"):
-                                with ui.element("div").classes("nm serif"):
-                                    ui.html(html.escape(entry.sheet.name))
-                                with ui.element("div").classes("st"):
-                                    ui.html(html.escape(entry.last_label))
+                grid = ui.element("div").classes("pgrid").mark("ui2-chat-picker-grid")
                 with ui.element("div").classes("note picker-note"):
                     list_link = ui.element("a")
                     with list_link:
@@ -1041,6 +1064,38 @@ class Ui2ChatController:
                         ui.html("生成")
                     gen_link.on("click", lambda: ui.navigate.to("/"))
                     ui.html(" へ。")
+
+        def _refresh_grid() -> None:
+            grid.clear()
+            entries = filter_partner_entries(self.partners, state["search"], state["favorites"])
+            with grid:
+                for entry in entries:
+                    self._render_partner_card(entry)
+                if not entries:
+                    with ui.element("div").classes("note picker-empty"):
+                        ui.html("該当するキャラクターがいません")
+
+        def _toggle_favorites() -> None:
+            state["favorites"] = not state["favorites"]
+            if state["favorites"]:
+                fav_chip.classes("on")
+            else:
+                fav_chip.classes(remove="on")
+            _refresh_grid()
+
+        def _on_search(e) -> None:
+            state["search"] = str(e.args or "")
+            _refresh_grid()
+
+        fav_chip.on("click", _toggle_favorites)
+        search_input.on(
+            "input",
+            _on_search,
+            js_handler="(e) => emit(e.target.value)",
+            throttle=0.3,
+            trailing_events=True,
+        )
+        _refresh_grid()
         self.picker.on("click.self", self.close_picker)
 
     def open_picker(self) -> None:
@@ -2281,17 +2336,12 @@ class Ui2ChatController:
             "narration": "地の文",
             "user": "ユーザー",
         }
-        presets = [
-            ("抽象的・曖昧な表現を避け、具体的な表現を用いる", "character"),
-            ("シーンを明確に進める描写(or セリフ)", "character"),
-            ("場面を転換する", "narration"),
-        ]
 
         with ui.dialog() as dlg, ui.card().classes("w-full max-w-xl").style(_DIALOG_CARD_STYLE):
             ui.label("次の行動").classes("text-base font-semibold")
             target_select = (
-                ui.select(options=target_options, value="character", label="次の行動")
-                .props("outlined")
+                ui.select(options=target_options, value="character", label="行動者")
+                .props("outlined autofocus")
                 .classes("w-full")
             )
             direction_input = (
@@ -2308,16 +2358,6 @@ class Ui2ChatController:
                 direction_input.enable()
 
             target_select.on_value_change(lambda _: _sync_direction_input())
-
-            with ui.element("div").style("display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;"):
-                for preset_text, target in presets:
-
-                    def _apply_preset(text=preset_text, target_mode=target) -> None:
-                        direction_input.set_value(text)
-                        target_select.set_value(target_mode)
-                        _sync_direction_input()
-
-                    _chip_button(preset_text, _apply_preset)
 
             async def _run_directed_turn() -> None:
                 direction = (direction_input.value or "").strip()
