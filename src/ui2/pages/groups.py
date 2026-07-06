@@ -27,7 +27,7 @@ from ...core.conversation.world_adaptation import (
 )
 from ...core.group_chat.schemas import GroupChatRecord
 from ..components.busy import BusyController
-from ..components.portrait import image_object_position, media_url, raw_img
+from ..components.portrait import face_avatar, image_object_position, media_url, raw_img
 from ..group_logic import (
     entry_type_label,
     validate_handle_values,
@@ -148,7 +148,7 @@ _PAGE_CSS = """
   transition: border-color .18s;
 }
 .pick:hover { border-color: var(--accent); }
-.pick img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.pick img, .pick .pick-av { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
 .pick .pick-ph {
   width: 28px; height: 28px; border-radius: 50%;
   display: grid; place-items: center;
@@ -649,10 +649,8 @@ def _render_create_flow(ctx) -> None:
                 pick.on("click", lambda s=sheet: _open_resident_dialog(s))
                 with pick:
                     image = sheet.media.primary_image()
-                    url = media_url(image.path) if image is not None else None
-                    if url is not None:
-                        raw_img(url).style(f"object-position: {image_object_position(image)};")
-                    else:
+                    path = ctx.characters.media_path(image.path) if image is not None else None
+                    if face_avatar(image, "pick-av", image_path=path) is None:
                         with ui.element("span").classes("pick-ph"):
                             ui.html(html.escape((display.name or "?")[:1]))
                     ui.html(html.escape(display.name))
@@ -730,10 +728,8 @@ def _render_create_flow(ctx) -> None:
                 pick.on("click", lambda: _open_user_settings())
                 with pick:
                     image = persona.media.primary_image()
-                    url = media_url(image.path) if image is not None else None
-                    if url is not None:
-                        raw_img(url).style(f"object-position: {image_object_position(image)};")
-                    else:
+                    path = ctx.user_personas.media_path(image.path) if image is not None else None
+                    if face_avatar(image, "pick-av", image_path=path) is None:
                         with ui.element("span").classes("pick-ph"):
                             ui.html(html.escape(display[:1]))
                     ui.html(html.escape(f"{display}（@{state['user_handle']}）"))

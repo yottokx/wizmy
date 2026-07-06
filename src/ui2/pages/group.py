@@ -62,7 +62,7 @@ from ...services.tts import TTSServiceError
 from ...ui.state import get_vault_password
 from ..chat_commands import command_suggestions, parse_command_input, resolve_chat_command
 from ..components.busy import BusyController
-from ..components.portrait import image_object_position, media_url, raw_img
+from ..components.portrait import face_avatar
 from ..components.presence import PresenceEntry, PresenceStage
 from ..group_logic import (
     DIFF_CSS,
@@ -325,7 +325,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 }
 .p3-mention-option:hover, .p3-mention-option-active { background: var(--panel-2); }
 .p3-mention-option.p3-mention-option-hidden { display: none; }
-.p3-mention-option img, .p3-mention-option .m-ph {
+.p3-mention-option img, .p3-mention-option .m-av, .p3-mention-option .m-ph {
   width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex: none;
 }
 .p3-mention-option .m-ph {
@@ -475,7 +475,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
   color: var(--text);
 }
 .pick:hover { border-color: var(--accent); }
-.pick img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.pick img, .pick .pick-av { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; }
 .pick .pick-ph {
   width: 28px; height: 28px; border-radius: 50%;
   display: grid; place-items: center;
@@ -825,11 +825,16 @@ def _configured_group_llm(ctx, profile_id: str):
 
 
 def _avatar_or_placeholder(media, name: str, *, classes: str = "avatar") -> None:
+    """顔ズーム済みの丸アイコン(無ければ頭文字プレースホルダ)。"""
     image = media.primary_image() if media is not None else None
-    url = media_url(image.path) if image is not None else None
-    if url is not None:
-        raw_img(url, classes).style(f"object-position: {image_object_position(image)};")
-    else:
+    path = None
+    if image is not None:
+        try:
+            path = get_context().group_chats.media_path(image.path)
+        except Exception:
+            path = None
+    avatar = face_avatar(image, classes, image_path=path)
+    if avatar is None:
         with ui.element("div").classes("avatar-ph"):
             ui.html(html.escape((name or "?")[:1]))
 
@@ -1456,11 +1461,11 @@ class Ui2GroupChatController:
                 if role == "character" and participant is not None:
                     member = participant.get("member")
                     image = member.character.media.primary_image() if isinstance(member, GroupMember) else None
-                    url = media_url(image.path) if image is not None else None
-                    if url is not None:
-                        img = raw_img(url, "avatar").props(f'title="{html.escape(speaker_name)}"')
-                        img.style(f"object-position: {image_object_position(image)};")
-                        img.on("click", lambda key=participant["key"]: self.focus_participant(key))
+                    path = self.ctx.group_chats.media_path(image.path) if image is not None else None
+                    avatar = face_avatar(image, "avatar", image_path=path)
+                    if avatar is not None:
+                        avatar.props(f'title="{html.escape(speaker_name)}"')
+                        avatar.on("click", lambda key=participant["key"]: self.focus_participant(key))
                     else:
                         with ui.element("div").classes("avatar-ph"):
                             ui.html(html.escape((speaker_name or "?")[:1]))
@@ -1583,10 +1588,8 @@ class Ui2GroupChatController:
                 with option:
                     media = participant.get("media")
                     image = media.primary_image() if media is not None else None
-                    url = media_url(image.path) if image is not None else None
-                    if url is not None:
-                        raw_img(url).style(f"object-position: {image_object_position(image)};")
-                    else:
+                    path = self.ctx.group_chats.media_path(image.path) if image is not None else None
+                    if face_avatar(image, "m-av", image_path=path) is None:
                         with ui.element("span").classes("m-ph"):
                             ui.html(html.escape(str(participant.get("name") or "?")[:1]))
                     with ui.element("span").classes("p3-mention-name"):
@@ -3669,10 +3672,8 @@ class Ui2GroupChatController:
                         pick.on("click", lambda s=sheet: _open_settings(s))
                         with pick:
                             image = sheet.media.primary_image()
-                            url = media_url(image.path) if image is not None else None
-                            if url is not None:
-                                raw_img(url).style(f"object-position: {image_object_position(image)};")
-                            else:
+                            path = ctx.characters.media_path(image.path) if image is not None else None
+                            if face_avatar(image, "pick-av", image_path=path) is None:
                                 with ui.element("span").classes("pick-ph"):
                                     ui.html(html.escape((display.name or "?")[:1]))
                             ui.html(html.escape(display.name))

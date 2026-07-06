@@ -75,7 +75,7 @@ from ..chat_logic import (
     most_recent_partner_id,
     user_persona_from_character_sheet,
 )
-from ..components.portrait import image_object_position, media_url, raw_img
+from ..components.portrait import face_avatar, image_object_position, media_url, raw_img
 from ..scaffold import p3_page
 
 # モック chat.html の <style> 移植+P3コンポーザー/パレット/メモ/操作列の追補
@@ -843,6 +843,13 @@ class Ui2ChatController:
             speakers.add("narration")
         return speakers
 
+    def _face_avatar(self) -> ui.element | None:
+        """相手の顔ズーム済み丸アイコン(face_rect ズーム。無ければ None)。"""
+        if self.image is None:
+            return None
+        path = self.ctx.characters.media_path(self.image.path)
+        return face_avatar(self.image, "avatar", image_path=path)
+
     # ------------------------------------------------------------------
     # JSユーティリティ
     # ------------------------------------------------------------------
@@ -914,12 +921,7 @@ class Ui2ChatController:
                     js_handler="() => document.querySelector('.sessions')?.classList.remove('open')",
                 )
                 with ui.element("div").classes("partner"):
-                    url = media_url(self.image.path) if self.image is not None else None
-                    if url is not None:
-                        raw_img(url, "avatar").style(
-                            f"object-position: {image_object_position(self.image)};"
-                        )
-                    else:
+                    if self._face_avatar() is None:
                         with ui.element("div").classes("pa-ph"):
                             ui.html(html.escape((self.sheet.name or "?")[:1]))
                     with ui.element("div"):
@@ -968,11 +970,7 @@ class Ui2ChatController:
                 # 縦画面用: 相手表示+変更
                 with ui.element("div").classes("mobile-cast"):
                     with ui.element("button").classes("mc-item"):
-                        url = media_url(self.image.path) if self.image is not None else None
-                        if url is not None:
-                            raw_img(url, "avatar").style(
-                                f"object-position: {image_object_position(self.image)};"
-                            )
+                        self._face_avatar()
                         with ui.element("div").classes("mc-nm"):
                             ui.html(html.escape(self.sheet.name))
                     _p3_button("相手を変更", self.open_picker, classes="btn quiet")
@@ -1314,11 +1312,7 @@ class Ui2ChatController:
         is_user = message.speaker == "user"
         with ui.element("div").classes("msg user" if is_user else "msg"):
             if not is_user:
-                url = media_url(self.image.path) if self.image is not None else None
-                if url is not None:
-                    raw_img(url, "avatar").style(
-                        f"object-position: {image_object_position(self.image)};"
-                    )
+                self._face_avatar()
             with ui.element("div").classes("body"):
                 who = (
                     (self.settings.user_persona_name if self.settings is not None else "") or "あなた"

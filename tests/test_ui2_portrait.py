@@ -5,6 +5,7 @@ from __future__ import annotations
 from src.core.character.schemas import CharacterImageAsset, FaceRect
 from src.ui2.components.portrait import (
     DEFAULT_OBJECT_POSITION,
+    face_crop_style,
     image_object_position,
     media_url,
     rect_object_position,
@@ -45,6 +46,45 @@ class TestRectObjectPosition:
     def test_clamped_to_bounds(self) -> None:
         rect = FaceRect(x=0.9, y=0.9, width=0.4, height=0.4)
         assert rect_object_position(rect) == "100.0% 100.0%"
+
+
+class TestFaceCropStyle:
+    def test_none_image_returns_empty(self) -> None:
+        assert face_crop_style(None) == ""
+
+    def test_traversal_path_returns_empty(self) -> None:
+        image = CharacterImageAsset(path="characters/../config.json")
+        assert face_crop_style(image) == ""
+
+    def test_full_rect_falls_back_to_cover(self) -> None:
+        image = CharacterImageAsset(path="characters/abc/images/x.png")
+        style = face_crop_style(image)
+        assert "background-size: cover" in style
+        assert DEFAULT_OBJECT_POSITION in style
+        assert '/media/characters/abc/images/x.png' in style
+
+    def test_face_rect_zooms_into_face(self) -> None:
+        image = CharacterImageAsset(
+            path="characters/abc/images/x.png",
+            width=512,
+            height=768,
+            face_rect=FaceRect(x=0.4, y=0.1, width=0.2, height=0.15),
+        )
+        style = face_crop_style(image)
+        # scale = max(1/0.2, (512/768)/0.15) * 1.04 = 5 * 1.04 = 5.2 → 520%
+        assert "background-size: 520.0% auto" in style
+        assert "background-position:" in style
+        assert "cover" not in style
+
+    def test_zoom_capped_at_800_percent(self) -> None:
+        image = CharacterImageAsset(
+            path="characters/abc/images/x.png",
+            width=1000,
+            height=1000,
+            face_rect=FaceRect(x=0.45, y=0.05, width=0.05, height=0.05),
+        )
+        style = face_crop_style(image)
+        assert "background-size: 800.0% auto" in style
 
 
 class TestImageObjectPosition:
