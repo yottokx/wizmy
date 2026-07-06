@@ -349,6 +349,14 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 
 /* 履歴ボタン・キャストバー(モバイル用) */
 .hist-btn { display: none; }
+.sess-close { display: none; }
+.sessions-backdrop {
+  display: none;
+  position: fixed;
+  top: 55px; left: 0; right: 0; bottom: 0;
+  z-index: 69;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
 .mobile-cast {
   display: none;
   gap: 14px;
@@ -384,6 +392,21 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
     border-right: 1px solid var(--line-2);
   }
   .sessions.open { transform: none; }
+  .sessions.open { padding-top: 50px; }
+  .sess-close {
+    display: grid; place-items: center;
+    position: absolute; top: 10px; right: 10px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--line-2);
+    background: var(--panel-2);
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 15px;
+    z-index: 2;
+  }
+  .sess-close:hover { color: var(--text); }
+  .sessions.open + .sessions-backdrop { display: block; }
   .hist-btn { display: inline-flex; }
 }
 
@@ -883,6 +906,13 @@ class Ui2ChatController:
         with ui.element("div").classes("shell"):
             # ---- 左: 話し相手+セッション ----
             with ui.element("aside").classes("sessions"):
+                close_btn = ui.element("button").classes("sess-close").props('title="履歴を閉じる"')
+                with close_btn:
+                    ui.html("×")
+                close_btn.on(
+                    "click",
+                    js_handler="() => document.querySelector('.sessions')?.classList.remove('open')",
+                )
                 with ui.element("div").classes("partner"):
                     url = media_url(self.image.path) if self.image is not None else None
                     if url is not None:
@@ -905,6 +935,13 @@ class Ui2ChatController:
                     "align-self: flex-start;"
                 ).mark("ui2-chat-new-session")
                 self.scene_box = ui.element("div").classes("scene")
+
+            # ドロワー時のバックドロップ(.sessions の隣接要素であること。タップで閉じる)
+            backdrop = ui.element("div").classes("sessions-backdrop")
+            backdrop.on(
+                "click",
+                js_handler="() => document.querySelector('.sessions')?.classList.remove('open')",
+            )
 
             # ---- 中央: ストリーム ----
             with ui.element("main").classes("stream-wrap"):
