@@ -144,7 +144,7 @@ class RecentSessionsTest(unittest.TestCase):
         items = merge_recent_sessions(chats, group_sessions, {"g1": group}, limit=2)
         self.assertEqual(["s2", "gs1"], [item.session_id for item in items])
         self.assertEqual("/v2/characters/b/chat", items[0].route)
-        self.assertEqual("/groups/g1", items[1].route)
+        self.assertEqual("/v2/groups/g1", items[1].route)
         self.assertIn("グループ: 多元の集い", items[1].preview)
         self.assertIn("トワ", items[1].preview)
 

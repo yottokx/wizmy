@@ -15,8 +15,8 @@ import html
 from nicegui import app, ui
 
 from ...app_context import get_context
-from ...core.character.schemas import CharacterSheet
 from ...core.character.markdown import parse_markdown_to_sheet
+from ...core.character.schemas import CharacterSheet
 from ..components.pickup import (
     DEFAULT_POLICY,
     PICKUP_POLICY_KEY,

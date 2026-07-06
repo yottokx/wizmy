@@ -99,7 +99,7 @@ class RecentSessionItem:
     preview: str
     time_label: str
     updated_at: datetime
-    route: str  # 1:1 は /v2 チャット。グループは Phase 4 まで旧UIルートへの暫定リンク
+    route: str  # 1:1 は /v2 チャット、グループは /v2 箱庭シェル
 
 
 def merge_recent_sessions(
@@ -137,7 +137,7 @@ def merge_recent_sessions(
                 preview=preview,
                 time_label=session_time_label(session.updated_at),
                 updated_at=session.updated_at,
-                route=f"/groups/{session.group_id}",
+                route=f"/v2/groups/{session.group_id}",
             )
         )
     items.sort(key=lambda item: item.updated_at, reverse=True)
