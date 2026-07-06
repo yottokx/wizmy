@@ -238,7 +238,7 @@ async def ui2_home_page() -> None:
                         list_btn = ui.element("button").classes("btn")
                         with list_btn:
                             ui.label("キャラクター一覧へ")
-                        list_btn.on("click", lambda: ui.navigate.to("/characters"))
+                        list_btn.on("click", lambda: ui.navigate.to("/v2/characters"))
             else:
                 current = {"id": selected.id}
 
@@ -306,12 +306,10 @@ async def ui2_home_page() -> None:
                                 )
                             button.on("click", lambda character_id=sheet.id: _select(character_id))
                             avatar_buttons[sheet.id] = button
-                        more = ui.element("button").classes("more").props(
-                            'title="キャラクター一覧へ(旧UI・Phase 2 で /v2 版に置き換え)"'
-                        )
+                        more = ui.element("button").classes("more").props('title="キャラクター一覧へ"')
                         with more:
                             ui.html("+")
-                        more.on("click", lambda: ui.navigate.to("/characters"))
+                        more.on("click", lambda: ui.navigate.to("/v2/characters"))
 
                 _apply_selection()
 

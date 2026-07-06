@@ -35,7 +35,7 @@ from .theme import (
 # ラベルは機能名(比喩ラベル禁止)。route が None の項目は未実装(後続Phase)。
 NAV_ITEMS: list[dict] = [
     {"label": "ホーム", "route": "/v2"},
-    {"label": "キャラクター", "route": None},  # Phase 2: /v2/characters
+    {"label": "キャラクター", "route": "/v2/characters"},
     {"label": "チャット", "route": None},  # Phase 3
     {"label": "グループ", "route": None},  # Phase 4: /v2/groups
     {"label": "生成", "route": None},  # Phase 5: /v2/generation
