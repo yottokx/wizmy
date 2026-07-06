@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from nicegui import ui
 
 from ...core.character.schemas import CharacterMedia
-from ...core.conversation.history import debug_from_dict
+from ...core.conversation.history import debug_from_dict, session_time_label
 from ...core.conversation.prompts.group import group_participant_labels
 from ...core.group_chat.schemas import (
     GroupChatRecord,
@@ -587,12 +587,7 @@ def render_face(ctx, media: CharacterMedia, source: str) -> None:
 
 
 def time_label(value: datetime) -> str:
-    now = datetime.now()
-    if value.date() == now.date():
-        return value.strftime("%H:%M")
-    if value.year == now.year:
-        return f"{value.month}/{value.day}"
-    return value.strftime("%Y/%m/%d")
+    return session_time_label(value)
 
 
 _GROUP_MENTION_REFRESH_JS = r"""

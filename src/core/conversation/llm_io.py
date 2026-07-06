@@ -9,7 +9,7 @@ from .sanitize import clean_short_llm_text
 from .schemas import ChatDebugInfo
 
 
-def format_llm_input(messages: list[Any], settings: Any | None = None) -> str:
+def format_llm_input(messages: list[Any]) -> str:
     parts: list[str] = []
     for message in messages:
         role = getattr(message, "type", message.__class__.__name__)

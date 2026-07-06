@@ -203,10 +203,15 @@ def debug_from_dict(value: Any) -> ChatDebugInfo | None:
 
 
 def optional_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
+    if isinstance(value, bool) or value is None:
         return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.isdecimal():
+        return int(value)
+    return None
 
 
 def latest_group_message_preview(messages: list[dict[str, Any]], *, limit: int = 56) -> str:

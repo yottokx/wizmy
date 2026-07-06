@@ -104,7 +104,7 @@ class ChatTurnService:
             first_turn=first_turn,
             turn_instruction=turn_instruction,
         )
-        debug_input = format_llm_input(llm_messages, settings)
+        debug_input = format_llm_input(llm_messages)
         response = await llm.ainvoke(llm_messages)
         raw_output = message_content_to_text(getattr(response, "content", response))
         reply = sanitize_character_reply(raw_output, sheet.name)
@@ -133,7 +133,7 @@ class ChatTurnService:
             messages,
             instruction=instruction,
         )
-        debug_input = format_llm_input(llm_messages, settings)
+        debug_input = format_llm_input(llm_messages)
         response = await llm.ainvoke(llm_messages)
         raw_output = message_content_to_text(getattr(response, "content", response))
         narration = sanitize_narration(raw_output)

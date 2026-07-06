@@ -7,6 +7,18 @@ from ...state import get_vault_password, is_vault_unlocked
 from .common import enable_drag_sort, moved_order, notify_order_saved
 
 
+def endpoint_with_updates(ep: Endpoint, *, name: str, ep_type: str, base_url: str) -> Endpoint:
+    data = ep.model_dump()
+    data.update(
+        {
+            "name": name,
+            "type": ep_type,
+            "base_url": base_url,
+        }
+    )
+    return Endpoint(**data)
+
+
 async def build_endpoints_tab(ctx) -> None:
     endpoints_container = ui.column().classes("w-full gap-3")
 
@@ -136,17 +148,16 @@ def open_endpoint_dialog(ep: Endpoint | None, ctx, refresh_fn) -> None:
         if not name or not url:
             ui.notify("表示名とURLを入力してください", type="negative")
             return
-        if is_edit:
-            updated = ep.model_copy(
-                update={
-                    "name": name,
-                    "type": type_select.value,
-                    "base_url": url,
-                }
+        if is_edit and ep is not None:
+            updated = endpoint_with_updates(
+                ep,
+                name=name,
+                ep_type=str(type_select.value or "ollama"),
+                base_url=url,
             )
             ctx.api_config.update_endpoint(updated)
         else:
-            ctx.api_config.create_endpoint(name, type_select.value, url)
+            ctx.api_config.create_endpoint(name, str(type_select.value or "ollama"), url)
         ui.notify("保存しました", type="positive")
         dlg.close()
         await refresh_fn()

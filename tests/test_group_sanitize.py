@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 from src.core.conversation import history as history_module
@@ -20,6 +22,7 @@ from src.core.conversation.sanitize import (
     sanitize_group_narration,
 )
 from src.core.conversation.schemas import ChatDebugInfo
+from src.ui.group_chat import rendering as group_rendering
 from tests.group_chat_test_helpers import make_group_chat
 
 
@@ -122,7 +125,7 @@ def test_group_message_serializes_member_user_guest_and_debug(
     }
 
 
-def test_debug_from_dict_and_optional_int_keep_current_fallbacks() -> None:
+def test_debug_from_dict_and_optional_int_ignore_bool_tokens() -> None:
     debug = debug_from_dict(
         {
             "llm_input": "入力",
@@ -144,7 +147,19 @@ def test_debug_from_dict_and_optional_int_keep_current_fallbacks() -> None:
     )
     assert debug_from_dict("not dict") is None
     assert optional_int("42") == 42
+    assert optional_int(True) is None
     assert optional_int("bad") is None
+
+
+def test_group_time_label_matches_chat_yesterday(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None) -> "FixedDatetime":
+            return cls(2026, 7, 6, 12, 0)
+
+    monkeypatch.setattr(history_module, "datetime", FixedDatetime)
+
+    assert group_rendering.time_label(datetime(2026, 7, 5, 23, 59)) == "昨日"
 
 
 def test_group_message_preview_and_last_dialog_message_keep_current_filters() -> None:

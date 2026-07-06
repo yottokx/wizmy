@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -49,6 +50,11 @@ class CharacterGenerationServiceTest(unittest.IsolatedAsyncioTestCase):
             id="endpoint-1",
             name="テストエンドポイント",
         )
+
+    def test_stop_requires_generation_id(self) -> None:
+        parameter = inspect.signature(CharacterGenerationService.stop).parameters["generation_id"]
+
+        self.assertIs(inspect.Signature.empty, parameter.default)
 
     async def test_auto_save_false_does_not_save_global_character(self) -> None:
         characters = _FakeCharacterService()

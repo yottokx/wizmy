@@ -556,6 +556,7 @@ async def group_generation_page(group_id: str) -> None:
     profile_options = _profile_options(ctx, ctx.api_config.get_llm_profiles())
     progress_panel = ProgressPanel()
     watching_job_id: dict[str, str] = {"value": ""}
+    generation_starting: dict[str, bool] = {"value": False}
     prompted_modify_review: set[str] = set()
     current_result: dict[str, Any] = {
         "gen_id": "",
@@ -1045,7 +1046,7 @@ async def group_generation_page(group_id: str) -> None:
                 if watching_job_id["value"] == job.id:
                     watching_job_id["value"] = ""
 
-        async def on_generate() -> None:
+        async def _start_generation() -> None:
             if _active_tab_is(tab_new, TAB_NEW):
                 mode = GenerationMode.NEW
                 prefs = GenerationPreferences(
@@ -1136,6 +1137,21 @@ async def group_generation_page(group_id: str) -> None:
                 auto_save=False,
             )
             await _attach_to_job(job.id)
+
+        async def on_generate() -> None:
+            if generation_starting["value"]:
+                return
+            generation_starting["value"] = True
+            generate_btn.set_enabled(False)
+            try:
+                await _start_generation()
+            finally:
+                generation_starting["value"] = False
+                latest = ctx.generation.get_job(str(current_result.get("gen_id") or ""))
+                if latest:
+                    _sync_job_controls(latest)
+                else:
+                    generate_btn.set_enabled(True)
 
         async def on_stop() -> None:
             if current_result.get("gen_id"):

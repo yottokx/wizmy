@@ -10,6 +10,7 @@ from src.core.conversation.relationship_drafts import (
     parse_group_generation_relationship_drafts,
     parse_relationship_draft_response,
     relationship_draft_participants,
+    relationship_key_from_item,
 )
 from src.core.conversation.sanitize import clean_group_situation_enhancement
 from src.services.ai_jobs import AIJobService, AIJobStatus
@@ -58,6 +59,29 @@ class GroupChatAssistServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], parse_relationship_draft_response("関係性を作ります", participants))
         self.assertEqual(
             "夜の閲覧室に淡い灯りが差す。", clean_group_situation_enhancement("補強結果: 夜の閲覧室に淡い灯りが差す。")
+        )
+
+    def test_relationship_key_from_item_uses_identifier_map(self) -> None:
+        key_by_identifier = {
+            "character:character-akari": "member:member-akari",
+            "user": "user:persona-sora",
+        }
+
+        self.assertEqual(
+            "member:member-akari",
+            relationship_key_from_item(
+                {"participant_a_key": "character:character-akari"},
+                key_by_identifier,
+                ("participant_a_key",),
+            ),
+        )
+        self.assertEqual(
+            "",
+            relationship_key_from_item(
+                {"participant_a_key": "character:missing"},
+                key_by_identifier,
+                ("participant_a_key",),
+            ),
         )
 
     async def test_setup_use_cases_run_as_jobs_with_stub_llm(self) -> None:

@@ -299,7 +299,7 @@ class CharacterGenerationService:
         for listener in list(job._listeners):
             listener.put_nowait(None)
 
-    def stop(self, generation_id: str = "default") -> None:
+    def stop(self, generation_id: str) -> None:
         self._stop_flag[generation_id] = True
 
     def _prune_completed_jobs(self) -> None:

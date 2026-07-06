@@ -154,8 +154,6 @@ def relationship_key_from_item(
         text = str(value).strip()
         if text in key_by_identifier:
             return key_by_identifier[text]
-        if text.startswith("character:") and text in key_by_identifier:
-            return text
     return ""
 
 
