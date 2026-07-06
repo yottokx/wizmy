@@ -8,6 +8,7 @@ from src.ui2.components.portrait import (
     face_crop_style,
     image_object_position,
     media_url,
+    rect_crop_style,
     rect_object_position,
 )
 
@@ -75,6 +76,24 @@ class TestFaceCropStyle:
         assert "background-size: 520.0% auto" in style
         assert "background-position:" in style
         assert "cover" not in style
+
+    def test_bust_kind_uses_bust_rect(self) -> None:
+        image = CharacterImageAsset(
+            path="characters/abc/images/x.png",
+            width=800,
+            height=800,
+            face_rect=FaceRect(x=0.4, y=0.0, width=0.1, height=0.1),
+            bust_rect=FaceRect(x=0.25, y=0.0, width=0.5, height=0.5),
+        )
+        bust = rect_crop_style(image, kind="bust", frame_aspect=1.6)
+        # scale = max(1/0.5, 1.0/(0.5*1.6)) * 1.04 = 2 * 1.04 → 208%
+        assert "background-size: 208.0% auto" in bust
+        assert bust != rect_crop_style(image, kind="face")
+
+    def test_bust_kind_without_rect_falls_back_to_cover(self) -> None:
+        image = CharacterImageAsset(path="characters/abc/images/x.png")
+        style = rect_crop_style(image, kind="bust")
+        assert "background-size: cover" in style
 
     def test_zoom_capped_at_800_percent(self) -> None:
         image = CharacterImageAsset(

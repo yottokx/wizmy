@@ -101,16 +101,20 @@ def _image_dimensions(image: CharacterImageAsset, image_path: Path | None) -> tu
     return 1, 1
 
 
-def face_crop_style(
+def rect_crop_style(
     image: CharacterImageAsset | None,
     image_path: Path | None = None,
     *,
+    kind: str = "face",
     frame_aspect: float = 1.0,
 ) -> str:
-    """face_rect にズームした background 系スタイル(丸アイコン用)を返す。
+    """face/bust 矩形にズームした background 系スタイルを返す。
 
+    kind="face" は丸アイコン、kind="bust" は presence 等のバストショット用。
     rect 未設定(全面)の場合は cover+`center 10%` に落とす。
     URL が引けない場合は空文字(呼び出し側でプレースホルダへ)。
+    frame_aspect は表示枠の縦横比(height/width)。可変枠は近似値でよい
+    (縦位置の寄せ方が少し変わるだけで、クランプされるため破綻しない)。
     """
     if image is None:
         return ""
@@ -121,7 +125,7 @@ def face_crop_style(
         f'background-image: url("{url}"); '
         "background-repeat: no-repeat; background-color: var(--panel-2);"
     )
-    rect = image.face_rect
+    rect = image.bust_rect if kind == "bust" else image.face_rect
     if (
         rect is None
         or rect.width <= 0
@@ -145,6 +149,16 @@ def face_crop_style(
         + f" background-size: {scale * 100:.1f}% auto;"
         + f" background-position: {position_x:.1f}% {position_y:.1f}%;"
     )
+
+
+def face_crop_style(
+    image: CharacterImageAsset | None,
+    image_path: Path | None = None,
+    *,
+    frame_aspect: float = 1.0,
+) -> str:
+    """face_rect にズームした background 系スタイル(丸アイコン用)を返す。"""
+    return rect_crop_style(image, image_path, kind="face", frame_aspect=frame_aspect)
 
 
 def face_avatar(

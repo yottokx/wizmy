@@ -355,7 +355,8 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
   min-height: 0;
 }
 .presence .portrait { position: relative; flex: 1; min-height: 90px; }
-.presence .portrait img {
+/* バストショット(bust_rect ズーム)は div+background で描く(.pt) */
+.presence .portrait img, .presence .portrait .pt {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
@@ -364,7 +365,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
   -webkit-mask-image: linear-gradient(to top, transparent 2%, #000 30%);
   mask-image: linear-gradient(to top, transparent 2%, #000 30%);
 }
-.presence .portrait img.on { opacity: 1; }
+.presence .portrait img.on, .presence .portrait .pt.on { opacity: 1; }
 .presence .pname {
   position: absolute; left: 20px; bottom: 14px; z-index: 2;
   font-size: 18px; letter-spacing: .12em;
@@ -1173,12 +1174,14 @@ class Ui2GroupChatController:
         entries: list[PresenceEntry] = []
         for member in self.group.members:
             sub_parts = [part for part in (member.character.occupation, entry_type_label(member.world_entry_type)) if part]
+            image = member.character.media.primary_image()
             entries.append(
                 PresenceEntry(
                     key=f"member:{member.id}",
                     label=member.character.name,
                     sub=" — ".join(sub_parts),
-                    image=member.character.media.primary_image(),
+                    image=image,
+                    image_path=self.ctx.group_chats.media_path(image.path) if image is not None else None,
                 )
             )
         return entries
