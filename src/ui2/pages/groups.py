@@ -69,7 +69,7 @@ _PAGE_CSS = """
 .ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
 .gcard {
   position: relative;
-  border-radius: 20px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--line);

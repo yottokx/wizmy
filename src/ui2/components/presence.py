@@ -4,8 +4,8 @@
 focus 切替で駆動する。1:1(単独立ち絵)では不要だったため Phase 4 で新設
 (HANDOFF 申し送り: 1:1/グループ共用想定のコンポーネント)。
 
-表示は 1:1 チャットの立ち絵と同じ(cover+bust 矩形基準の position。
-ユーザー確定 2026-07-07、バストズーム案から差し戻し)。div+background で描く。
+表示は 1:1 チャットの立ち絵と同じ(cover+bust 矩形基準の position)。
+div+background で描く。
 CSS(.portrait / .pname / .pocc / .pt.on の opacity 遷移)はページ側で定義する。
 """
 

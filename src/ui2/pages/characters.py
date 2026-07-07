@@ -39,14 +39,14 @@ _PAGE_CSS = """
   display: flex;
   gap: 8px;
   height: 470px;
-  border-radius: 24px;
+  border-radius: 0;
   overflow: hidden;
 }
 .strip {
   position: relative;
   flex: 1;
   min-width: 0;
-  border-radius: 18px;
+  border-radius: 0;
   overflow: hidden;
   cursor: pointer;
   transition: flex .45s cubic-bezier(.2, .8, .2, 1);
@@ -148,7 +148,7 @@ _PAGE_CSS = """
 .gcard {
   position: relative;
   aspect-ratio: 3 / 4.1;
-  border-radius: 18px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--line);
