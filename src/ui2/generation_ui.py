@@ -25,7 +25,6 @@ from .generation_logic import ChapterProgress
 from .group_logic import DIFF_CSS, diff_html
 from .group_setup import p3_button
 from .sheet_logic import classify_body, kanji_number, list_items, parse_sections, table_rows
-from .theme import wizmy_logo_svg
 
 _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 
@@ -59,13 +58,14 @@ GENERATION_CSS = (
 .ask .go .btn { padding: 12px 44px; font-size: 15px; }
 
 .gen-quiet {
-  display: flex; justify-content: center; gap: 10px 22px;
+  display: flex; justify-content: center; gap: 10px;
   margin: 16px 0 4px;
   font-size: 13px; color: var(--muted);
   flex-wrap: wrap;
   align-items: center;
 }
-.gen-select { min-width: 150px; }
+/* 4つ(プリセット/世界観/性別/年齢帯)が form-box 幅で1行に収まるよう均等割り */
+.gen-select { flex: 1 1 0; min-width: 130px; }
 .gen-select .q-field__control { background: var(--bg-2) !important; border-radius: 10px; }
 .gen-profile-row { justify-content: center; margin-top: 18px; }
 .gen-profile-row .gen-select { min-width: min(420px, 90%); }
@@ -96,72 +96,30 @@ GENERATION_CSS = (
 .base-box .b-name { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; }
 .base-box .b-name .b-sub { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
 
-/* ---------- 状態B:ベールの向こう ---------- */
+/* ---------- 状態B:生成中(章立て+ブレインストーミングログ) ---------- */
 .forge {
-  display: grid;
-  grid-template-columns: 380px minmax(0, 1fr);
-  gap: 34px;
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 26px;
-  padding: 34px;
-}
-.veil-box {
-  position: relative;
-  border-radius: 20px;
+  padding: 30px 38px 28px;
   overflow: hidden;
-  aspect-ratio: 3 / 4;
-  background: var(--bg-2);
 }
-.veil-box img {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  object-position: center 10%;
-  filter: blur(22px) brightness(.42) saturate(.7);
-  transform: scale(1.1);
-}
-.veil-box::after {
-  content: "";
-  position: absolute; inset: 0;
-  background: linear-gradient(120deg, transparent 30%, rgba(255, 214, 160, .16) 50%, transparent 70%);
-  background-size: 220% 100%;
-  animation: gen-shimmer 2.6s linear infinite;
-}
-@keyframes gen-shimmer { from { background-position: 130% 0; } to { background-position: -130% 0; } }
-.veil-box .hint {
-  position: absolute; left: 0; right: 0; bottom: 18px;
-  text-align: center;
-  color: #f0e8d8;
-  font-size: 13px;
-  letter-spacing: .26em;
-  z-index: 2;
-  text-shadow: 0 1px 8px rgba(0,0,0,.8);
-}
-.veil-box .veil-logo {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  --wizmy-bg: transparent;
-  --wizmy-primary: var(--peri);
-  --wizmy-accent: transparent;
-  opacity: .3;
-}
-.veil-box .veil-logo svg { width: 62%; height: auto; filter: blur(1.5px); }
 
-.chapters { padding-top: 6px; min-width: 0; }
-.chapters .ttl { font-size: 15px; letter-spacing: .18em; color: var(--muted); margin-bottom: 18px; }
-.chap { display: flex; gap: 14px; padding: 8px 0; align-items: baseline; }
+.chapters { position: relative; z-index: 2; min-width: 0; }
+.chapters .ttl { font-size: 15px; letter-spacing: .18em; color: var(--muted); margin-bottom: 14px; }
+/* 章立ては本文を出さず、チェック(done)とカーソル(now)だけの進捗表示 */
+.chap { display: flex; gap: 12px; padding: 6px 0; align-items: baseline; }
 .chap .no { width: 26px; color: var(--peri); font-family: "Yu Mincho", serif; flex: none; }
-.chap .nm { width: 104px; flex: none; font-size: 14px; letter-spacing: .1em; }
+.chap .nm { flex: none; font-size: 14px; letter-spacing: .1em; }
 .chap .st { font-size: 12.5px; color: var(--muted); min-width: 0; }
-.chap.done .st::before { content: "✓ "; color: var(--accent); }
+.chap.done .st::before { content: "✓"; color: var(--accent); }
 .chap.now .nm { color: var(--accent); }
-.chap.now .st { color: var(--text); }
 .chap.now .st::after {
   content: "";
   display: inline-block;
   width: 8px; height: 16px;
   background: var(--accent);
-  margin-left: 4px;
   vertical-align: text-bottom;
   animation: gen-blink 1s steps(2) infinite;
 }
@@ -169,9 +127,10 @@ GENERATION_CSS = (
 .chap.todo { opacity: .4; }
 
 .gen-status { font-size: 12px; color: var(--muted); letter-spacing: .04em; margin-top: 14px; }
+.gen-log-cap { font-size: 11px; letter-spacing: .22em; color: var(--muted); margin: 14px 0 6px; }
+/* ブレインストーミングログ: 出力行数に依存しない固定高さ(未出力でも枠を出す) */
 .gen-log {
-  margin-top: 10px;
-  max-height: 8.5rem;
+  height: 11rem;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -183,7 +142,7 @@ GENERATION_CSS = (
 }
 .gen-log .mk { margin-right: 6px; }
 .gen-log .mk.hit { color: var(--accent); }
-.forge .ops { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+.forge .ops { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
 
 /* ---------- 状態C:誕生 ---------- */
 .born {
@@ -263,11 +222,15 @@ GENERATION_CSS = (
   .gen-wrap { padding: 24px 16px 40px; }
   .ask { padding: 36px 20px 32px; }
   .ask h1 { font-size: 23px; }
-  .forge, .born { grid-template-columns: 1fr; gap: 24px; padding: 22px; }
-  .veil-box, .born-img { max-width: 330px; margin: 0 auto; width: 100%; }
+  .forge { padding: 22px; }
+  .born { grid-template-columns: 1fr; gap: 24px; padding: 22px; }
+  .born-img { max-width: 330px; margin: 0 auto; width: 100%; }
   .born-body { padding-top: 0; }
   .born-body h2 { font-size: 26px; }
-  .chap .nm { width: auto; min-width: 96px; }
+}
+@media (max-width: 560px) {
+  /* セレクト4つは 2×2 に */
+  .gen-select { min-width: calc(50% - 5px); }
 }
 """
     + DIFF_CSS
@@ -305,7 +268,7 @@ def recall_active_generation() -> tuple[str, str]:
 
 
 class ForgePanel:
-    """ベール+章立て+ツールログ+中断(状態B)。`.forge` セクション内に build する。"""
+    """章立て(チェックのみ)+ブレインストーミングログ+中断(状態B)。`.forge` セクション内に build する。"""
 
     def __init__(self, on_stop, on_back) -> None:
         self._progress = ChapterProgress()
@@ -313,40 +276,19 @@ class ForgePanel:
         self._on_back = on_back
 
     def build(self) -> None:
-        self.veil_box = ui.element("div").classes("veil-box")
+        sparkle_field(12)
         with ui.element("div").classes("chapters"):
             with ui.element("div").classes("ttl serif"):
                 ui.html("プロフィールが、章立てで確定していく")
             self._rows_box = ui.element("div")
             self._status = ui.element("div").classes("gen-status")
+            with ui.element("div").classes("gen-log-cap"):
+                ui.html("ブレインストーミングログ")
             self._log = ui.element("div").classes("gen-log")
             with ui.element("div").classes("ops"):
                 self._stop_btn = p3_button("中断", self._on_stop, classes="btn quiet").mark("ui2-gen-stop")
                 self._back_btn = p3_button("入力に戻る", self._on_back, classes="btn quiet")
         self.reset()
-
-    def set_portrait(self, image: CharacterImageAsset | None, initial: str) -> None:
-        """ベール画像(ベースキャラ)またはロゴシルエット(新規)を設定する。"""
-        self.veil_box.clear()
-        with self.veil_box:
-            url = media_url(image.path) if image is not None else None
-            if url is not None:
-                ui.element("img").props(f'src="{url}"').style(
-                    f"object-position: {image_object_position(image)};"
-                )
-            else:
-                svg = wizmy_logo_svg()
-                if "<svg" in svg:
-                    ui.html(svg, sanitize=False).classes("veil-logo")
-                else:
-                    with ui.element("div").classes("veil-logo"):
-                        ui.html(html.escape(initial[:1] or "✦")).style(
-                            'font-size: 72px; font-family: "Yu Mincho", serif; color: var(--peri);'
-                        )
-            sparkle_field(14)
-            with ui.element("div").classes("hint"):
-                ui.html("生 成 中 …")
-        ui.run_javascript("window.p3SparkleFill && window.p3SparkleFill();")
 
     def reset(self) -> None:
         self._progress.reset()
@@ -404,8 +346,9 @@ class ForgePanel:
                         ui.html(kanji_number(row.no))
                     with ui.element("span").classes("nm"):
                         ui.html(html.escape(row.name))
-                    with ui.element("span").classes("st"):
-                        ui.html(html.escape(row.detail))
+                    # 本文(row.detail)は表示しない — チェック(done)/カーソル(now)は
+                    # CSS疑似要素で描画。詳細はブレインストーミングログ側に出る
+                    ui.element("span").classes("st")
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self._status.clear()

@@ -517,14 +517,8 @@ async def ui2_generation_page() -> None:
             if job.profile.id in profile_options:
                 profile_select.set_value(job.profile.id)
             forge_panel.reset()
-            base = None
             if job.base_character_id:
-                base = await ctx.characters.get(job.base_character_id)
-                current["base_char"] = base
-            forge_panel.set_portrait(
-                base.media.primary_image() if base is not None else None,
-                (base.name if base is not None else "✦")[:1],
-            )
+                current["base_char"] = await ctx.characters.get(job.base_character_id)
             ask.set_visibility(False)
             born.set_visibility(False)
             forge.set_visibility(True)

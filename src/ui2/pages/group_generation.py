@@ -734,10 +734,6 @@ async def ui2_group_generation_page(group_id: str) -> None:
             if job.profile.id in profile_options:
                 profile_select.set_value(job.profile.id)
             forge_panel.reset()
-            forge_panel.set_portrait(
-                base_member.character.media.primary_image() if base_member is not None else None,
-                (base_member.character.name if base_member is not None else "✦")[:1],
-            )
             ask.set_visibility(False)
             born.set_visibility(False)
             forge.set_visibility(True)
