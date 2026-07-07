@@ -17,8 +17,7 @@ async def test_v2_settings_renders_sections(nicegui_smoke_app) -> None:
     await user.should_see("チャットモード")
     await user.should_see("ユーザーペルソナ")
     await user.should_see("ナレーター")
-    await user.should_see("ピックアップの選び方")
-    await user.should_see("テーマ")
+    await user.should_see("表示と動作")
 
 
 async def test_v2_settings_add_endpoint_flow(nicegui_smoke_app) -> None:
@@ -57,11 +56,15 @@ async def test_v2_settings_vault_setup_flow(nicegui_smoke_app) -> None:
 async def test_v2_settings_pickup_policy_persists(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
     await user.open("/v2/settings")
+    user.find(marker="ui2-settings-general").click()
+    await user.should_see("ピックアップの選び方")
     select = list(user.find(marker="ui2-settings-pickup-policy").elements)[0]
     select.set_value("daily")
     await user.should_see("ピックアップの選び方を保存しました")
     # 再訪しても選択値が保持されている(storage.user 永続)
     await user.open("/v2/settings")
+    user.find(marker="ui2-settings-general").click()
+    await user.should_see("ピックアップの選び方")
     select = list(user.find(marker="ui2-settings-pickup-policy").elements)[0]
     assert select.value == "daily"
 

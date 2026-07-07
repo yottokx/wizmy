@@ -4,9 +4,8 @@
 focus 切替で駆動する。1:1(単独立ち絵)では不要だったため Phase 4 で新設
 (HANDOFF 申し送り: 1:1/グループ共用想定のコンポーネント)。
 
-表示は **バストショット**(`bust_rect` ズーム。ユーザー確定 2026-07-07)。
-`<img>` の object-fit ではズームできないため div+background
-(`portrait.rect_crop_style`)で描く。bust_rect 未設定の画像は cover に降格。
+表示は 1:1 チャットの立ち絵と同じ(cover+bust 矩形基準の position。
+ユーザー確定 2026-07-07、バストズーム案から差し戻し)。div+background で描く。
 CSS(.portrait / .pname / .pocc / .pt.on の opacity 遷移)はページ側で定義する。
 """
 
@@ -19,10 +18,7 @@ from pathlib import Path
 from nicegui import ui
 
 from ...core.character.schemas import CharacterImageAsset
-from .portrait import rect_crop_style
-
-# presence 枠(約330px幅×可変高)の近似縦横比。ズレは縦位置の寄せに留まる
-_PRESENCE_FRAME_ASPECT = 1.6
+from .portrait import image_object_position, media_url
 
 
 @dataclass(frozen=True)
@@ -49,14 +45,15 @@ class PresenceStage:
         self._images.clear()
         self._entries = {entry.key: entry for entry in entries}
         for entry in entries:
-            style = rect_crop_style(
-                entry.image,
-                entry.image_path,
-                kind="bust",
-                frame_aspect=_PRESENCE_FRAME_ASPECT,
-            )
-            if not style:
+            url = media_url(entry.image.path) if entry.image is not None else None
+            if url is None:
                 continue
+            # 1:1 チャットの img(object-fit: cover + bust 基準 object-position)と同じ見え方
+            style = (
+                f'background-image: url("{url}"); background-repeat: no-repeat;'
+                " background-size: cover;"
+                f" background-position: {image_object_position(entry.image, 'bust')};"
+            )
             self._images[entry.key] = ui.element("div").classes("pt").style(style)
         self._name = ui.element("div").classes("pname serif")
         self._sub = ui.element("div").classes("pocc")

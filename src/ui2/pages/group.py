@@ -62,6 +62,7 @@ from ...services.tts import TTSServiceError
 from ...ui.state import get_vault_password
 from ..chat_commands import command_suggestions, parse_command_input, resolve_chat_command
 from ..components.busy import BusyController
+from ..components.composer import COMPOSER_CSS, install_composer_gestures, render_swipe_menu
 from ..components.portrait import face_avatar
 from ..components.presence import PresenceEntry, PresenceStage
 from ..group_logic import (
@@ -82,6 +83,7 @@ from ..group_logic import (
     active_members as _active_members_of,
 )
 from ..group_setup import (
+    PICKER_CSS,
     chip_button,
     enhance_relationship_text,
     generate_handles_values,
@@ -101,8 +103,18 @@ _PAGE_CSS = (
     """
 /* 高さは固定値の引き算をしない(HANDOFF f項) */
 body { height: 100vh; height: 100dvh; overflow: hidden; }
+/* スマホでの欄外パン・引っ張りスクロールを抑止 */
+html, body { overscroll-behavior: none; }
 #app, #q-app, .q-layout, .q-page-container, .q-page { height: 100%; min-height: 0 !important; }
-.nicegui-content { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.nicegui-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch; /* NiceGUI 既定 flex-start だと子が内容幅に縮む */
+  gap: 0;               /* NiceGUI 既定 gap の無駄な余白を除去 */
+  min-height: 0;
+  overflow-x: hidden;
+}
 .wz-nav, .gband { flex: none; }
 
 /* ---------- 箱庭バンド ---------- */
@@ -147,6 +159,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .gband .back:hover { color: var(--text); border-color: var(--muted); }
 
 .shell {
+  position: relative;
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr) 330px;
   flex: 1;
@@ -249,13 +262,13 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .msg .who { font-size: 12.5px; letter-spacing: .16em; color: var(--peri); margin: 2px 0 6px; }
 .msg .who .hd { color: var(--muted); letter-spacing: .04em; font-size: 11px; }
 .msg .bubble { padding: 12px 18px; font-size: 15px; border-top-left-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg .ops { display: flex; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; align-items: center; }
+.msg .ops { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; align-items: center; }
 .msg:hover .ops { opacity: 1; }
 .msg.user { flex-direction: row-reverse; }
 .msg.user .bubble { background: var(--bubble-user); border-top-left-radius: 18px; border-top-right-radius: 6px; }
 .msg.user .who { text-align: right; color: var(--muted); }
 .msg.user .ops { justify-content: flex-end; }
-.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; }
+.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; white-space: nowrap; }
 .ops .tm { font-size: 11px; color: var(--muted); }
 
 .empty-stream { padding-top: 8vh; text-align: center; }
@@ -264,19 +277,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 /* ---------- コンポーザー ---------- */
 .composer { padding: 14px 34px 20px; border-top: 1px solid var(--line); }
 .composer-inner { max-width: 760px; margin: 0 auto; }
-.comp-tools { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
-.comp-row { display: flex; gap: 12px; align-items: flex-end; }
-.comp-input { flex: 1; }
-.comp-input .q-field__control {
-  background: var(--panel);
-  border: 1px solid var(--line-2);
-  border-radius: 20px;
-  padding: 6px 20px;
-  min-height: 52px;
-  color: var(--text);
-}
-.comp-input .q-field__control:before, .comp-input .q-field__control:after { display: none; }
-.comp-input textarea { color: var(--text) !important; font-size: 15px; line-height: 1.6; }
+/* 入力ボックス(ロール埋め込み)とスワイプメニューは components/composer.py の COMPOSER_CSS */
 .comp-send[disabled] { opacity: .5; pointer-events: none; }
 
 /* コマンドパレット(1:1 と同じ P3 トーン) */
@@ -354,7 +355,8 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
   overflow: hidden;
   min-height: 0;
 }
-.presence .portrait { position: relative; flex: 1; min-height: 90px; }
+/* 立ち絵は右ペイン全域に固定(住人パネルの開閉の影響を受けない) */
+.presence .portrait { position: absolute; inset: 0; }
 /* バストショット(bust_rect ズーム)は div+background で描く(.pt) */
 .presence .portrait img, .presence .portrait .pt {
   position: absolute; inset: 0;
@@ -367,15 +369,42 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 }
 .presence .portrait img.on, .presence .portrait .pt.on { opacity: 1; }
 .presence .pname {
-  position: absolute; left: 20px; bottom: 14px; z-index: 2;
+  position: absolute; left: 20px; bottom: 56px; z-index: 2;
   font-size: 18px; letter-spacing: .12em;
 }
 .presence .pocc {
-  position: absolute; left: 20px; bottom: 2px; z-index: 2;
+  position: absolute; left: 20px; bottom: 44px; z-index: 2;
   font-size: 11px; color: var(--muted); letter-spacing: .04em;
 }
-.cast { padding: 16px 14px 14px; border-top: 1px solid var(--line); max-height: 55%; overflow-y: auto; flex: none; }
-.cast .lbl { font-size: 10.5px; letter-spacing: .3em; color: var(--muted); margin: 0 4px 10px; }
+/* 「この世界の住人」= 立ち絵に重なる下端オーバーレイ(アコーディオン) */
+.cast {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(10px);
+  max-height: 60%;
+  overflow-y: auto;
+}
+.cast .lbl { font-size: 10.5px; letter-spacing: .3em; color: var(--muted); margin: 0 4px; }
+.cast-head {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  background: none; border: none; padding: 0;
+  cursor: pointer;
+}
+.cast-head .lbl { flex: 1; text-align: left; }
+.cast-head .caret { color: var(--muted); font-size: 10px; transition: transform .18s; margin-right: 4px; }
+.cast-head:hover .lbl, .cast-head:hover .caret { color: var(--text); }
+.cast .cast-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  margin-top: 10px;
+  transition: grid-template-rows .25s ease, margin-top .25s ease;
+}
+.cast .cast-inner { overflow: hidden; min-height: 0; }
+.cast.closed .caret { transform: rotate(-90deg); }
+.cast.closed .cast-body { grid-template-rows: 0fr; margin-top: 0; }
 .member {
   position: relative;
   display: flex; align-items: center; gap: 11px;
@@ -438,31 +467,6 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .rel-row .tx { font-size: 12.5px; color: var(--muted); line-height: 1.7; margin-top: 4px; white-space: pre-wrap; }
 .rel-head { display: flex; align-items: center; gap: 6px; }
 .rel-head .sp { flex: 1; }
-
-/* ピッカー(pcard) */
-.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-.pcard {
-  position: relative;
-  aspect-ratio: 3 / 4;
-  border-radius: 16px;
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  transition: transform .18s, border-color .18s, box-shadow .18s;
-}
-.pcard:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: var(--shadow); }
-.pcard img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.pcard .p-ph {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  color: var(--peri); font-size: 44px; font-family: "Yu Mincho", serif;
-  background: var(--panel-2);
-}
-.pcard .veil { position: absolute; inset: 0; background: linear-gradient(to top, rgba(7,9,26,.9), transparent 52%); }
-.pcard .info { position: absolute; left: 12px; right: 12px; bottom: 10px; color: #f4f5ff; }
-.pcard .nm { font-size: 13.5px; letter-spacing: .06em; line-height: 1.4; }
-.pcard .st { font-size: 10.5px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .picks { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .pick {
@@ -550,35 +554,46 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 
 /* ============ 縦画面・スマホ ============ */
 @media (max-width: 860px) {
-  .gband { padding: 10px 14px; gap: 12px; }
-  .gband .gname { font-size: 15px; }
+  /* ヘッダ(gband)は1行に圧縮: 名前は省略、情報バッジは隠して「管理」のみ残す */
+  .gband { padding: 5px 10px; gap: 8px; min-width: 0; max-width: 100vw; }
+  .gband .back { width: 28px; height: 28px; font-size: 13px; }
+  .gband .gname { font-size: 14.5px; letter-spacing: .08em; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .gband .gworld { display: none; }
-  .gband .chips { overflow-x: auto; }
+  .gband .chip:not(.manage) { display: none; }
+  .gband .chips { overflow: hidden; flex: none; min-width: 0; }
   .gband .chip { white-space: nowrap; }
   .shell { display: flex; flex-direction: column; }
+  /* 背景画像はヘッダを除いたクライアント領域(.shell)全体にはめ込む */
   .presence {
-    position: fixed;
-    right: -6vw; bottom: 0;
-    width: 84vw; max-width: 430px;
-    height: 62dvh;
+    position: absolute;
+    inset: 0;
+    width: auto; max-width: none; height: auto;
     border-left: none;
     z-index: 0;
     pointer-events: none;
-    opacity: .22;
+    opacity: .2;
   }
   .presence .pname, .presence .pocc, .presence .cast { display: none; }
   .stream-wrap { position: relative; z-index: 1; flex: 1; min-height: 0; }
-  .mobile-cast { display: flex; }
-  .stream-head { padding: 10px 14px; gap: 10px; }
-  .stream-head .t { font-size: 13.5px; }
+  /* キャストバーは横1行のコンパクト表示 */
+  .mobile-cast { display: flex; gap: 10px; padding: 6px 12px; }
+  .mc-item { display: flex; align-items: center; gap: 6px; text-align: left; }
+  .mc-item .avatar, .mc-item .avatar-ph { width: 28px; height: 28px; font-size: 12px; }
+  .mc-item .mc-nm { margin-top: 0; font-size: 10.5px; max-width: 76px; }
+  /* セッションヘッダも1行圧縮 */
+  .stream-head { padding: 5px 10px; gap: 8px; }
+  .stream-head .t { font-size: 13px; }
   .stream-head .w { display: none; }
-  .stream { padding: 20px 16px 12px; }
+  .hist-btn { white-space: nowrap; flex: none; padding: 4px 10px; font-size: 12px; }
+  .stream { padding: 12px 12px 8px; overflow-x: hidden; }
+  .stream-inner { gap: 14px; }
+  .msg { gap: 10px; }
   .msg .bubble { font-size: 14.5px; padding: 10px 14px; }
-  .msg .avatar, .msg .avatar-ph { width: 38px; height: 38px; }
-  .msg .ops, .narr-wrap .ops, .memo .ops { opacity: .75; }
-  .composer { padding: 10px 14px 14px; }
-  .comp-tools { overflow-x: auto; }
-  .comp-tools .chip { white-space: nowrap; }
+  .msg .avatar, .msg .avatar-ph { width: 34px; height: 34px; }
+  .msg .who { margin: 0 0 4px; }
+  .msg .ops, .narr-wrap .ops, .memo .ops { opacity: .75; gap: 2px; }
+  .ops .btn.quiet { font-size: 11px; padding: 1px 8px; }
+  .composer { padding: 8px 10px 10px; }
 }
 
 /* ============ 低い画面 ============ */
@@ -589,8 +604,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
   .stream { padding: 18px 34px 12px; }
   .stream-inner { gap: 18px; }
   .composer { padding: 8px 34px 12px; }
-  .comp-tools { margin-bottom: 6px; }
-  .comp-input .q-field__control { min-height: 44px; padding: 2px 18px; }
+  .comp-input .q-field__control { min-height: 30px; }
 }
 """
     + DIFF_CSS
@@ -875,6 +889,7 @@ class Ui2GroupChatController:
         self.stream_inner: ui.element | None = None
         self.input: ui.textarea | None = None
         self.send_btn: ui.element | None = None
+        self.role_chip: ui.element | None = None
         self.role_chip_label: ui.html | None = None
         self.role_menu_box: ui.element | None = None
         self.palette: ui.element | None = None
@@ -1101,59 +1116,80 @@ class Ui2GroupChatController:
                         self.mention_palette = ui.element("div").classes("p3-mention-palette hidden").props(
                             "role=listbox"
                         )
-                        with ui.element("div").classes("comp-tools"):
-                            role_chip = ui.element("button").classes("chip").mark("ui2-group-role-chip")
-                            with role_chip:
-                                self.role_chip_label = ui.html(self._role_chip_text())
-                                self.role_menu_box = ui.menu()
-                            self.refresh_role_menu()
-                            _chip = chip_button
-                            _chip("話者を指定", lambda: self._run_chip_command("guide"), title="/guide 次の行動者と指示を指定")
-                            _chip("選択肢", lambda: self._run_chip_command("choices"), title="/choices 返答候補を3つ生成")
-                            _chip("補完", lambda: self._run_chip_command("fill"), title="/fill 続きを補完")
-                            _chip("整える", lambda: self._run_chip_command("tailor"), title="/tailor 現在のロール向けに書き換え")
-                            _chip("描写", lambda: self._run_chip_command("describe"), title="/describe 地の文を自動生成")
+                        render_swipe_menu(self._run_chip_command)
                         with ui.element("div").classes("comp-row"):
-                            self.input = (
-                                ui.textarea(placeholder="メッセージを入力（/ でコマンド・@ でメンション）")
-                                .props("borderless dense rows=1 autogrow")
-                                .classes("comp-input")
-                                .mark("ui2-group-input")
-                            )
-                            self.input.on_value_change(lambda e: self._refresh_command_palette(str(e.value or "")))
-                            self.input.on("keydown", self._send_from_enter, js_handler=_COMPOSER_KEYDOWN_JS)
-                            for event in ("keyup", "click", "focus"):
-                                self.input.on(event, js_handler=_MENTION_REFRESH_JS)
-                            self.input.on(
-                                "blur",
-                                js_handler="event => { setTimeout(() => {"
-                                "document.querySelector('.p3-mention-palette')?.classList.add('hidden');"
-                                "}, 120); }",
-                            )
+                            with ui.element("div").classes("comp-box"):
+                                self.role_chip = (
+                                    ui.element("button")
+                                    .classes(f"comp-role role-{self.input_mode}")
+                                    .mark("ui2-group-role-chip")
+                                )
+                                with self.role_chip:
+                                    self.role_chip_label = ui.html(html.escape(self._role_chip_text()))
+                                    self.role_menu_box = ui.menu().classes("wz-nav-menu")
+                                self.refresh_role_menu()
+                                self.input = (
+                                    ui.textarea(placeholder="メッセージを入力")
+                                    .props("borderless dense rows=1 autogrow")
+                                    .classes("comp-input")
+                                    .mark("ui2-group-input")
+                                )
+                                self.input.on_value_change(lambda e: self._refresh_command_palette(str(e.value or "")))
+                                self.input.on("keydown", self._send_from_enter, js_handler=_COMPOSER_KEYDOWN_JS)
+                                for event in ("keyup", "click", "focus"):
+                                    self.input.on(event, js_handler=_MENTION_REFRESH_JS)
+                                self.input.on(
+                                    "blur",
+                                    js_handler="event => { setTimeout(() => {"
+                                    "document.querySelector('.p3-mention-palette')?.classList.add('hidden');"
+                                    "}, 120); }",
+                                )
                             self.send_btn = ui.element("button").classes("btn primary comp-send").mark("ui2-group-send")
                             with self.send_btn:
                                 ui.html("送信")
-                            self.send_btn.on("click", lambda: self.send_message(True))
+                            install_composer_gestures(
+                                self.input,
+                                self.send_btn,
+                                lambda: self.send_message(True),
+                                self._guide_from_long_tap,
+                            )
 
             # ---- 右: presence+住人 ----
             with ui.element("aside").classes("presence"):
                 with ui.element("div").classes("portrait"):
                     self.presence.render(self._presence_entries())
-                with ui.element("div").classes("cast"):
-                    with ui.element("div").classes("lbl"):
-                        ui.html("この世界の住人")
-                    self.cast_box = ui.element("div").classes("members").mark("ui2-group-cast")
-                    with ui.element("div").classes("add-row"):
-                        p3_button(
-                            "+ 既存キャラを適応して迎える",
-                            lambda: self.open_add_member_dialog(),
-                            classes="btn quiet",
-                        ).mark("ui2-group-add-member")
-                        p3_button(
-                            "+ この世界で生成",
-                            lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/generation"),
-                            classes="btn quiet",
-                        )
+                cast_state = {"open": bool(app.storage.user.get("ui2_group_cast_open", False))}
+                cast = ui.element("div").classes("cast" if cast_state["open"] else "cast closed")
+                with cast:
+                    cast_head = ui.element("button").classes("cast-head").mark("ui2-group-cast-toggle")
+                    with cast_head:
+                        with ui.element("span").classes("lbl"):
+                            ui.html("この世界の住人")
+                        with ui.element("span").classes("caret"):
+                            ui.html("▾")
+                    with ui.element("div").classes("cast-body"), ui.element("div").classes("cast-inner"):
+                        self.cast_box = ui.element("div").classes("members").mark("ui2-group-cast")
+                        with ui.element("div").classes("add-row"):
+                            p3_button(
+                                "+ 既存キャラを適応して迎える",
+                                lambda: self.open_add_member_dialog(),
+                                classes="btn quiet",
+                            ).mark("ui2-group-add-member")
+                            p3_button(
+                                "+ この世界で生成",
+                                lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/generation"),
+                                classes="btn quiet",
+                            )
+
+                def _toggle_cast() -> None:
+                    cast_state["open"] = not cast_state["open"]
+                    if cast_state["open"]:
+                        cast.classes(remove="closed")
+                    else:
+                        cast.classes("closed")
+                    app.storage.user["ui2_group_cast_open"] = cast_state["open"]
+
+                cast_head.on("click", _toggle_cast)
 
         self.busy = BusyController()
         self.refresh_mention_palette()
@@ -1489,31 +1525,40 @@ class Ui2GroupChatController:
     # ロールチップ・パレット
     # ------------------------------------------------------------------
 
+    def _user_role_label(self) -> str:
+        persona = self.group.user_persona
+        if persona is None:
+            return "ユーザー"
+        return persona.display_name or persona.name or "ユーザー"
+
     def _role_chip_text(self) -> str:
         if self.input_mode == "character":
             speaker = self._manual_character_speaker()
-            return f"キャラ: {speaker.character.name}" if speaker else "キャラ: 未選択"
+            return speaker.character.name if speaker else "キャラ未選択"
         if self.input_mode == "guest":
-            return f"ゲスト: {self.guest_input_name or '未指定'}"
+            return guest_display_name(self.guest_input_name) if self.guest_input_name else "ゲスト"
         if self.input_mode == "narration":
-            return "ロール: ナラティブ"
+            return "ナラティブ"
         if self.input_mode == "memo":
-            return "ロール: コメント"
-        return "ロール: ユーザー"
+            return "コメント"
+        return self._user_role_label()
 
     def refresh_input_mode_chip(self) -> None:
         if self.role_chip_label is not None:
             self.role_chip_label.set_content(html.escape(self._role_chip_text()))
+        if self.role_chip is not None:
+            self.role_chip.classes(remove="role-user role-character role-guest role-narration role-memo")
+            self.role_chip.classes(f"role-{self.input_mode}")
 
     def refresh_role_menu(self) -> None:
         if self.role_menu_box is None:
             return
         self.role_menu_box.clear()
         with self.role_menu_box:
-            ui.menu_item("ユーザー", on_click=lambda: self.set_input_mode("user"))
+            ui.menu_item(self._user_role_label(), on_click=lambda: self.set_input_mode("user"))
             for member in self.active_members():
                 ui.menu_item(
-                    f"キャラ: {member.character.name}",
+                    member.character.name,
                     on_click=lambda m=member: self.set_character_input_member(m),
                 )
             ui.menu_item("ゲスト…", on_click=lambda: self.open_guest_input_mode_dialog())
@@ -1528,7 +1573,7 @@ class Ui2GroupChatController:
             self.character_speaker = None
         self.refresh_input_mode_chip()
         if notify_change:
-            ui.notify(f"{self._role_chip_text()} にしました", type="info")
+            ui.notify(f"{self._role_chip_text()}入力モードにしました", type="info")
 
     def set_character_input_member(self, member: GroupMember) -> None:
         self.character_speaker = member
@@ -1654,6 +1699,14 @@ class Ui2GroupChatController:
             self.palette.clear()
             self.palette.classes("hidden")
         submitted = f"{left_text.rstrip()}/{command}" if left_text.strip() else f"/{command}"
+        await self.send_message(False, submitted)
+
+    async def _guide_from_long_tap(self, e) -> None:
+        """送信ボタンのロングタップ(旧UIパリティ): 入力値を指示にして /guide を送る。"""
+        value = str(e.args[0] or "") if isinstance(e.args, list) and e.args else str(e.args or "")
+        parsed = parse_command_input(value)
+        left_text = parsed[0] if parsed is not None else value
+        submitted = f"{left_text.rstrip()}/guide" if left_text.strip() else "/guide"
         await self.send_message(False, submitted)
 
     async def _send_from_enter(self, e) -> None:
@@ -3758,6 +3811,6 @@ async def ui2_group_page(group_id: str) -> None:
     await controller.initialize()
 
     with p3_page("グループ"):
-        ui.add_css(_PAGE_CSS)
+        ui.add_css(_PAGE_CSS + PICKER_CSS + COMPOSER_CSS)
         controller.render_band()
         controller.render_shell()

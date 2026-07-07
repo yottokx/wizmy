@@ -256,8 +256,41 @@ def short_text(text: str, limit: int = 180) -> str:
 # ---------------------------------------------------------------------------
 
 
+# 横画面の設定ページ用: 登録中は settings_dialog がモーダルではなくこのコンテナへ描画する
+_inline_hosts: list = []
+
+
+class _InlineSettingsPanel:
+    """settings_dialog の戻り値互換(inline 描画時は open/close とも何もしない)。"""
+
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def push_inline_settings_host(container) -> None:
+    """以降の settings_dialog を container へ inline 描画させる(pop まで)。"""
+    _inline_hosts.append(container)
+
+
+def pop_inline_settings_host() -> None:
+    _inline_hosts.pop()
+
+
 def settings_dialog(title: str, *, max_width: str = "900px"):
-    """設定管理用のダイアログ(P3スキン)。`with settings_dialog(...) as (dlg, body):` で使う。"""
+    """設定管理用のダイアログ(P3スキン)。`with settings_dialog(...) as (dlg, body):` で使う。
+
+    横画面の設定ページ(inline ホスト登録中)ではモーダルを作らず右ペインへ描画する。
+    """
+    if _inline_hosts:
+        host = _inline_hosts[-1]
+        host.clear()
+        with host:
+            ui.label(title).classes("serif set-inline-title")
+            body = ui.column().classes("w-full gap-3")
+        return _InlineSettingsPanel(), body
     dlg = ui.dialog()
     with dlg:
         with ui.card().classes("w-full").style(
@@ -325,6 +358,8 @@ __all__ = [
     "moved_order",
     "notify_order_saved",
     "p3_button",
+    "pop_inline_settings_host",
+    "push_inline_settings_host",
     "settings_dialog",
     "short_text",
 ]

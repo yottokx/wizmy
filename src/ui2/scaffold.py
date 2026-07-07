@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from nicegui import ui
 
 from ..app_context import get_context
+from ..ui.state import is_vault_unlocked, set_vault_password
 from .components.sparkle import SPARKLE_CSS, install_sparkle_script
 from .theme import (
     DEFAULT_THEME,
@@ -79,6 +80,9 @@ body {
   position: sticky;
   top: 0;
   z-index: 50;
+  /* chat/group は .nicegui-content を flex column に戻すため、
+     NiceGUI 既定の align-items: flex-start で内容幅に縮まないよう明示する */
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 28px;
@@ -248,6 +252,28 @@ body {
 }
 .wz-ai-badge.hidden { display: none; }
 
+/* ボルト未解錠バッジ(横画面のみ。縦画面はメニュー内に表示) */
+.wz-vault-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--peri);
+  background: color-mix(in srgb, var(--peri) 14%, transparent);
+  color: var(--peri);
+  border-radius: 999px;
+  padding: 4px 13px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background .18s;
+  white-space: nowrap;
+}
+.wz-vault-badge:hover { background: color-mix(in srgb, var(--peri) 24%, transparent); }
+.wz-vault-badge.hidden { display: none; }
+@media (orientation: portrait) {
+  .wz-vault-badge { display: none; }
+}
+
 .q-drawer { background: var(--panel) !important; color: var(--text) !important; }
 .wz-jobs-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -283,13 +309,38 @@ body {
 .wz-st.succeeded { color: #8fd0a0; border-color: #8fd0a0; }
 .wz-st.failed { color: #e08a8a; border-color: #e08a8a; }
 
+/* ---------- 縦画面ナビ: メニューボタン+ドロップダウン ---------- */
+.wz-menu-btn { display: none; }
+.wz-nav-menu {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 190px;
+}
+.wz-nav-menu .q-item { font-size: 14px; color: var(--muted); letter-spacing: .04em; }
+.wz-nav-menu .q-item:hover { color: var(--text); }
+.wz-nav-menu .q-item.on { color: var(--text); background: var(--panel-2); }
+
+/* 縦画面ではメニューを常時表示せず、右上のボタンでドロップダウンを開く */
+@media (orientation: portrait) {
+  .wz-nav .links { display: none; }
+  .wz-menu-btn { display: inline-flex; align-items: center; }
+}
+
 /* ナビの縦画面対応 */
 @media (max-width: 700px) {
-  .wz-nav { gap: 14px; padding: 8px 14px; }
-  .wz-logo { height: 28px; }
+  .wz-nav { gap: 10px; padding: 5px 12px; }
+  .wz-logo { height: 24px; }
   .wz-nav .links { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .wz-nav .links a { white-space: nowrap; padding: 5px 11px; font-size: 12.5px; }
-  .theme-btn { white-space: nowrap; }
+  .theme-btn { white-space: nowrap; padding: 4px 11px; font-size: 11.5px; }
+}
+
+/* スマホ: 16px未満の入力はフォーカス時にブラウザが自動ズームするため底上げする */
+@media (max-width: 860px) {
+  input, textarea, select,
+  .q-field__native, .q-field__input { font-size: 16px; }
 }
 
 /* スクロールバー(WebKit) */
@@ -429,23 +480,69 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
             _quiet_button("閉じる", lambda: jobs_drawer.hide())
         jobs_container = ui.element("div").classes("wz-jobs-body")
 
+    # ---- ボルト解錠(設定済み・未解錠のときだけナビ/メニューに表示) ----
+    def _vault_locked() -> bool:
+        try:
+            return get_context().api_config.is_vault_setup() and not is_vault_unlocked()
+        except Exception:
+            return False
+
+    def _open_vault_unlock() -> None:
+        with ui.dialog() as dlg, ui.card().classes("w-full max-w-sm").style(
+            "background: var(--panel); color: var(--text);"
+        ):
+            ui.label("APIキーボルトの解錠").classes("text-base font-semibold mb-2")
+            pw_input = (
+                ui.input(label="ボルトのパスワード")
+                .props("type=password outlined dense autofocus")
+                .classes("w-full")
+                .mark("ui2-vault-unlock-pw")
+            )
+
+            def _unlock() -> None:
+                password = str(pw_input.value or "")
+                if get_context().api_config.verify_vault_password(password):
+                    set_vault_password(password)
+                    ui.notify("ボルトを解錠しました", type="positive")
+                    dlg.close()
+                    _sync_vault_badge()
+                else:
+                    ui.notify("パスワードが違います", type="negative")
+
+            pw_input.on("keydown.enter", _unlock)
+            with ui.row().classes("justify-end gap-2 mt-3 w-full"):
+                _quiet_button("キャンセル", dlg.close)
+                unlock_btn = ui.element("button").classes("btn primary").mark("ui2-vault-unlock")
+                with unlock_btn:
+                    ui.html("解錠")
+                unlock_btn.on("click", _unlock)
+        dlg.open()
+
     # ---- ナビゲーション ----
+    def _nav_links() -> None:
+        for item in NAV_ITEMS:
+            link = ui.element("a")
+            with link:
+                ui.html(item["label"])
+            route = item["route"]
+            if route is None:
+                link.classes("todo").props('title="実装予定(後続Phase)"')
+            else:
+                if item["label"] == active:
+                    link.classes("on")
+                link.on("click", lambda r=route: ui.navigate.to(r))
+
     with ui.element("nav").classes("wz-nav"):
         logo = ui.html(wizmy_logo_svg(), sanitize=False).classes("wz-logo")
         logo.on("click", lambda: ui.navigate.to("/v2"))
         with ui.element("div").classes("links"):
-            for item in NAV_ITEMS:
-                link = ui.element("a")
-                with link:
-                    ui.html(item["label"])
-                route = item["route"]
-                if route is None:
-                    link.classes("todo").props('title="実装予定(後続Phase)"')
-                else:
-                    if item["label"] == active:
-                        link.classes("on")
-                    link.on("click", lambda r=route: ui.navigate.to(r))
+            _nav_links()
         ui.element("div").classes("grow")
+
+        vault_badge = ui.element("button").classes("wz-vault-badge hidden").mark("ui2-vault-badge")
+        with vault_badge:
+            ui.html("🔒 ボルト未解錠")
+        vault_badge.on("click", _open_vault_unlock)
 
         ai_badge = ui.element("button").classes("wz-ai-badge hidden").mark("ui2-ai-jobs-badge")
         with ai_badge:
@@ -466,7 +563,34 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
 
         theme_btn.on("click", _toggle_theme)
 
+        menu_btn = ui.element("button").classes("theme-btn wz-menu-btn").mark("ui2-nav-menu")
+        with menu_btn:
+            ui.html("☰")
+            with ui.menu().classes("wz-nav-menu"):
+                for item in NAV_ITEMS:
+                    route = item["route"]
+                    if route is None:
+                        ui.menu_item(item["label"]).props("disable")
+                        continue
+                    menu_item = ui.menu_item(
+                        item["label"], on_click=lambda r=route: ui.navigate.to(r)
+                    )
+                    if item["label"] == active:
+                        menu_item.classes("on")
+                # 縦画面ではボルト解錠導線をメニュー内に出す(未解錠時のみ)
+                vault_menu_item = ui.menu_item("🔒 ボルトを解錠", on_click=_open_vault_unlock).mark(
+                    "ui2-vault-menu-item"
+                )
+
     # ---- バッジ同期(旧 layout.py と同じ 1秒タイマー) ----
+    def _sync_vault_badge() -> None:
+        locked = _vault_locked()
+        if locked:
+            vault_badge.classes(remove="hidden")
+        else:
+            vault_badge.classes("hidden")
+        vault_menu_item.set_visibility(locked)
+
     def _sync_ai_badge() -> None:
         try:
             ctx = get_context()
@@ -477,6 +601,7 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
                 ai_badge.classes("hidden")
             if jobs_drawer.value:
                 _refresh_jobs()
+            _sync_vault_badge()
         except Exception:
             pass
 

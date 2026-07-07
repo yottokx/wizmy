@@ -19,6 +19,8 @@ class UserPersona(BaseModel):
     name: str
     persona_name: str = ""
     description: str = ""
+    # グループチャットのメンション用固定ハンドル(空ならグループ作成時に既定値を使う)
+    fixed_handle: str = ""
     media: CharacterMedia = Field(default_factory=CharacterMedia)
 
     @property

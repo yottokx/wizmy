@@ -75,17 +75,30 @@ from ..chat_logic import (
     most_recent_partner_id,
     user_persona_from_character_sheet,
 )
+from ..components.composer import COMPOSER_CSS, install_composer_gestures, render_swipe_menu
 from ..components.portrait import face_avatar, image_object_position, media_url, raw_img
+from ..group_setup import PICKER_CSS, open_character_pick_dialog
 from ..scaffold import p3_page
 
 # モック chat.html の <style> 移植+P3コンポーザー/パレット/メモ/操作列の追補
 _PAGE_CSS = """
 /* 高さは固定値の引き算をしない(HANDOFF f項): body縦フレックス+min-height:0 */
 body { height: 100vh; height: 100dvh; overflow: hidden; }
+/* スマホでの欄外パン・引っ張りスクロールを抑止 */
+html, body { overscroll-behavior: none; }
 #app, #q-app, .q-layout, .q-page-container, .q-page { height: 100%; min-height: 0 !important; }
-.nicegui-content { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.nicegui-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch; /* NiceGUI 既定 flex-start だと子が内容幅に縮む */
+  gap: 0;               /* NiceGUI 既定 gap の無駄な余白を除去 */
+  min-height: 0;
+  overflow-x: hidden;
+}
 .wz-nav { flex: none; }
 .shell {
+  position: relative;
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr) 330px;
   flex: 1;
@@ -197,13 +210,13 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .msg .body { min-width: 0; }
 .msg .who { font-size: 12.5px; letter-spacing: .16em; color: var(--peri); margin: 2px 0 6px; }
 .msg .bubble { padding: 12px 18px; font-size: 15px; border-top-left-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg .ops { display: flex; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; align-items: center; }
+.msg .ops { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; align-items: center; }
 .msg:hover .ops { opacity: 1; }
 .msg.user { flex-direction: row-reverse; }
 .msg.user .bubble { background: var(--bubble-user); border-top-left-radius: 18px; border-top-right-radius: 6px; }
 .msg.user .who { text-align: right; color: var(--muted); }
 .msg.user .ops { justify-content: flex-end; }
-.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; }
+.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; white-space: nowrap; }
 .ops .tm { font-size: 11px; color: var(--muted); }
 
 /* 初対面(セッション0件)の空状態 */
@@ -215,19 +228,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 /* ---------- コンポーザー ---------- */
 .composer { padding: 14px 34px 20px; border-top: 1px solid var(--line); }
 .composer-inner { max-width: 760px; margin: 0 auto; }
-.comp-tools { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
-.comp-row { display: flex; gap: 12px; align-items: flex-end; }
-.comp-input { flex: 1; }
-.comp-input .q-field__control {
-  background: var(--panel);
-  border: 1px solid var(--line-2);
-  border-radius: 20px;
-  padding: 6px 20px;
-  min-height: 52px;
-  color: var(--text);
-}
-.comp-input .q-field__control:before, .comp-input .q-field__control:after { display: none; }
-.comp-input textarea { color: var(--text) !important; font-size: 15px; line-height: 1.6; }
+/* 入力ボックス(ロール埋め込み)とスワイプメニューは components/composer.py の COMPOSER_CSS */
 .comp-send[disabled] { opacity: .5; pointer-events: none; }
 
 /* コマンドパレット(入力末尾の / で開く。モック未着手のため P3 トーンで新設) */
@@ -292,7 +293,8 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .cast .lbl { font-size: 10.5px; letter-spacing: .3em; color: var(--muted); margin-bottom: 12px; }
 .cast .solo-ops { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* ---------- 相手ピッカー(オーバーレイ) ---------- */
+/* ---------- 相手ピッカー(オーバーレイ) ----------
+   パネル・検索・pcard のスキンは group_setup.PICKER_CSS と共用 */
 .picker {
   position: fixed; inset: 0; z-index: 90;
   display: none;
@@ -303,49 +305,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
   padding: 7vh 20px 40px;
 }
 .picker.open { display: flex; }
-.picker-panel { max-width: 880px; width: 100%; }
-.picker-head { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
-.picker-head h2 { margin: 0; font-size: 21px; letter-spacing: .2em; font-weight: 600; }
-.picker-head .close { margin-left: auto; }
-.picker-head .psearch {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 7px 18px;
-  color: var(--text);
-  font-size: 13px;
-  width: 190px;
-  outline: none;
-}
-.picker-head .psearch::placeholder { color: var(--muted); }
-.picker-head .psearch:focus { border-color: var(--peri); }
-.picker-empty { padding: 26px 4px; }
-.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-.pcard {
-  position: relative;
-  aspect-ratio: 3 / 4;
-  border-radius: 16px;
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  transition: transform .18s, border-color .18s, box-shadow .18s;
-}
-.pcard:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: var(--shadow); }
-.pcard img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.pcard .p-ph {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  color: var(--peri); font-size: 44px; font-family: "Yu Mincho", serif;
-  background: var(--panel-2);
-}
-.pcard .veil { position: absolute; inset: 0; background: linear-gradient(to top, rgba(7,9,26,.9), transparent 52%); }
-.pcard .info { position: absolute; left: 12px; right: 12px; bottom: 10px; color: #f4f5ff; }
-.pcard .nm { font-size: 13.5px; letter-spacing: .06em; line-height: 1.4; }
-.pcard .st { font-size: 10.5px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcard.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--glow); }
-.picker-note { margin-top: 18px; }
-.picker-note a { color: var(--accent); cursor: pointer; }
 
 /* 履歴ボタン・キャストバー(モバイル用) */
 .hist-btn { display: none; }
@@ -413,29 +373,34 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 /* ============ 縦画面・スマホ ============ */
 @media (max-width: 860px) {
   .shell { display: flex; flex-direction: column; }
+  /* 背景画像はヘッダを除いたクライアント領域(.shell)全体にはめ込む */
   .presence {
-    position: fixed;
-    right: -6vw; bottom: 0;
-    width: 84vw; max-width: 430px;
-    height: 66dvh;
+    position: absolute;
+    inset: 0;
+    width: auto; max-width: none; height: auto;
     border-left: none;
     z-index: 0;
     pointer-events: none;
-    opacity: .22;
+    opacity: .2;
   }
   .presence .pname, .presence .pocc, .presence .cast { display: none; }
   .stream-wrap { position: relative; z-index: 1; flex: 1; min-height: 0; }
-  .mobile-cast { display: flex; }
-  .stream-head { padding: 10px 14px; gap: 10px; }
+  /* キャストバー・セッションヘッダは1行コンパクト */
+  .mobile-cast { display: flex; gap: 10px; padding: 6px 12px; }
+  .mc-item .avatar, .mc-item .mc-ph { width: 28px; height: 28px; font-size: 12px; }
+  .stream-head { padding: 5px 10px; gap: 8px; }
   .stream-head .w { display: none; }
-  .stream-head .t { font-size: 14.5px; }
-  .stream { padding: 20px 16px 12px; }
+  .stream-head .t { font-size: 13px; }
+  .hist-btn { white-space: nowrap; flex: none; padding: 4px 10px; font-size: 12px; }
+  .stream { padding: 12px 12px 8px; overflow-x: hidden; }
+  .stream-inner { gap: 14px; }
+  .msg { gap: 10px; }
   .msg .bubble { font-size: 14.5px; padding: 10px 14px; }
-  .msg .avatar { width: 38px; height: 38px; }
-  .msg .ops, .narr-wrap .ops, .memo .ops { opacity: .75; }
-  .composer { padding: 10px 14px 14px; }
-  .comp-tools { overflow-x: auto; }
-  .comp-tools .chip { white-space: nowrap; }
+  .msg .avatar { width: 34px; height: 34px; }
+  .msg .who { margin: 0 0 4px; }
+  .msg .ops, .narr-wrap .ops, .memo .ops { opacity: .75; gap: 2px; }
+  .ops .btn.quiet { font-size: 11px; padding: 1px 8px; }
+  .composer { padding: 8px 10px 10px; }
   .picker { padding: 4vh 14px 30px; }
   .pgrid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 }
@@ -446,8 +411,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
   .stream { padding: 18px 34px 12px; }
   .stream-inner { gap: 18px; }
   .composer { padding: 8px 34px 12px; }
-  .comp-tools { margin-bottom: 6px; }
-  .comp-input .q-field__control { min-height: 44px; padding: 2px 18px; }
+  .comp-input .q-field__control { min-height: 30px; }
   .partner { padding: 7px 10px; margin-bottom: 8px; }
 }
 """
@@ -706,6 +670,7 @@ class Ui2ChatController:
         self.send_btn: ui.element | None = None
         self.role_chip: ui.element | None = None
         self.role_chip_label: ui.html | None = None
+        self.role_menu_box: ui.menu | None = None
         self.palette: ui.element | None = None
         self.picker: ui.element | None = None
 
@@ -982,36 +947,37 @@ class Ui2ChatController:
                 with ui.element("div").classes("composer"):
                     with ui.element("div").classes("composer-inner"):
                         self.palette = ui.element("div").classes("p3-cmd-palette hidden")
-                        with ui.element("div").classes("comp-tools"):
-                            self.role_chip = ui.element("button").classes("chip").mark("ui2-chat-role-chip")
-                            with self.role_chip:
-                                self.role_chip_label = ui.html(f"ロール: {input_mode_label(self.input_mode)}")
-                                with ui.menu():
-                                    for mode in ("user", "character", "narration", "memo"):
-                                        ui.menu_item(
-                                            input_mode_label(mode),
-                                            on_click=lambda m=mode: self.set_input_mode(m, notify_change=False),
-                                        )
-                            _chip_button("選択肢", lambda: self._run_chip_command("choices"), title="/choices 返答候補を3つ生成")
-                            _chip_button("補完", lambda: self._run_chip_command("fill"), title="/fill 続きを補完")
-                            _chip_button("整える", lambda: self._run_chip_command("tailor"), title="/tailor 現在のロール向けに書き換え")
-                            _chip_button("誘導", lambda: self._run_chip_command("guide"), title="/guide 次の展開を指定")
-                            _chip_button("描写", lambda: self._run_chip_command("describe"), title="/describe 地の文を自動生成")
+                        render_swipe_menu(self._run_chip_command)
                         with ui.element("div").classes("comp-row"):
-                            self.input = (
-                                ui.textarea(placeholder="メッセージを入力(/ でコマンド)")
-                                .props("borderless dense rows=1 autogrow")
-                                .classes("comp-input")
-                                .mark("ui2-chat-input")
-                            )
-                            self.input.on_value_change(
-                                lambda e: self._refresh_command_palette(str(e.value or ""))
-                            )
-                            self.input.on("keydown", self._send_from_enter, js_handler=_COMPOSER_KEYDOWN_JS)
+                            with ui.element("div").classes("comp-box"):
+                                self.role_chip = (
+                                    ui.element("button")
+                                    .classes(f"comp-role role-{self.input_mode}")
+                                    .mark("ui2-chat-role-chip")
+                                )
+                                with self.role_chip:
+                                    self.role_chip_label = ui.html(html.escape(self._role_label(self.input_mode)))
+                                    self.role_menu_box = ui.menu().classes("wz-nav-menu")
+                                self.refresh_role_menu()
+                                self.input = (
+                                    ui.textarea(placeholder="メッセージを入力")
+                                    .props("borderless dense rows=1 autogrow")
+                                    .classes("comp-input")
+                                    .mark("ui2-chat-input")
+                                )
+                                self.input.on_value_change(
+                                    lambda e: self._refresh_command_palette(str(e.value or ""))
+                                )
+                                self.input.on("keydown", self._send_from_enter, js_handler=_COMPOSER_KEYDOWN_JS)
                             self.send_btn = ui.element("button").classes("btn primary comp-send").mark("ui2-chat-send")
                             with self.send_btn:
                                 ui.html("送信")
-                            self.send_btn.on("click", lambda: self.send_message(True))
+                            install_composer_gestures(
+                                self.input,
+                                self.send_btn,
+                                lambda: self.send_message(True),
+                                self._guide_from_long_tap,
+                            )
 
             # ---- 右: いま話している子 ----
             with ui.element("aside").classes("presence"):
@@ -1088,17 +1054,6 @@ class Ui2ChatController:
                         ui.html("★ お気に入り")
                     _p3_button("閉じる", self.close_picker, classes="btn quiet close")
                 grid = ui.element("div").classes("pgrid").mark("ui2-chat-picker-grid")
-                with ui.element("div").classes("note picker-note"):
-                    list_link = ui.element("a")
-                    with list_link:
-                        ui.html("キャラクター一覧")
-                    list_link.on("click", lambda: ui.navigate.to("/v2/characters"))
-                    ui.html(" に居ないキャラクターはいません。新しく作るなら ")
-                    gen_link = ui.element("a")
-                    with gen_link:
-                        ui.html("生成")
-                    gen_link.on("click", lambda: ui.navigate.to("/"))
-                    ui.html(" へ。")
 
         def _refresh_grid() -> None:
             grid.clear()
@@ -1325,15 +1280,38 @@ class Ui2ChatController:
                     ui.html(_inline_html(message.text))
                 self._ops_row(index, message)
 
+    def _role_label(self, mode: str) -> str:
+        """ロール表示名。ユーザー/キャラクターは実名(ペルソナ名・キャラ名)を出す。"""
+        if mode == "user":
+            return (self.settings.user_persona_name if self.settings is not None else "") or "ユーザー"
+        if mode == "character":
+            return self.sheet.name
+        return input_mode_label(mode)
+
     def refresh_input_mode_chip(self) -> None:
         if self.role_chip_label is not None:
-            self.role_chip_label.set_content(f"ロール: {input_mode_label(self.input_mode)}")
+            self.role_chip_label.set_content(html.escape(self._role_label(self.input_mode)))
+        if self.role_chip is not None:
+            self.role_chip.classes(remove="role-user role-character role-narration role-memo")
+            self.role_chip.classes(f"role-{self.input_mode}")
+        self.refresh_role_menu()
+
+    def refresh_role_menu(self) -> None:
+        if self.role_menu_box is None:
+            return
+        self.role_menu_box.clear()
+        with self.role_menu_box:
+            for mode in ("user", "character", "narration", "memo"):
+                ui.menu_item(
+                    self._role_label(mode),
+                    on_click=lambda m=mode: self.set_input_mode(m, notify_change=False),
+                )
 
     def set_input_mode(self, mode: str, *, notify_change: bool = False) -> None:
         self.input_mode = mode if mode in {"character", "narration", "memo"} else "user"
         self.refresh_input_mode_chip()
         if notify_change:
-            ui.notify(f"{input_mode_label(self.input_mode)}入力モードにしました", type="info")
+            ui.notify(f"{self._role_label(self.input_mode)}入力モードにしました", type="info")
 
     def set_sending(self, sending: bool) -> None:
         self.sending = sending
@@ -1401,6 +1379,14 @@ class Ui2ChatController:
             self.palette.clear()
             self.palette.classes("hidden")
         submitted = f"{left_text.rstrip()}/{command}" if left_text.strip() else f"/{command}"
+        await self.send_message(False, submitted)
+
+    async def _guide_from_long_tap(self, e) -> None:
+        """送信ボタンのロングタップ(旧UIパリティ): 入力値を指示にして /guide を送る。"""
+        value = str(e.args[0] or "") if isinstance(e.args, list) and e.args else str(e.args or "")
+        parsed = parse_command_input(value)
+        left_text = parsed[0] if parsed is not None else value
+        submitted = f"{left_text.rstrip()}/guide" if left_text.strip() else "/guide"
         await self.send_message(False, submitted)
 
     async def _send_from_enter(self, e) -> None:
@@ -2633,35 +2619,12 @@ class Ui2ChatController:
         return str(enhanced)
 
     async def _pick_character_persona(self, on_select) -> None:
-        sheets = await self.ctx.characters.list_all()
-        with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl").style(_DIALOG_CARD_STYLE):
-            ui.label("ユーザー役にするキャラクターを選択").classes("text-base font-semibold mb-2")
-            with ui.element("div").classes("pgrid").style("width: 100%;"):
-                for candidate in sheets:
-                    card = ui.element("div").classes("pcard")
-
-                    async def _choose(sheet=candidate) -> None:
-                        dlg.close()
-                        await on_select(sheet)
-
-                    card.on("click", _choose)
-                    with card:
-                        image = candidate.media.primary_image()
-                        url = media_url(image.path) if image is not None else None
-                        if url is not None:
-                            raw_img(url).props('loading="lazy"').style(
-                                f"object-position: {image_object_position(image)};"
-                            )
-                        else:
-                            with ui.element("div").classes("p-ph"):
-                                ui.html(html.escape((candidate.name or "?")[:1]))
-                        ui.element("div").classes("veil")
-                        with ui.element("div").classes("info"):
-                            with ui.element("div").classes("nm serif"):
-                                ui.html(html.escape(candidate.name))
-            with ui.row().classes("justify-end mt-3 w-full"):
-                _p3_button("閉じる", dlg.close, classes="btn quiet")
-        dlg.open()
+        await open_character_pick_dialog(
+            self.ctx,
+            title="ユーザー役にするキャラクターを選択",
+            exclude_ids=set(),
+            on_select=on_select,
+        )
 
     def open_new_chat_dialog(self) -> None:
         ctx = self.ctx
@@ -2947,7 +2910,7 @@ async def ui2_chat_page(character_id: str) -> None:
     await controller.initialize()
 
     with p3_page("チャット"):
-        ui.add_css(_PAGE_CSS)
+        ui.add_css(_PAGE_CSS + PICKER_CSS + COMPOSER_CSS)
         controller.render_shell()
 
 

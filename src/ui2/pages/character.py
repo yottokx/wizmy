@@ -5,7 +5,8 @@
 - 右: シート(章立て表示+章単位のその場編集 / Markdown 直接編集。プレビュー無し)
 - 章編集は `replace_markdown_section` → `sheet_from_markdown_preserving` で
   raw_markdown とシート項目を常に双方向同期する
-- メディアは Phase 2 スコープ(一覧+アップロード+face/bust rect 編集+管理ボタン)。
+- メディアはサムネイル一覧+メイン画像切替のみ。アップロード・顔/バスト範囲は
+  画像・音声管理ページ(/images, /voice)に委譲。
   画像生成/ボイスデザイン等のダイアログ群は Phase 6(それまで旧ページへ一時リンク)
 - 「修正して生成/知りあいを生成」= gen_mode/gen_char_id を書いて /v2/generation へ
 """
@@ -25,7 +26,6 @@ from ...core.character.markdown import (
 )
 from ...core.character.schemas import CharacterSheet
 from ..components.portrait import image_object_position, media_url, raw_img
-from ..components.rect_editor import open_rect_dialog
 from ..components.sparkle import STAR_SVG
 from ..scaffold import p3_page
 from ..sheet_logic import (
@@ -100,7 +100,15 @@ _PAGE_CSS = """
 .side-body { padding: 0 26px; margin-top: -30px; position: relative; z-index: 2; }
 .side-body h1 { margin: 0 0 2px; font-size: 27px; letter-spacing: .1em; font-weight: 600; }
 .side-body .oc { color: var(--muted); font-size: 12.5px; letter-spacing: .05em; margin-bottom: 16px; }
-.side-body .bubble { font-size: 13.5px; padding: 12px 16px; box-shadow: none; }
+/* 自己紹介は吹き出しではなく引用風(斜体) */
+.side-body .intro-quote {
+  font-style: italic;
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .side-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 0; }
 
 .side .blk { margin-top: 24px; }
@@ -230,27 +238,6 @@ def _chip_button(label: str, on_click, *, title: str = "") -> ui.element:
     return btn
 
 
-def _open_upload_dialog(*, title: str, accept: str, max_file_size: int, on_upload) -> None:
-    with ui.dialog() as dlg, ui.card().classes("min-w-[380px]").style(
-        "background: var(--panel); color: var(--text);"
-    ):
-        ui.label(title).classes("text-base font-semibold mb-2")
-
-        async def _handle(e) -> None:
-            if await on_upload(e):
-                dlg.close()
-
-        ui.upload(
-            label="ファイルをドロップ / 選択",
-            on_upload=_handle,
-            auto_upload=True,
-            max_file_size=max_file_size,
-        ).props(f"accept={accept} flat bordered").classes("w-full")
-        with ui.row().classes("justify-end mt-3 w-full"):
-            _p3_button("閉じる", dlg.close, classes="btn quiet")
-    dlg.open()
-
-
 @ui.page("/v2/characters/{character_id}")
 async def ui2_character_page(character_id: str) -> None:
     ctx = get_context()
@@ -361,7 +348,7 @@ async def ui2_character_page(character_id: str) -> None:
                     ui.html(html.escape(oc))
                 intro = strip_outer_quotes(sheet.self_intro)
                 if intro:
-                    with ui.element("div").classes("bubble tail-left"):
+                    with ui.element("div").classes("intro-quote"):
                         ui.html(html.escape(f"「{intro}」"))
                 with ui.element("div").classes("side-actions"):
                     _p3_button(
@@ -401,10 +388,6 @@ async def ui2_character_page(character_id: str) -> None:
                             with ui.element("span").classes("note"):
                                 ui.html("まだ画像がありません")
                     with ui.element("div").classes("media-links"):
-                        _chip_button("アップロード", _open_image_upload)
-                        if sheet.media.primary_image() is not None:
-                            _chip_button("顔範囲", lambda: _open_rect("face"))
-                            _chip_button("バスト範囲", lambda: _open_rect("bust"))
                         _chip_button(
                             "画像を管理・生成",
                             lambda: ui.navigate.to(f"/v2/characters/{character_id}/images"),
@@ -425,7 +408,6 @@ async def ui2_character_page(character_id: str) -> None:
                                 text += f" — 声イメージ: {sheet.voice_image}"
                             ui.html(html.escape(text))
                     with ui.element("div").classes("media-links"):
-                        _chip_button("アップロード", _open_voice_upload)
                         _chip_button(
                             "音声を管理・ボイスデザイン",
                             lambda: ui.navigate.to(f"/v2/characters/{character_id}/voice"),
@@ -561,68 +543,6 @@ async def ui2_character_page(character_id: str) -> None:
             _render_portrait()
             _render_side_body()
             ui.notify("メイン画像を変更しました", type="positive")
-
-        def _open_image_upload() -> None:
-            async def _on_upload(e) -> bool:
-                try:
-                    state["sheet"] = await ctx.characters.save_image(character_id, e.file)
-                    ui.notify("画像を保存しました", type="positive")
-                    _render_portrait()
-                    _render_side_body()
-                    return True
-                except Exception as err:
-                    ui.notify(f"画像の保存に失敗しました: {err}", type="negative")
-                    return False
-
-            _open_upload_dialog(
-                title="画像をアップロード",
-                accept="image/*",
-                max_file_size=20 * 1024 * 1024,
-                on_upload=_on_upload,
-            )
-
-        def _open_voice_upload() -> None:
-            async def _on_upload(e) -> bool:
-                try:
-                    state["sheet"] = await ctx.characters.save_voice(character_id, e.file)
-                    ui.notify("音声を保存しました", type="positive")
-                    _render_side_body()
-                    return True
-                except Exception as err:
-                    ui.notify(f"音声の保存に失敗しました: {err}", type="negative")
-                    return False
-
-            _open_upload_dialog(
-                title="音声をアップロード",
-                accept="audio/*",
-                max_file_size=50 * 1024 * 1024,
-                on_upload=_on_upload,
-            )
-
-        def _open_rect(kind: str) -> None:
-            image = _sheet().media.primary_image()
-            if image is None:
-                ui.notify("範囲を設定する画像がありません", type="warning")
-                return
-            image_path = ctx.characters.media_path(image.path)
-            if image_path is None:
-                ui.notify("画像ファイルが見つかりません", type="warning")
-                return
-
-            async def _on_save(rect, width: int, height: int) -> None:
-                if kind == "face":
-                    saved = await ctx.characters.update_face_rect(
-                        character_id, rect, image_width=width, image_height=height
-                    )
-                else:
-                    saved = await ctx.characters.update_bust_rect(
-                        character_id, rect, image_width=width, image_height=height
-                    )
-                state["sheet"] = saved
-                _render_portrait()
-                _render_side_body()
-
-            open_rect_dialog(image=image, image_path=image_path, kind=kind, on_save=_on_save)
 
         async def _remove_tag(tag: str) -> None:
             sheet = _sheet()

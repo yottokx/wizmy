@@ -40,6 +40,70 @@ from .group_logic import diff_html
 
 _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 
+# キャラクターピッカー(chat.py の相手ピッカーと同スキン)。
+# `open_character_pick_dialog` を使うページは `ui.add_css(PICKER_CSS)` で読み込む。
+PICKER_CSS = """
+/* ---------- キャラクターピッカー(全画面オーバーレイ) ---------- */
+.pick-dialog > .q-dialog__backdrop { background: transparent; }
+.pick-dialog .q-dialog__inner { padding: 0 !important; }
+.pick-dialog .picker-sheet {
+  width: 100vw; max-width: 100vw !important;
+  height: 100vh; max-height: 100vh !important;
+  border-radius: 0; box-shadow: none;
+  display: flex; align-items: flex-start; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(10px);
+  overflow-y: auto;
+  padding: 7vh 20px 40px;
+}
+.picker-panel { max-width: 880px; width: 100%; }
+.picker-head { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
+.picker-head h2 { margin: 0; font-size: 21px; letter-spacing: .2em; font-weight: 600; }
+.picker-head .close { margin-left: auto; }
+.picker-head .psearch {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 18px;
+  color: var(--text);
+  font-size: 13px;
+  width: 190px;
+  outline: none;
+}
+.picker-head .psearch::placeholder { color: var(--muted); }
+.picker-head .psearch:focus { border-color: var(--peri); }
+.picker-empty { padding: 26px 4px; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.pcard {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  transition: transform .18s, border-color .18s, box-shadow .18s;
+}
+.pcard:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: var(--shadow); }
+.pcard img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pcard .p-ph {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: var(--peri); font-size: 44px; font-family: "Yu Mincho", serif;
+  background: var(--panel-2);
+}
+.pcard .veil { position: absolute; inset: 0; background: linear-gradient(to top, rgba(7,9,26,.9), transparent 52%); }
+.pcard .info { position: absolute; left: 12px; right: 12px; bottom: 10px; color: #f4f5ff; }
+.pcard .nm { font-size: 13.5px; letter-spacing: .06em; line-height: 1.4; }
+.pcard .st { font-size: 10.5px; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 860px) {
+  .pick-dialog .picker-sheet { padding: 4vh 14px 30px; }
+  .pgrid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .picker-head .psearch { font-size: 16px; }
+}
+"""
+
 ENTRY_MODE_OPTIONS = {
     "native": "元々この世界の住人だった",
     "visitor": "何らかの理由でこの世界に来た",
@@ -475,6 +539,27 @@ async def adapt_user_persona_with_preview(
 # ---------------------------------------------------------------------------
 
 
+def _render_pick_card(candidate: CharacterSheet, on_choose) -> None:
+    card = ui.element("div").classes("pcard")
+    card.on("click", lambda sheet=candidate: on_choose(sheet))
+    with card:
+        image = candidate.media.primary_image()
+        url = media_url(image.path) if image is not None else None
+        if url is not None:
+            raw_img(url).props('loading="lazy"').style(
+                f"object-position: {image_object_position(image)};"
+            )
+        else:
+            with ui.element("div").classes("p-ph"):
+                ui.html(html.escape((candidate.name or "?")[:1]))
+        ui.element("div").classes("veil")
+        with ui.element("div").classes("info"):
+            with ui.element("div").classes("nm serif"):
+                ui.html(html.escape(candidate.name))
+            with ui.element("div").classes("st"):
+                ui.html(html.escape(candidate.world.strip().splitlines()[0] if candidate.world.strip() else ""))
+
+
 async def open_character_pick_dialog(
     ctx,
     *,
@@ -483,39 +568,75 @@ async def open_character_pick_dialog(
     on_select: Callable[[CharacterSheet], Awaitable[None] | None],
 ) -> None:
     sheets = [sheet for sheet in await ctx.characters.list_all() if sheet.id not in exclude_ids]
-    with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl").style(_DIALOG_CARD_STYLE):
-        ui.label(title).classes("text-base font-semibold mb-2")
-        if not sheets:
-            ui.label("選択できるキャラクターがいません").classes("note")
-        with ui.element("div").classes("pgrid").style("width: 100%;"):
-            for candidate in sheets:
-                card = ui.element("div").classes("pcard")
+    state = {"search": "", "favorites": False}
+    dlg = ui.dialog().props("maximized").classes("pick-dialog")
 
-                async def _choose(sheet: CharacterSheet = candidate) -> None:
-                    dlg.close()
-                    result = on_select(sheet)
-                    if result is not None:
-                        await result
+    async def _choose(sheet: CharacterSheet) -> None:
+        dlg.close()
+        result = on_select(sheet)
+        if result is not None:
+            await result
 
-                card.on("click", _choose)
-                with card:
-                    image = candidate.media.primary_image()
-                    url = media_url(image.path) if image is not None else None
-                    if url is not None:
-                        raw_img(url).props('loading="lazy"').style(
-                            f"object-position: {image_object_position(image)};"
-                        )
-                    else:
-                        with ui.element("div").classes("p-ph"):
-                            ui.html(html.escape((candidate.name or "?")[:1]))
-                    ui.element("div").classes("veil")
-                    with ui.element("div").classes("info"):
-                        with ui.element("div").classes("nm serif"):
-                            ui.html(html.escape(candidate.name))
-                        with ui.element("div").classes("st"):
-                            ui.html(html.escape(candidate.world.strip().splitlines()[0] if candidate.world.strip() else ""))
-        with ui.row().classes("justify-end mt-3 w-full"):
-            p3_button("閉じる", dlg.close, classes="btn quiet")
+    with dlg:
+        sheet_box = ui.element("div").classes("picker-sheet")
+        with sheet_box:
+            with ui.element("div").classes("picker-panel"):
+                with ui.element("div").classes("picker-head"):
+                    with ui.element("h2").classes("serif"):
+                        ui.html(html.escape(title))
+                    search_input = (
+                        ui.element("input")
+                        .classes("psearch")
+                        .props('placeholder="名前・世界観で検索" type="search"')
+                        .mark("ui2-pick-search")
+                    )
+                    fav_chip = ui.element("button").classes("chip").mark("ui2-pick-fav")
+                    with fav_chip:
+                        ui.html("★ お気に入り")
+                    p3_button("閉じる", dlg.close, classes="btn quiet close")
+                grid = ui.element("div").classes("pgrid").mark("ui2-pick-grid")
+
+    def _refresh_grid() -> None:
+        grid.clear()
+        query = state["search"].strip().lower()
+        entries = []
+        for candidate in sheets:
+            if state["favorites"] and not candidate.is_favorite:
+                continue
+            if query:
+                haystack = " ".join((candidate.name, candidate.occupation, candidate.world)).lower()
+                if query not in haystack:
+                    continue
+            entries.append(candidate)
+        with grid:
+            for candidate in entries:
+                _render_pick_card(candidate, _choose)
+            if not entries:
+                with ui.element("div").classes("note picker-empty"):
+                    ui.html("該当するキャラクターがいません" if sheets else "選択できるキャラクターがいません")
+
+    def _toggle_favorites() -> None:
+        state["favorites"] = not state["favorites"]
+        if state["favorites"]:
+            fav_chip.classes("on")
+        else:
+            fav_chip.classes(remove="on")
+        _refresh_grid()
+
+    def _on_search(e) -> None:
+        state["search"] = str(e.args or "")
+        _refresh_grid()
+
+    fav_chip.on("click", _toggle_favorites)
+    search_input.on(
+        "input",
+        _on_search,
+        js_handler="(e) => emit(e.target.value)",
+        throttle=0.3,
+        trailing_events=True,
+    )
+    _refresh_grid()
+    sheet_box.on("click.self", dlg.close)
     dlg.open()
 
 

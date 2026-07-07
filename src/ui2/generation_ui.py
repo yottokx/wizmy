@@ -5,7 +5,7 @@
 - ForgePanel: 状態B(ベール+章立て+ツールログ+中断)の描画とイベント反映
 - render_born: 状態C(誕生)の描画
 - シート全文ダイアログ / 修正承認 diff ダイアログ(P3スキン)
-- ボルト解錠行 / 実行中ジョブの復帰キー(`ui2_active_generation`)
+- 実行中ジョブの復帰キー(`ui2_active_generation`)
 """
 
 from __future__ import annotations
@@ -15,9 +15,7 @@ from collections.abc import Callable
 
 from nicegui import app, ui
 
-from ..app_context import get_context
 from ..core.character_generation.schemas import ProgressEvent, ProgressEventType, ToolCallRecord
-from ..ui.state import is_vault_unlocked, set_vault_password
 from .components.sparkle import sparkle_field
 from .generation_logic import ChapterProgress
 from .group_logic import DIFF_CSS, diff_html
@@ -55,19 +53,46 @@ GENERATION_CSS = (
 .ask .go { text-align: center; margin-top: 26px; }
 .ask .go .btn { padding: 12px 44px; font-size: 15px; }
 
+/* 控えめセレクト行(モック状態Aの quiet-row: ラベル+下線のみ) */
 .gen-quiet {
-  display: flex; justify-content: center; gap: 10px;
-  margin: 16px 0 4px;
+  display: flex; justify-content: center; gap: 22px;
+  margin: 22px 0 4px;
   font-size: 13px; color: var(--muted);
   flex-wrap: wrap;
   align-items: center;
 }
-/* 4つ(プリセット/世界観/性別/年齢帯)が form-box 幅で1行に収まるよう均等割り */
-.gen-select { flex: 1 1 0; min-width: 130px; }
-.gen-select .q-field__control { background: var(--bg-2) !important; border-radius: 10px; }
-/* モデル行はフォーム列(660px)と同じ幅に揃える */
-.gen-profile-row { max-width: 660px; margin: 18px auto 0; justify-content: center; }
-.gen-profile-row .gen-select { min-width: 0; }
+.gen-quiet .q-lbl { display: flex; gap: 8px; align-items: center; }
+.gen-select { width: auto; min-width: 110px; }
+.gen-select .q-field__control {
+  background: transparent !important;
+  border: none;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 0;
+  min-height: 30px;
+  padding: 0 4px;
+}
+.gen-select .q-field__control:before, .gen-select .q-field__control:after { display: none; }
+.gen-select .q-field__native { color: var(--text); font-size: 13px; min-height: 0; padding: 2px 0; }
+.gen-select .q-field__append { color: var(--muted); }
+/* モデル行も同じ quiet トーン */
+.gen-profile-row { margin: 16px auto 0; justify-content: center; }
+.gen-profile-row .gen-select { min-width: 220px; max-width: 340px; }
+/* プリセットは独立した先頭行 */
+.gen-preset-row { margin: 0 0 14px; }
+.gen-preset-row .gen-select { min-width: 180px; max-width: 320px; }
+
+/* 状態Aの中央テキストエリア(モック .ask textarea 相当) */
+.ask-ta { display: block; width: 100%; }
+.ask-ta .q-field__control {
+  background: var(--bg-2) !important;
+  border: 1px solid var(--line-2);
+  border-radius: 18px;
+  padding: 10px 22px;
+  min-height: 110px;
+}
+.ask-ta .q-field__control:before, .ask-ta .q-field__control:after { display: none; }
+.ask-ta .q-field__control:focus-within { border-color: var(--peri); }
+.ask-ta textarea { color: var(--text) !important; font-size: 15px; line-height: 1.9; }
 
 /* Quasar textarea/input の P3 スキン(シートページと同じ .p3-ta) */
 .p3-ta { width: 100%; }
@@ -183,18 +208,6 @@ GENERATION_CSS = (
   font-family: "Yu Mincho", serif;
   border-left: 2px solid var(--peri);
   padding-left: 14px;
-}
-
-/* ボルト解錠の注意行 */
-.vault-row {
-  display: flex; align-items: center; gap: 12px;
-  border: 1px solid var(--line-2);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  padding: 10px 16px;
-  margin-bottom: 18px;
-  font-size: 13px;
-  color: var(--text);
 }
 
 /* ============ 縦画面・スマホ ============ */
@@ -473,46 +486,3 @@ def open_modify_approve_dialog(
     dlg.open()
 
 
-# ---------------------------------------------------------------------------
-# ボルト解錠
-# ---------------------------------------------------------------------------
-
-
-def render_vault_row() -> None:
-    """ボルトがロック中のとき注意行を出す(解錠で行ごと消える)。"""
-    ctx = get_context()
-
-    @ui.refreshable
-    def _row() -> None:
-        if is_vault_unlocked() or not ctx.api_config.is_vault_setup():
-            return
-        with ui.element("div").classes("vault-row"):
-            ui.html("APIキーボルトがロックされています。キー付きエンドポイントを使うには解錠してください。")
-            p3_button("解錠", lambda: _open_unlock_dialog(_row.refresh), classes="btn quiet")
-
-    def _open_unlock_dialog(refresh) -> None:
-        with ui.dialog() as dlg, ui.card().classes("min-w-[320px]").style(_DIALOG_CARD_STYLE):
-            ui.label("ボルトの解錠").classes("text-base font-semibold mb-2")
-            pw_input = ui.input("パスワード").props("type=password clearable outlined dense").classes(
-                "w-full p3-ta"
-            )
-
-            def _unlock() -> None:
-                if not pw_input.value:
-                    ui.notify("パスワードを入力してください", type="warning")
-                    return
-                if ctx.api_config.verify_vault_password(str(pw_input.value)):
-                    set_vault_password(str(pw_input.value))
-                    ui.notify("解錠しました", type="positive")
-                    dlg.close()
-                    refresh()
-                else:
-                    ui.notify("パスワードが正しくありません", type="negative")
-
-            pw_input.on("keydown.enter", _unlock)
-            with ui.row().classes("justify-end gap-2 mt-3 w-full"):
-                p3_button("キャンセル", dlg.close, classes="btn quiet")
-                p3_button("解錠", _unlock, classes="btn primary")
-        dlg.open()
-
-    _row()

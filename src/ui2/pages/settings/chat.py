@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from nicegui import ui
@@ -284,6 +285,10 @@ def open_user_personas_dialog(ctx, on_change) -> None:
                     ui.label(persona.display_name).classes("text-sm font-semibold")
                     if persona.persona_name.strip():
                         ui.label(f"名前: {persona.name}").classes("text-xs").style("color: var(--muted);")
+                    if persona.fixed_handle:
+                        ui.label(f"固定ハンドル: @{persona.fixed_handle}").classes("text-xs").style(
+                            "color: var(--muted);"
+                        )
                     ui.label(short_text(persona.description)).classes("text-xs").style(
                         "white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted);"
                     )
@@ -335,19 +340,34 @@ def _open_persona_edit(persona: UserPersona | None, ctx, refresh_fn) -> None:
         description_input = ui.textarea(label="設定", value=persona.description if persona else "").props(
             "outlined rows=5"
         ).classes("w-full p3-fd")
+        fixed_handle_input = (
+            ui.input(
+                label="固定ハンドル(任意・グループのメンション用、3〜12文字の英数字_)",
+                value=persona.fixed_handle if persona else "",
+                placeholder="例: Sora",
+            )
+            .props("outlined dense clearable")
+            .classes("w-full p3-fd")
+            .mark("ui2-settings-persona-handle")
+        )
 
         async def _save() -> None:
             name = str(name_input.value or "").strip()
             persona_name = str(persona_name_input.value or "").strip()
             description = str(description_input.value or "").strip()
+            fixed_handle = str(fixed_handle_input.value or "").strip()
             if not name or not description:
                 ui.notify("名前と設定を入力してください", type="negative")
+                return
+            if fixed_handle and not re.fullmatch(r"[A-Za-z0-9_]{3,12}", fixed_handle):
+                ui.notify("固定ハンドルは3〜12文字の英数字_で入力してください", type="negative")
                 return
             values = {
                 "id": persona.id if persona else str(uuid.uuid4())[:8],
                 "name": name,
                 "persona_name": persona_name,
                 "description": description,
+                "fixed_handle": fixed_handle,
             }
             if persona is not None:
                 values["media"] = persona.media

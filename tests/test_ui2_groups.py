@@ -51,16 +51,17 @@ async def test_v2_groups_list_renders_cards_and_create_flow(nicegui_smoke_app) -
     await user.should_see("グループ一覧")
     await user.should_see("星見図書館の夜会")
     await user.should_see("住人 2人 ・ セッション 1件")
-    # 作成フロー(3ステップ)
-    await user.should_see("世界を決める")
-    await user.should_see("住人を迎える")
-    await user.should_see("あなたの姿")
+    # 作成フロー(旧ウィザード順の4ステップ)
+    await user.should_see("住人とあなたを決める")
+    await user.should_see("世界と名前を決める")
+    await user.should_see("世界に馴染ませる")
+    await user.should_see("関係性を結ぶ")
 
 
 async def test_v2_groups_create_requires_residents(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
     await user.open("/v2/groups")
-    await user.should_see("世界を決める")  # 作成フローの非同期描画完了を待つ
+    await user.should_see("世界と名前を決める")  # 作成フローの非同期描画完了を待つ
     user.find(marker="ui2-group-create").click()
     # 補完用プロファイル未登録のため、最初の検証で止まる
     await user.should_see("補完用LLMプロファイルを選択してください")
@@ -123,7 +124,7 @@ async def test_v2_group_shell_renders_messages_and_cast(nicegui_smoke_app) -> No
     input_box = list(user.find(marker="ui2-group-input").elements)[0]
     input_box.set_value("この鐘の音は伏線/memo")
     user.find(marker="ui2-group-send").click()
-    await user.should_see("コメント にしました")
+    await user.should_see("コメント入力モードにしました")
     input_box.set_value("この鐘の音は伏線")
     user.find(marker="ui2-group-send").click()
     saved = None

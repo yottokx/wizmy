@@ -41,9 +41,9 @@ from ..generation_ui import (
     recall_active_generation,
     remember_active_generation,
     render_born,
-    render_vault_row,
 )
 from ..group_setup import (
+    PICKER_CSS,
     chip_button,
     default_profile_id,
     open_character_pick_dialog,
@@ -88,7 +88,7 @@ async def ui2_generation_page() -> None:
     }
 
     with p3_page("生成"):
-        ui.add_css(GENERATION_CSS)
+        ui.add_css(GENERATION_CSS + PICKER_CSS)
         with ui.element("div").classes("gen-wrap"):
             if not profile_options:
                 with ui.element("section").classes("ask"):
@@ -99,8 +99,6 @@ async def ui2_generation_page() -> None:
                     with ui.element("div").classes("go"):
                         p3_button("設定ページへ", lambda: ui.navigate.to("/v2/settings"))
                 return
-
-            render_vault_row()
 
             ask = ui.element("section").classes("ask")
             forge = ui.element("section").classes("forge")
@@ -138,16 +136,17 @@ async def ui2_generation_page() -> None:
             modes_row = ui.element("div").classes("modes")
             form_box = ui.element("div").classes("form-box")
             with ui.element("div").classes("gen-quiet gen-profile-row"):
-                ui.html("モデル").classes("note")
-                profile_select = (
-                    ui.select(
-                        options=profile_options,
-                        value=_generation_default_profile_id(ctx, profile_options),
+                with ui.element("label").classes("q-lbl"):
+                    ui.html("モデル")
+                    profile_select = (
+                        ui.select(
+                            options=profile_options,
+                            value=_generation_default_profile_id(ctx, profile_options),
+                        )
+                        .props("borderless dense options-dense")
+                        .classes("gen-select")
+                        .mark("ui2-gen-profile")
                     )
-                    .props("outlined dense options-dense")
-                    .classes("gen-select")
-                    .mark("ui2-gen-profile")
-                )
             with ui.element("div").classes("go"):
                 p3_button("生成する", lambda: _on_generate(), classes="btn primary").mark("ui2-gen-start")
 
@@ -203,58 +202,40 @@ async def ui2_generation_page() -> None:
                 on_select=_on_select,
             )
 
+        def _quiet_select(label_text: str, options, value) -> ui.select:
+            """モック quiet-row のラベル+下線セレクト。"""
+            with ui.element("label").classes("q-lbl"):
+                ui.html(html.escape(label_text))
+                return (
+                    ui.select(options=options, value=value)
+                    .props("borderless dense options-dense")
+                    .classes("gen-select")
+                )
+
         def _render_form() -> None:
             form_box.clear()
             fields.clear()
             mode_key = view["mode"]
             with form_box:
                 if mode_key == "new":
-                    fields["theme"] = (
-                        ui.textarea(
-                            placeholder="例）雨の日にだけ現れる、古書店の番人。ことばより先に、しおりを差し出してくる。"
-                        )
-                        .classes("p3-ta")
-                        .props("outlined rows=3 spellcheck=false")
-                        .mark("ui2-gen-theme")
+                    with ui.element("div").classes("gen-quiet gen-preset-row"):
+                        preset_select = _quiet_select("プリセット", preset_options, "")
+                    fields["prompt"] = (
+                        ui.textarea(placeholder="要望があればどうぞ（任意）")
+                        .classes("ask-ta")
+                        .props("borderless rows=3 spellcheck=false")
+                        .mark("ui2-gen-extra")
                     )
                     with ui.element("div").classes("gen-quiet"):
-                        preset_select = (
-                            ui.select(options=preset_options, value="", label="プリセット")
-                            .props("outlined dense options-dense")
-                            .classes("gen-select")
+                        fields["world"] = _quiet_select(
+                            "世界観", world_opts, world_opts[0] if world_opts else "おまかせ"
                         )
-                        fields["world"] = (
-                            ui.select(
-                                options=world_opts,
-                                value=world_opts[0] if world_opts else "おまかせ",
-                                label="世界観",
-                            )
-                            .props("outlined dense options-dense")
-                            .classes("gen-select")
+                        fields["gender"] = _quiet_select(
+                            "性別", gender_opts, gender_opts[0] if gender_opts else "おまかせ"
                         )
-                        fields["gender"] = (
-                            ui.select(
-                                options=gender_opts,
-                                value=gender_opts[0] if gender_opts else "おまかせ",
-                                label="性別",
-                            )
-                            .props("outlined dense options-dense")
-                            .classes("gen-select")
+                        fields["age"] = _quiet_select(
+                            "年齢", age_opts, age_opts[0] if age_opts else "おまかせ"
                         )
-                        fields["age"] = (
-                            ui.select(
-                                options=age_opts,
-                                value=age_opts[0] if age_opts else "おまかせ",
-                                label="年齢帯",
-                            )
-                            .props("outlined dense options-dense")
-                            .classes("gen-select")
-                        )
-                    fields["extra"] = (
-                        ui.textarea(label="その他の要望（任意）")
-                        .classes("p3-ta")
-                        .props("outlined rows=2 spellcheck=false")
-                    )
 
                     applied = {"id": ""}
 
@@ -278,20 +259,21 @@ async def ui2_generation_page() -> None:
                         fields["world"].set_value(_safe(world_opts, preset.world))
                         fields["gender"].set_value(_safe(gender_opts, preset.gender))
                         fields["age"].set_value(_safe(age_opts, preset.age))
-                        fields["theme"].set_value(preset.theme or "")
-                        fields["extra"].set_value(preset.extra or "")
+                        combined = "\n".join(
+                            part
+                            for part in ((preset.theme or "").strip(), (preset.extra or "").strip())
+                            if part
+                        )
+                        fields["prompt"].set_value(combined)
 
                     preset_select.on_value_change(_apply_preset)
 
                 elif mode_key == "modify":
                     _render_base_box("modify")
                     fields["modify_request"] = (
-                        ui.textarea(
-                            label="修正の要望",
-                            placeholder="例: 職業を魔法使いに変更してほしい",
-                        )
-                        .classes("p3-ta")
-                        .props("outlined rows=4 spellcheck=false")
+                        ui.textarea(placeholder="修正の要望（例: 職業を魔法使いに変更してほしい）")
+                        .classes("ask-ta")
+                        .props("borderless rows=4 spellcheck=false")
                         .mark("ui2-gen-modify-request")
                     )
 
@@ -300,25 +282,18 @@ async def ui2_generation_page() -> None:
                     fields["related_name"] = (
                         ui.input(label="新キャラクターの名前（任意）").classes("p3-ta").props("outlined dense")
                     )
+                    fields["prompt"] = (
+                        ui.textarea(placeholder="テーマ・雰囲気や要望があればどうぞ（任意）")
+                        .classes("ask-ta")
+                        .props("borderless rows=3 spellcheck=false")
+                    )
                     with ui.element("div").classes("gen-quiet"):
-                        fields["gender"] = (
-                            ui.select(options=gender_opts, value=gender_opts[0] if gender_opts else "おまかせ", label="性別")
-                            .props("outlined dense options-dense")
-                            .classes("gen-select")
+                        fields["gender"] = _quiet_select(
+                            "性別", gender_opts, gender_opts[0] if gender_opts else "おまかせ"
                         )
-                        fields["age"] = (
-                            ui.select(options=age_opts, value=age_opts[0] if age_opts else "おまかせ", label="年齢帯")
-                            .props("outlined dense options-dense")
-                            .classes("gen-select")
+                        fields["age"] = _quiet_select(
+                            "年齢", age_opts, age_opts[0] if age_opts else "おまかせ"
                         )
-                    fields["theme"] = (
-                        ui.input(label="テーマ・雰囲気（任意）").classes("p3-ta").props("outlined dense")
-                    )
-                    fields["extra"] = (
-                        ui.textarea(label="その他の要望（任意）")
-                        .classes("p3-ta")
-                        .props("outlined rows=2 spellcheck=false")
-                    )
 
         _sync_mode_chips()
         _render_form()
@@ -604,8 +579,8 @@ async def ui2_generation_page() -> None:
                         world=str(fields["world"].value or "おまかせ"),
                         gender=str(fields["gender"].value or "おまかせ"),
                         age=str(fields["age"].value or "おまかせ"),
-                        theme=str(fields["theme"].value or ""),
-                        extra=str(fields["extra"].value or ""),
+                        theme=str(fields["prompt"].value or ""),
+                        extra="",
                     ),
                     mode=GenerationMode.NEW,
                 )
@@ -629,8 +604,8 @@ async def ui2_generation_page() -> None:
                     preferences=GenerationPreferences(
                         gender=str(fields["gender"].value or "おまかせ"),
                         age=str(fields["age"].value or "おまかせ"),
-                        theme=str(fields["theme"].value or ""),
-                        extra=str(fields["extra"].value or ""),
+                        theme=str(fields["prompt"].value or ""),
+                        extra="",
                     ),
                     mode=GenerationMode.RELATED,
                     base_sheet=base_character.raw_markdown,
