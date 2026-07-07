@@ -268,7 +268,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
     def _send_to_group_generation(mode: str) -> None:
         app.storage.user["group_gen_mode"] = mode
         app.storage.user["group_gen_member_ids"] = [member_id]
-        ui.navigate.to(f"/groups/{group.id}/generation")  # Phase 5 で /v2 版に差し替え
+        ui.navigate.to(f"/v2/groups/{group.id}/generation")
 
     with p3_page("グループ"):
         ui.add_css(_PAGE_CSS)

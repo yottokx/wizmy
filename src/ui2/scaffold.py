@@ -38,7 +38,7 @@ NAV_ITEMS: list[dict] = [
     {"label": "キャラクター", "route": "/v2/characters"},
     {"label": "チャット", "route": "/v2/chat"},
     {"label": "グループ", "route": "/v2/groups"},
-    {"label": "生成", "route": None},  # Phase 5: /v2/generation
+    {"label": "生成", "route": "/v2/generation"},
     {"label": "設定", "route": None},  # Phase 6: /v2/settings
 ]
 
@@ -385,8 +385,7 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
                         ui.html("キャラクター生成").classes("name")
                         ui.html("実行中").classes("wz-st running")
                     with ui.element("div").classes("ops"):
-                        # ui2 生成ページは Phase 5。並行期間中は旧ページへ誘導する
-                        _quiet_button("生成画面を開く", lambda: ui.navigate.to("/"))
+                        _quiet_button("生成画面を開く", lambda: ui.navigate.to("/v2/generation"))
 
             if not jobs and not character_generation_active:
                 ui.html("実行中または直近のAIジョブはありません。").classes("note").style(

@@ -7,8 +7,7 @@
   raw_markdown とシート項目を常に双方向同期する
 - メディアは Phase 2 スコープ(一覧+アップロード+face/bust rect 編集+管理ボタン)。
   画像生成/ボイスデザイン等のダイアログ群は Phase 6(それまで旧ページへ一時リンク)
-- 「修正して生成/知りあいを生成」= gen_mode/gen_char_id を書いて旧 /(生成)へ
-  (Phase 5 で /v2/generation に差し替え)
+- 「修正して生成/知りあいを生成」= gen_mode/gen_char_id を書いて /v2/generation へ
 """
 
 from __future__ import annotations
@@ -273,7 +272,7 @@ async def ui2_character_page(character_id: str) -> None:
     def _send_to_generation(mode: str) -> None:
         app.storage.user["gen_mode"] = mode
         app.storage.user["gen_char_id"] = character_id
-        ui.navigate.to("/")  # Phase 5 で /v2/generation に差し替え
+        ui.navigate.to("/v2/generation")
 
     with p3_page("キャラクター"):
         ui.add_css(_PAGE_CSS)

@@ -1151,9 +1151,8 @@ class Ui2GroupChatController:
                         ).mark("ui2-group-add-member")
                         p3_button(
                             "+ この世界で生成",
-                            lambda: ui.navigate.to(f"/groups/{self.group.id}/generation"),
+                            lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/generation"),
                             classes="btn quiet",
-                            title="グループ内キャラクター生成(旧ページ・Phase 5 で /v2 版に)",
                         )
 
         self.busy = BusyController()
@@ -3352,8 +3351,7 @@ class Ui2GroupChatController:
                         chip_button("+ 既存キャラを適応して迎える", lambda: (dlg.close(), self.open_add_member_dialog()))
                         chip_button(
                             "+ この世界で生成",
-                            lambda: ui.navigate.to(f"/groups/{self.group.id}/generation"),
-                            title="グループ内キャラクター生成(旧ページ・Phase 5 で /v2 版に)",
+                            lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/generation"),
                         )
 
                     ui.label("危険な操作").classes("text-sm font-semibold mt-2")
