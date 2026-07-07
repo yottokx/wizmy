@@ -1327,7 +1327,7 @@ class Ui2GroupChatController:
         self.scene_box.set_visibility(True)
         with self.scene_box:
             with ui.element("div").classes("lbl2"):
-                ui.html("シ ー ン")
+                ui.html("シーン")
             with ui.element("div").classes("tx"):
                 ui.html(_inline_html(situation))
             edit = ui.element("div").classes("edit")
@@ -1372,7 +1372,7 @@ class Ui2GroupChatController:
     def _render_empty_state(self) -> None:
         with ui.element("div").classes("empty-stream"):
             with ui.element("div").classes("hello"):
-                ui.html("こ の 世 界 の 記 録 は ま だ あ り ま せ ん")
+                ui.html("この世界の記録はまだありません")
             with ui.element("div").classes("note"):
                 ui.html("「+ 新しいセッション」で参加キャラとシチュエーションを決めて始めましょう。")
             with ui.element("div").style("margin-top: 18px;"):

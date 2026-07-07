@@ -81,7 +81,7 @@ async def test_v2_group_generation_renders_fixed_world_and_modes(nicegui_smoke_a
     user = nicegui_smoke_app.user
     await user.open(f"/v2/groups/{group.id}/generation")
     await user.should_see("どんな住人を迎えますか。")
-    await user.should_see("固 定 ワ ー ル ド")
+    await user.should_see("固定ワールド")
     await user.should_see("星が本の背表紙に宿る図書館。")
     await user.should_see("住人を修正")
     await user.should_see("知りあいを生成")

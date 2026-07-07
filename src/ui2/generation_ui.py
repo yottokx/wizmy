@@ -256,7 +256,7 @@ class ForgePanel:
         sparkle_field(12)
         with ui.element("div").classes("chapters"):
             with ui.element("div").classes("ttl serif"):
-                ui.html("プロフィールが、章立てで確定していく")
+                ui.html("生成の進捗")
             self._rows_box = ui.element("div")
             self._status = ui.element("div").classes("gen-status")
             with ui.element("div").classes("gen-log-cap"):
@@ -371,7 +371,7 @@ def render_born(
         sparkle_field(20)
         with ui.element("div").classes("born-body"):
             with ui.element("div").classes("hello"):
-                ui.html("は じ め ま し て")
+                ui.html("生成結果")
             with ui.element("h2").classes("serif").mark("ui2-gen-born-name"):
                 ui.html(html.escape(name or "名称未設定"))
             if oc:

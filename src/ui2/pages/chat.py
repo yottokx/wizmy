@@ -1179,7 +1179,7 @@ class Ui2ChatController:
         self.scene_box.set_visibility(True)
         with self.scene_box:
             with ui.element("div").classes("lbl2"):
-                ui.html("シ ー ン")
+                ui.html("シーン")
             with ui.element("div").classes("tx"):
                 ui.html(_inline_html(settings.situation.strip()))
             edit = ui.element("div").classes("edit")
@@ -1243,7 +1243,7 @@ class Ui2ChatController:
             intro = intro[1:-1].strip()
         with ui.element("div").classes("fresh"):
             with ui.element("div").classes("hello"):
-                ui.html("は じ め ま し て")
+                ui.html("はじめまして")
             if intro:
                 with ui.element("div").classes("bubble tail-left"):
                     ui.html(_inline_html(f"「{intro}」"))

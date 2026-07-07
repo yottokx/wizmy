@@ -165,7 +165,7 @@ async def test_v2_group_member_page_renders_sheet_and_adaptation(nicegui_smoke_a
     await user.open(f"/v2/groups/{group.id}/members/{member.id}")
     await user.should_see("湊")
     await user.should_see("適応コピー")
-    await user.should_see("こ の 世 界 で は")
+    await user.should_see("この世界では")
     await user.should_see("Markdown")
 
 

@@ -364,7 +364,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                 # ---- 適応情報 ----
                 with ui.element("div").classes("blk"):
                     with ui.element("div").classes("lbl"):
-                        ui.html("こ の 世 界 で は")
+                        ui.html("この世界では")
                     with ui.element("div").classes("adapt-info"):
                         parts = []
                         if current.world_entry_type:
@@ -380,7 +380,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                 # ---- 画像 ----
                 with ui.element("div").classes("blk"):
                     with ui.element("div").classes("lbl"):
-                        ui.html("画 像")
+                        ui.html("画像")
                     with ui.element("div").classes("thumbs"):
                         primary = sheet.media.primary_image()
                         images = sheet.media.images[:_MAX_THUMBS]
@@ -424,7 +424,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                 # ---- 音声 ----
                 with ui.element("div").classes("blk"):
                     with ui.element("div").classes("lbl"):
-                        ui.html("音 声")
+                        ui.html("音声")
                     voice = sheet.media.primary_voice()
                     voice_url = media_url(voice.path) if voice is not None else None
                     with ui.element("div").classes("voice-row"):

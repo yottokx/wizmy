@@ -375,7 +375,7 @@ async def ui2_character_page(character_id: str) -> None:
                 # ---- 画像 ----
                 with ui.element("div").classes("blk"):
                     with ui.element("div").classes("lbl"):
-                        ui.html("画 像")
+                        ui.html("画像")
                     with ui.element("div").classes("thumbs"):
                         primary = sheet.media.primary_image()
                         images = sheet.media.images[:_MAX_THUMBS]
@@ -416,7 +416,7 @@ async def ui2_character_page(character_id: str) -> None:
                 # ---- 音声 ----
                 with ui.element("div").classes("blk"):
                     with ui.element("div").classes("lbl"):
-                        ui.html("音 声")
+                        ui.html("音声")
                     voice = sheet.media.primary_voice()
                     voice_url = media_url(voice.path) if voice is not None else None
                     with ui.element("div").classes("voice-row"):
@@ -438,7 +438,7 @@ async def ui2_character_page(character_id: str) -> None:
                 # ---- タグ ----
                 with ui.element("div").classes("blk"):
                     with ui.element("div").classes("lbl"):
-                        ui.html("タ グ")
+                        ui.html("タグ")
                     with ui.element("div").classes("tag-row"):
                         for tag in list(sheet.tags):
                             _chip_button(f"{tag} ×", lambda t=tag: _remove_tag(t), title="クリックで削除")

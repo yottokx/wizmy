@@ -182,7 +182,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
                 back.on("click", lambda: ui.navigate.to(f"/v2/groups/{group.id}"))
                 with ui.element("div").classes("t"):
                     with ui.element("h1").classes("serif"):
-                        ui.html("この世界で、あたらしい住人を")
+                        ui.html("グループ内キャラクター生成")
                     with ui.element("div").classes("g-sub"):
                         ui.html(html.escape(group.name))
 
@@ -204,7 +204,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
 
             with ui.element("div").classes("world-box"):
                 with ui.element("div").classes("lbl"):
-                    ui.html("固 定 ワ ー ル ド")
+                    ui.html("固定ワールド")
                 with ui.element("div").classes("wtext"):
                     ui.html(html.escape(group.world))
 
