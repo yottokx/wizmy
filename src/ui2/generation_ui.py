@@ -16,10 +16,8 @@ from collections.abc import Callable
 from nicegui import app, ui
 
 from ..app_context import get_context
-from ..core.character.schemas import CharacterImageAsset
 from ..core.character_generation.schemas import ProgressEvent, ProgressEventType, ToolCallRecord
 from ..ui.state import is_vault_unlocked, set_vault_password
-from .components.portrait import image_object_position, media_url
 from .components.sparkle import sparkle_field
 from .generation_logic import ChapterProgress
 from .group_logic import DIFF_CSS, diff_html
@@ -67,8 +65,9 @@ GENERATION_CSS = (
 /* 4つ(プリセット/世界観/性別/年齢帯)が form-box 幅で1行に収まるよう均等割り */
 .gen-select { flex: 1 1 0; min-width: 130px; }
 .gen-select .q-field__control { background: var(--bg-2) !important; border-radius: 10px; }
-.gen-profile-row { justify-content: center; margin-top: 18px; }
-.gen-profile-row .gen-select { min-width: min(420px, 90%); }
+/* モデル行はフォーム列(660px)と同じ幅に揃える */
+.gen-profile-row { max-width: 660px; margin: 18px auto 0; justify-content: center; }
+.gen-profile-row .gen-select { min-width: 0; }
 
 /* Quasar textarea/input の P3 スキン(シートページと同じ .p3-ta) */
 .p3-ta { width: 100%; }
@@ -144,35 +143,16 @@ GENERATION_CSS = (
 .gen-log .mk.hit { color: var(--accent); }
 .forge .ops { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
 
-/* ---------- 状態C:誕生 ---------- */
+/* ---------- 状態C:誕生(画像列なしの1カラム) ---------- */
 .born {
   position: relative;
-  display: grid;
-  grid-template-columns: 400px minmax(0, 1fr);
-  gap: 40px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 26px;
-  padding: 34px;
+  padding: 34px 42px 32px;
   overflow: hidden;
 }
-.born-img {
-  position: relative;
-  border-radius: 20px;
-  overflow: hidden;
-  aspect-ratio: 3 / 4;
-  box-shadow: 0 0 60px var(--glow);
-  background: var(--panel-2);
-}
-.born-img img { width: 100%; height: 100%; object-fit: cover; object-position: center 8%; }
-.born-img .born-ph {
-  width: 100%; height: 100%;
-  display: grid; place-items: center;
-  color: var(--peri);
-  font-size: 84px;
-  font-family: "Yu Mincho", serif;
-}
-.born-body { position: relative; z-index: 2; padding-top: 16px; min-width: 0; }
+.born-body { position: relative; z-index: 2; min-width: 0; max-width: 760px; }
 .born-body .hello { color: var(--peri); font-size: 12px; letter-spacing: .34em; margin-bottom: 14px; }
 .born-body h2 { margin: 0 0 4px; font-size: 34px; letter-spacing: .1em; font-weight: 600; }
 .born-body .oc { color: var(--muted); font-size: 13.5px; margin-bottom: 24px; }
@@ -222,10 +202,7 @@ GENERATION_CSS = (
   .gen-wrap { padding: 24px 16px 40px; }
   .ask { padding: 36px 20px 32px; }
   .ask h1 { font-size: 23px; }
-  .forge { padding: 22px; }
-  .born { grid-template-columns: 1fr; gap: 24px; padding: 22px; }
-  .born-img { max-width: 330px; margin: 0 auto; width: 100%; }
-  .born-body { padding-top: 0; }
+  .forge, .born { padding: 22px; }
   .born-body h2 { font-size: 26px; }
 }
 @media (max-width: 560px) {
@@ -381,24 +358,17 @@ def render_born(
     oc: str,
     intro: str,
     facts: list[str],
-    image: CharacterImageAsset | None,
     save_note: str = "",
     save_note_error: bool = False,
     build_ops: Callable[[], None],
 ) -> None:
-    """状態C(誕生)を `.born` セクションへ描画する。build_ops でボタン列を差し込む。"""
+    """状態C(誕生)を `.born` セクションへ描画する。build_ops でボタン列を差し込む。
+
+    画像は同時生成しないため画像列は置かない(1カラム)。
+    """
     container.clear()
     with container:
         sparkle_field(20)
-        with ui.element("div").classes("born-img"):
-            url = media_url(image.path) if image is not None else None
-            if url is not None:
-                ui.element("img").props(f'src="{url}"').style(
-                    f"object-position: {image_object_position(image)};"
-                )
-            else:
-                with ui.element("div").classes("born-ph"):
-                    ui.html(html.escape((name or "✦")[:1]))
         with ui.element("div").classes("born-body"):
             with ui.element("div").classes("hello"):
                 ui.html("は じ め ま し て")

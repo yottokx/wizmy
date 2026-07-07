@@ -648,11 +648,6 @@ async def ui2_group_generation_page(group_id: str) -> None:
                 voice_image=preview.voice_image,
                 quality_status=result.quality_status,
             )
-            image = None
-            base_member = current.get("modify_member")
-            if job.request.mode == GenerationMode.MODIFY and isinstance(base_member, GroupMember):
-                image = base_member.character.media.primary_image()
-
             is_modify = job.request.mode == GenerationMode.MODIFY
             saved_member_id = str(current.get("saved_member_id") or "")
             saved_name = str(current.get("saved_name") or "")
@@ -699,7 +694,6 @@ async def ui2_group_generation_page(group_id: str) -> None:
                 oc=oc,
                 intro=strip_outer_quotes(preview.self_intro),
                 facts=facts,
-                image=image,
                 save_note=save_note,
                 save_note_error=False,
                 build_ops=_ops,

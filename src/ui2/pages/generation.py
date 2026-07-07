@@ -390,11 +390,6 @@ async def ui2_generation_page() -> None:
                 voice_image=display.voice_image,
                 quality_status=result.quality_status,
             )
-            image = display.media.primary_image()
-            base_char = current.get("base_char")
-            if image is None and isinstance(base_char, CharacterSheet):
-                image = base_char.media.primary_image()
-
             is_modify = job.request.mode == GenerationMode.MODIFY
             save_note = ""
             save_note_error = False
@@ -440,7 +435,6 @@ async def ui2_generation_page() -> None:
                 oc=oc,
                 intro=intro,
                 facts=facts,
-                image=image,
                 save_note=save_note,
                 save_note_error=save_note_error,
                 build_ops=_ops,
