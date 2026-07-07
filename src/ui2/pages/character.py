@@ -393,12 +393,10 @@ async def ui2_character_page(character_id: str) -> None:
                             thumb.on("click", lambda asset_id=asset.id: _set_primary_image(asset_id))
                         rest = len(sheet.media.images) - len(images)
                         if rest > 0:
-                            more = ui.element("span").classes("more-th").props(
-                                'title="画像を管理(旧UI・Phase 6 で /v2 版に置き換え)"'
-                            )
+                            more = ui.element("span").classes("more-th").props('title="画像を管理"')
                             with more:
                                 ui.html(f"+{rest}")
-                            more.on("click", lambda: ui.navigate.to(f"/characters/{character_id}"))
+                            more.on("click", lambda: ui.navigate.to(f"/v2/characters/{character_id}/images"))
                         if not sheet.media.images:
                             with ui.element("span").classes("note"):
                                 ui.html("まだ画像がありません")
@@ -409,8 +407,7 @@ async def ui2_character_page(character_id: str) -> None:
                             _chip_button("バスト範囲", lambda: _open_rect("bust"))
                         _chip_button(
                             "画像を管理・生成",
-                            lambda: ui.navigate.to(f"/characters/{character_id}"),
-                            title="旧ページが開きます(画像生成などは Phase 6 で /v2 版に)",
+                            lambda: ui.navigate.to(f"/v2/characters/{character_id}/images"),
                         )
 
                 # ---- 音声 ----
@@ -431,8 +428,7 @@ async def ui2_character_page(character_id: str) -> None:
                         _chip_button("アップロード", _open_voice_upload)
                         _chip_button(
                             "音声を管理・ボイスデザイン",
-                            lambda: ui.navigate.to(f"/characters/{character_id}"),
-                            title="旧ページが開きます(ボイスデザイン等は Phase 6 で /v2 版に)",
+                            lambda: ui.navigate.to(f"/v2/characters/{character_id}/voice"),
                         )
 
                 # ---- タグ ----

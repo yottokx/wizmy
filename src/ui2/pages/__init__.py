@@ -10,4 +10,7 @@ from . import (  # noqa: F401
     group_member,
     groups,
     home,
+    media_image,
+    media_voice,
+    settings,
 )

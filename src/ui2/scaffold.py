@@ -39,7 +39,7 @@ NAV_ITEMS: list[dict] = [
     {"label": "チャット", "route": "/v2/chat"},
     {"label": "グループ", "route": "/v2/groups"},
     {"label": "生成", "route": "/v2/generation"},
-    {"label": "設定", "route": None},  # Phase 6: /v2/settings
+    {"label": "設定", "route": "/v2/settings"},
 ]
 
 # p3.css の共通部(reset / nav / btn / bubble / 小物)+ NiceGUI 共存パッチ

@@ -97,7 +97,7 @@ async def ui2_generation_page() -> None:
                     with ui.element("div").classes("sub"):
                         ui.html("LLMプロファイルが未設定です。先に設定を行ってください。")
                     with ui.element("div").classes("go"):
-                        p3_button("設定ページへ", lambda: ui.navigate.to("/settings"))
+                        p3_button("設定ページへ", lambda: ui.navigate.to("/v2/settings"))
                 return
 
             render_vault_row()
