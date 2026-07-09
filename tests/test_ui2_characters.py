@@ -1,4 +1,4 @@
-"""/v2/characters(一覧)と /v2/characters/{id}(シート)のスモークテスト。"""
+"""/characters(一覧)と /characters/{id}(シート)のスモークテスト。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ async def test_v2_characters_lists_gallery_and_pickup(nicegui_smoke_app) -> None
     await context.characters.save(_sheet("char-b", "ミラベル", image=False))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters")
+    await user.open("/characters")
     await user.should_see("すべてのキャラクター")
     await user.should_see("アステル")  # 画像持ち → ピックアップ+ギャラリー
     await user.should_see("ミラベル")  # 画像なし → ギャラリーのみ(noimg カード)
@@ -64,7 +64,7 @@ async def test_v2_characters_favorites_filter(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-b", "ミラベル", image=False))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters")
+    await user.open("/characters")
     await user.should_see("ミラベル")
     user.find(marker="ui2-characters-fav-filter").click()
     await user.should_see("アステル")
@@ -76,7 +76,7 @@ async def test_v2_character_sheet_renders_sections(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-a", "アステル"))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a")
+    await user.open("/characters/char-a")
     await user.should_see("基本情報")
     await user.should_see("星を観測する塔のある世界。")
     await user.should_see("物静かだが星の話になると早口になる。")
@@ -90,7 +90,7 @@ async def test_v2_character_sheet_markdown_save_reparses(nicegui_smoke_app) -> N
     await context.characters.save(_sheet("char-a", "アステル"))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a")
+    await user.open("/characters/char-a")
     user.find(marker="ui2-sheet-vmode-md").click()  # Markdown モードに切替(既定は章立て表示)
     editor = list(user.find(marker="ui2-sheet-md").elements)[0]
     editor.set_value(SAMPLE_MD.replace("トワ", "ステラ"))
@@ -109,7 +109,7 @@ async def test_v2_character_favorite_toggle_persists(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-a", "アステル"))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a")
+    await user.open("/characters/char-a")
     user.find(marker="ui2-sheet-fav").click()
     await user.should_see("お気に入りに追加しました")
     saved = await context.characters.get("char-a")
@@ -118,5 +118,5 @@ async def test_v2_character_favorite_toggle_persists(nicegui_smoke_app) -> None:
 
 async def test_v2_character_not_found(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/no-such-id")
+    await user.open("/characters/no-such-id")
     await user.should_see("指定されたキャラクターは存在しません。")

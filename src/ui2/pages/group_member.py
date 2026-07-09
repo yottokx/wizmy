@@ -1,5 +1,5 @@
 """
-/v2/groups/{id}/members/{mid} メンバー詳細(適応シート)+ /v2/groups/{id}/persona(Phase 4)。
+/groups/{id}/members/{mid} メンバー詳細(適応シート)+ /groups/{id}/persona(Phase 4)。
 
 - メンバー詳細はキャラクターシートページ(Phase 2)の箱庭版:
   章立て表示+章編集+Markdownモード(プレビュー無し)を `update_member_character` に接続。
@@ -7,7 +7,7 @@
 - メディアは Phase 2 と同スコープ(一覧+アップロード+face/bust rect+メイン切替)。
   画像生成/ボイスデザイン等のダイアログ群は Phase 6(それまで旧メンバーページへ一時リンク)。
 - 修正生成/関連キャラ生成はグループ内生成(旧 /groups/{id}/generation)へ送出
-  (Phase 5 で /v2 版に差し替え)。
+  (Phase 5 で ui2 版に差し替え済み)。
 - ペルソナページは基本情報+編集(ハンドル/表示名/名前/説明)。
 """
 
@@ -234,20 +234,20 @@ def _render_not_found(message: str, back_route: str, back_label: str) -> None:
             p3_button(back_label, lambda route=back_route: ui.navigate.to(route))
 
 
-@ui.page("/v2/groups/{group_id}/members/{member_id}")
+@ui.page("/groups/{group_id}/members/{member_id}")
 async def ui2_group_member_page(group_id: str, member_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
     if group is None:
         with p3_page("グループ"):
-            _render_not_found("指定されたグループは存在しません。", "/v2/groups", "グループ一覧へ")
+            _render_not_found("指定されたグループは存在しません。", "/groups", "グループ一覧へ")
         return
     member = next((item for item in group.members if item.id == member_id), None)
     if member is None:
         with p3_page("グループ"):
             _render_not_found(
                 "指定されたメンバーはこのグループに存在しません。",
-                f"/v2/groups/{group.id}",
+                f"/groups/{group.id}",
                 "グループへ戻る",
             )
         return
@@ -268,7 +268,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
     def _send_to_group_generation(mode: str) -> None:
         app.storage.user["group_gen_mode"] = mode
         app.storage.user["group_gen_member_ids"] = [member_id]
-        ui.navigate.to(f"/v2/groups/{group.id}/generation")
+        ui.navigate.to(f"/groups/{group.id}/generation")
 
     with p3_page("グループ"):
         ui.add_css(_PAGE_CSS)
@@ -325,7 +325,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                 back = ui.element("a").classes("back").props('title="グループへ戻る"')
                 with back:
                     ui.html("←")
-                back.on("click", lambda: ui.navigate.to(f"/v2/groups/{group.id}"))
+                back.on("click", lambda: ui.navigate.to(f"/groups/{group.id}"))
                 image = _sheet().media.primary_image()
                 url = media_url(image.path) if image is not None else None
                 if url is not None:
@@ -355,7 +355,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                 with ui.element("div").classes("side-actions"):
                     p3_button(
                         "チャットへ",
-                        lambda: ui.navigate.to(f"/v2/groups/{group.id}"),
+                        lambda: ui.navigate.to(f"/groups/{group.id}"),
                         classes="btn primary",
                     )
                     p3_button("修正して生成", lambda: _send_to_group_generation("modify"))
@@ -403,7 +403,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                                 ui.html(f"+{rest}")
                             more.on(
                                 "click",
-                                lambda: ui.navigate.to(f"/v2/groups/{group.id}/members/{member_id}/images"),
+                                lambda: ui.navigate.to(f"/groups/{group.id}/members/{member_id}/images"),
                             )
                         if not sheet.media.images:
                             with ui.element("span").classes("note"):
@@ -415,7 +415,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                             chip_button("バスト範囲", lambda: _open_rect("bust"))
                         chip_button(
                             "画像を管理・生成",
-                            lambda: ui.navigate.to(f"/v2/groups/{group.id}/members/{member_id}/images"),
+                            lambda: ui.navigate.to(f"/groups/{group.id}/members/{member_id}/images"),
                         )
 
                 # ---- 音声 ----
@@ -436,7 +436,7 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                         chip_button("アップロード", _open_voice_upload)
                         chip_button(
                             "音声を管理・ボイスデザイン",
-                            lambda: ui.navigate.to(f"/v2/groups/{group.id}/members/{member_id}/voice"),
+                            lambda: ui.navigate.to(f"/groups/{group.id}/members/{member_id}/voice"),
                         )
 
         def _render_meta_note() -> None:
@@ -643,19 +643,19 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
         _refresh_all()
 
 
-@ui.page("/v2/groups/{group_id}/persona")
+@ui.page("/groups/{group_id}/persona")
 async def ui2_group_persona_page(group_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
     if group is None:
         with p3_page("グループ"):
-            _render_not_found("指定されたグループは存在しません。", "/v2/groups", "グループ一覧へ")
+            _render_not_found("指定されたグループは存在しません。", "/groups", "グループ一覧へ")
         return
     if group.user_persona is None:
         with p3_page("グループ"):
             _render_not_found(
                 "このグループにはユーザーペルソナが設定されていません。",
-                f"/v2/groups/{group.id}",
+                f"/groups/{group.id}",
                 "グループへ戻る",
             )
         return
@@ -675,7 +675,7 @@ async def ui2_group_persona_page(group_id: str) -> None:
                 back = ui.element("button").classes("btn quiet")
                 with back:
                     ui.html("← グループへ")
-                back.on("click", lambda: ui.navigate.to(f"/v2/groups/{group.id}"))
+                back.on("click", lambda: ui.navigate.to(f"/groups/{group.id}"))
             title_el = ui.element("h1").classes("serif").style(
                 "font-size: 26px; letter-spacing: .12em; margin: 18px 0 4px; font-weight: 600;"
             )

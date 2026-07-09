@@ -1,5 +1,5 @@
 """
-/v2/characters/{id} キャラクターシート(Phase 2)。モック proposal3/character.html 準拠。
+/characters/{id} キャラクターシート(Phase 2)。モック proposal3/character.html 準拠。
 
 - 左: その子(立ち絵・お気に入り・アクション・画像サムネ・音声・タグ)
 - 右: シート(章立て表示+章単位のその場編集 / Markdown 直接編集。プレビュー無し)
@@ -8,7 +8,7 @@
 - メディアはサムネイル一覧+メイン画像切替のみ。アップロード・顔/バスト範囲は
   画像・音声管理ページ(/images, /voice)に委譲。
   画像生成/ボイスデザイン等のダイアログ群は Phase 6(それまで旧ページへ一時リンク)
-- 「修正して生成/知りあいを生成」= gen_mode/gen_char_id を書いて /v2/generation へ
+- 「修正して生成/知りあいを生成」= gen_mode/gen_char_id を書いて /generation へ
 """
 
 from __future__ import annotations
@@ -238,7 +238,7 @@ def _chip_button(label: str, on_click, *, title: str = "") -> ui.element:
     return btn
 
 
-@ui.page("/v2/characters/{character_id}")
+@ui.page("/characters/{character_id}")
 async def ui2_character_page(character_id: str) -> None:
     ctx = get_context()
     sheet = await ctx.characters.get(character_id)
@@ -248,7 +248,7 @@ async def ui2_character_page(character_id: str) -> None:
             with ui.element("div").style("max-width: 640px; margin: 0 auto; padding: 60px 26px;"):
                 ui.label("指定されたキャラクターは存在しません。").classes("note").style("font-size: 14px;")
                 with ui.element("div").style("margin-top: 18px;"):
-                    _p3_button("一覧に戻る", lambda: ui.navigate.to("/v2/characters"))
+                    _p3_button("一覧に戻る", lambda: ui.navigate.to("/characters"))
         return
 
     state: dict = {"sheet": sheet, "view": "sheet"}
@@ -259,7 +259,7 @@ async def ui2_character_page(character_id: str) -> None:
     def _send_to_generation(mode: str) -> None:
         app.storage.user["gen_mode"] = mode
         app.storage.user["gen_char_id"] = character_id
-        ui.navigate.to("/v2/generation")
+        ui.navigate.to("/generation")
 
     with p3_page("キャラクター"):
         ui.add_css(_PAGE_CSS)
@@ -319,7 +319,7 @@ async def ui2_character_page(character_id: str) -> None:
                 back = ui.element("a").classes("back").props('title="キャラクター一覧へ"')
                 with back:
                     ui.html("←")
-                back.on("click", lambda: ui.navigate.to("/v2/characters"))
+                back.on("click", lambda: ui.navigate.to("/characters"))
                 fav = ui.element("span").classes("fav on" if _sheet().is_favorite else "fav").props(
                     'title="お気に入り"'
                 )
@@ -353,7 +353,7 @@ async def ui2_character_page(character_id: str) -> None:
                 with ui.element("div").classes("side-actions"):
                     _p3_button(
                         "チャットする",
-                        lambda: ui.navigate.to(f"/v2/characters/{character_id}/chat"),
+                        lambda: ui.navigate.to(f"/characters/{character_id}/chat"),
                         classes="btn primary",
                     )
                     _p3_button("修正して生成", lambda: _send_to_generation("modify"))
@@ -383,14 +383,14 @@ async def ui2_character_page(character_id: str) -> None:
                             more = ui.element("span").classes("more-th").props('title="画像を管理"')
                             with more:
                                 ui.html(f"+{rest}")
-                            more.on("click", lambda: ui.navigate.to(f"/v2/characters/{character_id}/images"))
+                            more.on("click", lambda: ui.navigate.to(f"/characters/{character_id}/images"))
                         if not sheet.media.images:
                             with ui.element("span").classes("note"):
                                 ui.html("まだ画像がありません")
                     with ui.element("div").classes("media-links"):
                         _chip_button(
                             "画像を管理・生成",
-                            lambda: ui.navigate.to(f"/v2/characters/{character_id}/images"),
+                            lambda: ui.navigate.to(f"/characters/{character_id}/images"),
                         )
 
                 # ---- 音声 ----
@@ -410,7 +410,7 @@ async def ui2_character_page(character_id: str) -> None:
                     with ui.element("div").classes("media-links"):
                         _chip_button(
                             "音声を管理・ボイスデザイン",
-                            lambda: ui.navigate.to(f"/v2/characters/{character_id}/voice"),
+                            lambda: ui.navigate.to(f"/characters/{character_id}/voice"),
                         )
 
                 # ---- タグ ----
@@ -583,7 +583,7 @@ async def ui2_character_page(character_id: str) -> None:
                     await ctx.characters.delete(character_id)
                     ui.notify(f"「{_sheet().name}」を削除しました", type="positive")
                     dlg.close()
-                    ui.navigate.to("/v2/characters")
+                    ui.navigate.to("/characters")
 
                 with ui.row().classes("justify-end gap-2 mt-4 w-full"):
                     _p3_button("キャンセル", dlg.close, classes="btn quiet")

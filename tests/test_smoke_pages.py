@@ -1,4 +1,4 @@
-"""主要ページが初期表示で例外を出さないことを確認するスモークテスト。"""
+"""旧UI(/legacy 退避中)の主要ページが初期表示で例外を出さないことを確認するスモークテスト。"""
 
 from __future__ import annotations
 
@@ -84,10 +84,10 @@ async def smoke_records(nicegui_smoke_app) -> SmokeRecords:
 @pytest.mark.parametrize(
     "path",
     [
-        "/",
-        "/characters",
-        "/groups",
-        "/settings",
+        "/legacy",
+        "/legacy/characters",
+        "/legacy/groups",
+        "/legacy/settings",
     ],
 )
 async def test_top_level_pages_render_without_error(nicegui_smoke_app, smoke_records: SmokeRecords, path: str) -> None:
@@ -95,26 +95,21 @@ async def test_top_level_pages_render_without_error(nicegui_smoke_app, smoke_rec
 
 
 async def test_group_detail_page_renders_without_error(nicegui_smoke_app, smoke_records: SmokeRecords) -> None:
-    await nicegui_smoke_app.user.open(f"/groups/{smoke_records.group.id}")
+    await nicegui_smoke_app.user.open(f"/legacy/groups/{smoke_records.group.id}")
 
 
 async def test_character_chat_page_renders_without_error(nicegui_smoke_app, smoke_records: SmokeRecords) -> None:
-    await nicegui_smoke_app.user.open(f"/characters/{smoke_records.character.id}/chat")
+    await nicegui_smoke_app.user.open(f"/legacy/characters/{smoke_records.character.id}/chat")
 
 
 @pytest.mark.parametrize(
     "path",
     [
-        "/characters/missing-character",
-        "/characters/missing-character/chat",
-        "/groups/missing-group",
+        "/legacy/characters/missing-character",
+        "/legacy/characters/missing-character/chat",
+        "/legacy/groups/missing-group",
     ],
 )
 async def test_missing_ids_render_existing_not_found_pages(nicegui_smoke_app, path: str) -> None:
     await nicegui_smoke_app.user.open(path)
     await nicegui_smoke_app.user.should_see("存在しません。")
-
-
-async def test_generation_path_current_behavior_is_not_server_error(nicegui_smoke_app) -> None:
-    response = await nicegui_smoke_app.user.http_client.get("/generation")
-    assert response.status_code < 500

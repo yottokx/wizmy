@@ -1,5 +1,5 @@
 """
-/v2/settings — APIキーボルト(設定・解錠・ロック・パスワード変更・リセット)。
+/settings — APIキーボルト(設定・解錠・ロック・パスワード変更・リセット)。
 
 旧 `ui/pages/settings/vault.py` の機能を P3 スキンで再実装。
 """

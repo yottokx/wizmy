@@ -1,4 +1,4 @@
-"""/v2/generation と /v2/groups/{id}/generation のスモークテスト。"""
+"""/generation と /groups/{id}/generation のスモークテスト。"""
 
 from __future__ import annotations
 
@@ -41,14 +41,14 @@ async def _make_group(context, *, members=None):
 
 async def test_v2_generation_without_profiles_shows_setup_guide(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2/generation")
+    await user.open("/generation")
     await user.should_see("LLMプロファイルが未設定です")
 
 
 async def test_v2_generation_renders_modes_and_new_form(nicegui_smoke_app) -> None:
     _make_profile(nicegui_smoke_app.context)
     user = nicegui_smoke_app.user
-    await user.open("/v2/generation")
+    await user.open("/generation")
     await user.should_see("どんなキャラクターを作りますか。")
     await user.should_see("新規生成")
     await user.should_see("既存キャラを修正")
@@ -59,7 +59,7 @@ async def test_v2_generation_renders_modes_and_new_form(nicegui_smoke_app) -> No
 async def test_v2_generation_modify_requires_base_character(nicegui_smoke_app) -> None:
     _make_profile(nicegui_smoke_app.context)
     user = nicegui_smoke_app.user
-    await user.open("/v2/generation")
+    await user.open("/generation")
     await user.should_see("どんなキャラクターを作りますか。")
     user.find(marker="ui2-gen-mode-modify").click()
     await user.should_see("ベースキャラクター")
@@ -70,7 +70,7 @@ async def test_v2_generation_modify_requires_base_character(nicegui_smoke_app) -
 
 async def test_v2_group_generation_not_found(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2/groups/no-such-group/generation")
+    await user.open("/groups/no-such-group/generation")
     await user.should_see("指定されたグループは存在しません。")
 
 
@@ -79,7 +79,7 @@ async def test_v2_group_generation_renders_fixed_world_and_modes(nicegui_smoke_a
     _make_profile(context)
     group = await _make_group(context)
     user = nicegui_smoke_app.user
-    await user.open(f"/v2/groups/{group.id}/generation")
+    await user.open(f"/groups/{group.id}/generation")
     await user.should_see("どんな住人を迎えますか。")
     await user.should_see("固定ワールド")
     await user.should_see("星が本の背表紙に宿る図書館。")
@@ -92,7 +92,7 @@ async def test_v2_group_generation_modify_requires_member(nicegui_smoke_app) -> 
     _make_profile(context)
     group = await _make_group(context, members=[])
     user = nicegui_smoke_app.user
-    await user.open(f"/v2/groups/{group.id}/generation")
+    await user.open(f"/groups/{group.id}/generation")
     await user.should_see("どんな住人を迎えますか。")
     user.find(marker="ui2-ggen-mode-modify").click()
     await user.should_see("この世界にはまだ住人がいません。")

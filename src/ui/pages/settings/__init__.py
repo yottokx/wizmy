@@ -15,7 +15,7 @@ from .media_generation import build_media_generation_tab
 from .vault import build_vault_tab
 
 
-@ui.page("/settings")
+@ui.page("/legacy/settings")
 async def settings_page() -> None:
     ctx = get_context()
     install_drag_sort_script()

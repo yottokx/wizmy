@@ -81,7 +81,7 @@ def narrator_media_actions(ctx) -> CharacterMediaActions:
     return CharacterMediaActions(
         target_id=narrator_tts_id(),
         tts_id=narrator_tts_id(),
-        result_url="/settings",
+        result_url="/legacy/settings",
         scope_prefix="narrator",
         metadata={"target": "narrator"},
         media_path=ctx.user_personas.media_path,

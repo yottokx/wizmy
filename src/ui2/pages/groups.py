@@ -1,5 +1,5 @@
 """
-/v2/groups グループ一覧+作成フロー(Phase 4)。モック proposal3/groups.html 準拠。
+/groups グループ一覧+作成フロー(Phase 4)。モック proposal3/groups.html 準拠。
 
 - 一覧: 箱庭カード(三連の住人ポートレート+世界観+統計)。ひらく/削除。
 - 作成フロー: 旧ウィザードと同じ入力導線の4ステップ
@@ -199,7 +199,7 @@ def _member_image_assets(group: GroupChatRecord) -> list:
 
 def _render_group_card(ctx, group: GroupChatRecord, session_count: int, on_delete) -> None:
     card = ui.element("div").classes("gcard").mark("ui2-group-card")
-    card.on("click", lambda gid=group.id: ui.navigate.to(f"/v2/groups/{gid}"))
+    card.on("click", lambda gid=group.id: ui.navigate.to(f"/groups/{gid}"))
     with card:
         with ui.element("div").classes("gimgs"):
             images = _member_image_assets(group)
@@ -231,7 +231,7 @@ def _render_group_card(ctx, group: GroupChatRecord, session_count: int, on_delet
             open_btn = ui.element("button").classes("btn")
             with open_btn:
                 ui.html("ひらく")
-            open_btn.on("click.stop", lambda gid=group.id: ui.navigate.to(f"/v2/groups/{gid}"))
+            open_btn.on("click.stop", lambda gid=group.id: ui.navigate.to(f"/groups/{gid}"))
             delete_btn = ui.element("button").classes("btn danger")
             with delete_btn:
                 ui.html("削除")
@@ -247,7 +247,7 @@ async def _load_groups_with_counts(ctx) -> list[tuple[GroupChatRecord, int]]:
     return result
 
 
-@ui.page("/v2/groups")
+@ui.page("/groups")
 async def ui2_groups_page() -> None:
     ctx = get_context()
     # 描画前にデータを読み切る(p3_page 内で await すると初期レスポンスに載らず、
@@ -1092,7 +1092,7 @@ def _render_create_flow(ctx) -> None:
             relationships=relationships,
         )
         ui.notify(f"グループ「{group.name}」を作成しました", type="positive")
-        ui.navigate.to(f"/v2/groups/{group.id}")
+        ui.navigate.to(f"/groups/{group.id}")
 
     _refresh_picks()
     _refresh_persona_row()

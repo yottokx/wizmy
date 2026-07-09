@@ -1430,7 +1430,7 @@ def open_add_group_character_dialog(ctx, group: GroupChatRecord) -> None:
                 return
             dlg.close()
             ui.notify("キャラクターを追加しました", type="positive")
-            ui.navigate.to(f"/groups/{saved.id}")
+            ui.navigate.to(f"/legacy/groups/{saved.id}")
 
         with body:
             controls["profile_select"] = (

@@ -17,7 +17,7 @@ from ..components.character_media import render_character_media_panel
 from ..layout import page_layout
 
 
-@ui.page("/characters/{character_id}")
+@ui.page("/legacy/characters/{character_id}")
 async def character_detail_page(character_id: str) -> None:
     ctx = get_context()
     sheet = await ctx.characters.get(character_id)
@@ -25,12 +25,12 @@ async def character_detail_page(character_id: str) -> None:
     if sheet is None:
         with page_layout("キャラクターが見つかりません"):
             ui.label("指定されたキャラクターは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/characters")).props("flat color=primary")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/legacy/characters")).props("flat color=primary")
         return
 
     with page_layout(sheet.name):
         with ui.row().classes("items-center gap-2 mb-4 flex-wrap"):
-            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/characters")).props("flat round")
+            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/legacy/characters")).props("flat round")
             ui.label(sheet.name).classes("text-2xl font-bold flex-1")
 
             favorite_btn = (
@@ -48,7 +48,7 @@ async def character_detail_page(character_id: str) -> None:
                 ui.button(
                     "チャット",
                     icon="forum",
-                    on_click=lambda: ui.navigate.to(f"/characters/{character_id}/chat"),
+                    on_click=lambda: ui.navigate.to(f"/legacy/characters/{character_id}/chat"),
                 ).props("flat color=primary size=sm").tooltip("このキャラクターとチャットする")
                 ui.button(
                     "修正に送る",
@@ -77,7 +77,7 @@ async def character_detail_page(character_id: str) -> None:
         def _send_to_generation(mode: str) -> None:
             app.storage.user["gen_mode"] = mode
             app.storage.user["gen_char_id"] = character_id
-            ui.navigate.to("/")
+            ui.navigate.to("/legacy")
 
         async def _toggle_favorite() -> None:
             saved = await ctx.characters.set_favorite(character_id, not sheet.is_favorite)
@@ -246,7 +246,7 @@ async def character_detail_page(character_id: str) -> None:
             await ctx.characters.delete(character_id)
             ui.notify(f"「{sheet.name}」を削除しました", type="positive")
             dlg.close()
-            ui.navigate.to("/characters")
+            ui.navigate.to("/legacy/characters")
 
 
 def _render_media_panel(sheet, ctx, character_id: str, refresh_fn) -> None:

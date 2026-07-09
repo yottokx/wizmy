@@ -1,4 +1,4 @@
-"""/v2/groups(一覧・箱庭シェル・メンバー・ペルソナ)のスモークテスト。"""
+"""/groups(一覧・箱庭シェル・メンバー・ペルソナ)のスモークテスト。"""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ async def test_v2_groups_list_renders_cards_and_create_flow(nicegui_smoke_app) -
     )
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/groups")
+    await user.open("/groups")
     await user.should_see("グループ一覧")
     await user.should_see("星見図書館の夜会")
     await user.should_see("住人 2人 ・ セッション 1件")
@@ -60,7 +60,7 @@ async def test_v2_groups_list_renders_cards_and_create_flow(nicegui_smoke_app) -
 
 async def test_v2_groups_create_requires_residents(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2/groups")
+    await user.open("/groups")
     await user.should_see("世界と名前を決める")  # 作成フローの非同期描画完了を待つ
     user.find(marker="ui2-group-create").click()
     # 補完用プロファイル未登録のため、最初の検証で止まる
@@ -110,7 +110,7 @@ async def test_v2_group_shell_renders_messages_and_cast(nicegui_smoke_app) -> No
     )
 
     user = nicegui_smoke_app.user
-    await user.open(f"/v2/groups/{group.id}")
+    await user.open(f"/groups/{group.id}")
     await user.should_see("星見図書館の夜会")  # gband
     await user.should_see("閲覧室の夜")  # セッション+ヘッダー
     await user.should_see("星図は夜ごとに息をするんです。")
@@ -150,7 +150,7 @@ async def test_v2_group_user_turn_requires_llm_profile(nicegui_smoke_app) -> Non
         messages=[],
     )
     user = nicegui_smoke_app.user
-    await user.open(f"/v2/groups/{group.id}")
+    await user.open(f"/groups/{group.id}")
     input_box = list(user.find(marker="ui2-group-input").elements)[0]
     input_box.set_value("こんばんは")
     user.find(marker="ui2-group-send").click()
@@ -163,7 +163,7 @@ async def test_v2_group_member_page_renders_sheet_and_adaptation(nicegui_smoke_a
     member = group.members[1]  # 湊
 
     user = nicegui_smoke_app.user
-    await user.open(f"/v2/groups/{group.id}/members/{member.id}")
+    await user.open(f"/groups/{group.id}/members/{member.id}")
     await user.should_see("湊")
     await user.should_see("適応コピー")
     await user.should_see("この世界では")
@@ -175,7 +175,7 @@ async def test_v2_group_persona_page_edit_saves(nicegui_smoke_app) -> None:
     group = await _make_group(context)
 
     user = nicegui_smoke_app.user
-    await user.open(f"/v2/groups/{group.id}/persona")
+    await user.open(f"/groups/{group.id}/persona")
     await user.should_see("ソラ")
     await user.should_see("専用のあなた")
     user.find(marker="ui2-persona-edit").click()
@@ -190,7 +190,7 @@ async def test_v2_group_persona_page_edit_saves(nicegui_smoke_app) -> None:
 
 async def test_v2_group_not_found_pages(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2/groups/no-such-group")
+    await user.open("/groups/no-such-group")
     await user.should_see("指定されたグループは存在しません。")
-    await user.open("/v2/groups/no-such-group/members/xxx")
+    await user.open("/groups/no-such-group/members/xxx")
     await user.should_see("指定されたグループは存在しません。")

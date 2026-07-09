@@ -1,5 +1,5 @@
 """
-/v2/generation キャラクター生成(Phase 5)。モック proposal3/generation.html 準拠。
+/generation キャラクター生成(Phase 5)。モック proposal3/generation.html 準拠。
 
 - 状態A(入力)→ 状態B(生成中: ベール+章立て+ツールログ)→ 状態C(誕生)が
   同じ場所で遷移する(モックの注記どおり)
@@ -67,7 +67,7 @@ def _generation_default_profile_id(ctx, options: dict[str, str]) -> str:
     return default_profile_id(ctx, options)
 
 
-@ui.page("/v2/generation")
+@ui.page("/generation")
 async def ui2_generation_page() -> None:
     ctx = get_context()
 
@@ -97,7 +97,7 @@ async def ui2_generation_page() -> None:
                     with ui.element("div").classes("sub"):
                         ui.html("LLMプロファイルが未設定です。先に設定を行ってください。")
                     with ui.element("div").classes("go"):
-                        p3_button("設定ページへ", lambda: ui.navigate.to("/v2/settings"))
+                        p3_button("設定ページへ", lambda: ui.navigate.to("/settings"))
                 return
 
             ask = ui.element("section").classes("ask")
@@ -387,12 +387,12 @@ async def ui2_generation_page() -> None:
                 if saved_now is not None:
                     p3_button(
                         "シートを開く",
-                        lambda: ui.navigate.to(f"/v2/characters/{saved_now.id}"),
+                        lambda: ui.navigate.to(f"/characters/{saved_now.id}"),
                         classes="btn primary",
                     ).mark("ui2-gen-open-sheet")
                     p3_button(
                         "チャットをはじめる",
-                        lambda: ui.navigate.to(f"/v2/characters/{saved_now.id}/chat"),
+                        lambda: ui.navigate.to(f"/characters/{saved_now.id}/chat"),
                     )
                     p3_button("修正して続ける", lambda: _restart_with("modify", saved_now), classes="btn quiet")
                     p3_button("知りあいを生成", lambda: _restart_with("related", saved_now), classes="btn quiet")

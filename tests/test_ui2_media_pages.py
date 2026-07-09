@@ -1,4 +1,4 @@
-"""/v2 メディア編集ページ(画像/音声・キャラ版+グループメンバー版)のスモークテスト。"""
+"""メディア編集ページ(画像/音声・キャラ版+グループメンバー版)のスモークテスト。"""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ async def test_v2_character_images_page_renders(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-a", "アステル", images=2))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/images")
+    await user.open("/characters/char-a/images")
     await user.should_see("メイン画像")
     await user.should_see("すべての画像")
     await user.should_see("顔範囲を編集")
@@ -60,7 +60,7 @@ async def test_v2_character_images_delete_non_primary(nicegui_smoke_app) -> None
     await context.characters.save(_sheet("char-a", "アステル", images=2))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/images")
+    await user.open("/characters/char-a/images")
     user.find(marker="ui2-media-image-delete").click()
     await user.should_see("この画像を削除しますか?")
     user.find(marker="ui2-media-image-delete-confirm").click()
@@ -77,7 +77,7 @@ async def test_v2_character_voice_page_renders(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-a", "アステル"))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/voice")
+    await user.open("/characters/char-a/voice")
     await user.should_see("ボイスデザイン")
     await user.should_see("声のキャプション")
     await user.should_see("まだ音声がありません。アップロードするか、下のボイスデザインで生成できます。")
@@ -91,16 +91,16 @@ async def test_v2_group_member_media_pages_render(nicegui_smoke_app) -> None:
     member = group.members[0]
 
     user = nicegui_smoke_app.user
-    await user.open(f"/v2/groups/{group.id}/members/{member.id}/images")
+    await user.open(f"/groups/{group.id}/members/{member.id}/images")
     await user.should_see("すべての画像")
-    await user.open(f"/v2/groups/{group.id}/members/{member.id}/voice")
+    await user.open(f"/groups/{group.id}/members/{member.id}/voice")
     await user.should_see("ボイスデザイン")
     await user.should_see("TTS設定")
 
 
 async def test_v2_media_pages_not_found(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/no-such-id/images")
+    await user.open("/characters/no-such-id/images")
     await user.should_see("指定されたキャラクターは存在しません。")
-    await user.open("/v2/characters/no-such-id/voice")
+    await user.open("/characters/no-such-id/voice")
     await user.should_see("指定されたキャラクターは存在しません。")

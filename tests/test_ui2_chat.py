@@ -1,4 +1,4 @@
-"""/v2/characters/{id}/chat(1:1チャット)のスモークテスト。"""
+"""/characters/{id}/chat(1:1チャット)のスモークテスト。"""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ async def test_v2_chat_fresh_state_without_sessions(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-a", "アステル"))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/chat")
+    await user.open("/characters/char-a/chat")
     # 初対面の空状態: 自己紹介+はじめかた+セッション0件の案内
     await user.should_see("トワです。今日の星はよく瞬いていますよ")
     await user.should_see("あいさつを返す")
@@ -68,7 +68,7 @@ async def test_v2_chat_renders_session_messages_and_scene(nicegui_smoke_app) -> 
     )
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/chat")
+    await user.open("/characters/char-a/chat")
     await user.should_see("地下書庫の夜話")  # 左のセッション+ヘッダー
     await user.should_see("来たのね。ちょうどいいわ。")
     await user.should_see("この銘文、読める?")
@@ -89,7 +89,7 @@ async def test_v2_chat_memo_command_posts_without_llm(nicegui_smoke_app) -> None
     )
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/chat")
+    await user.open("/characters/char-a/chat")
 
     # 「本文/memo」送信 → コメント入力モード+本文が入力欄に残る
     input_box = list(user.find(marker="ui2-chat-input").elements)[0]
@@ -124,7 +124,7 @@ async def test_v2_chat_user_turn_requires_llm_profile(nicegui_smoke_app) -> None
     )
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/chat")
+    await user.open("/characters/char-a/chat")
     input_box = list(user.find(marker="ui2-chat-input").elements)[0]
     input_box.set_value("こんにちは")
     user.find(marker="ui2-chat-send").click()
@@ -140,7 +140,7 @@ async def test_v2_chat_picker_favorites_filter(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-b", "ミラベル", image=False))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/char-a/chat")
+    await user.open("/characters/char-a/chat")
     await user.should_see("ミラベル")  # ピッカーの候補カード
     user.find(marker="ui2-chat-picker-fav").click()
     await user.should_not_see("ミラベル")
@@ -149,5 +149,5 @@ async def test_v2_chat_picker_favorites_filter(nicegui_smoke_app) -> None:
 
 async def test_v2_chat_not_found(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2/characters/no-such-id/chat")
+    await user.open("/characters/no-such-id/chat")
     await user.should_see("指定されたキャラクターは存在しません。")

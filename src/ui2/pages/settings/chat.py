@@ -1,5 +1,5 @@
 """
-/v2/settings — チャット(チャットモード / ユーザーペルソナ)。
+/settings — チャット(チャットモード / ユーザーペルソナ)。
 
 旧 `ui/pages/settings/chat_modes.py` / `user_personas.py` の機能を P3 スキンで再実装。
 ペルソナのメディア(画像・音声・TTS)は `media_ui.py` の共有レンダラを使う。
@@ -196,7 +196,7 @@ def _persona_media_target(ctx, state: dict, refresh_list) -> MediaTarget:
     return MediaTarget(
         name=_persona().display_name or "ユーザー",
         tts_id=f"user-persona-{persona_id}",
-        result_url="/v2/settings",
+        result_url="/settings",
         scope_prefix=f"user_persona:{persona_id}",
         metadata={"persona_id": persona_id},
         sheet=_persona,

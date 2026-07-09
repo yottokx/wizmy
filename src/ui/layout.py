@@ -17,10 +17,10 @@ from ..app_context import get_context
 from ..config import PROJECT_ROOT
 
 NAV_ITEMS = [
-    {"label": "キャラクター生成", "icon": "auto_awesome", "path": "/"},
-    {"label": "キャラクター一覧", "icon": "people", "path": "/characters"},
-    {"label": "グループチャット", "icon": "groups", "path": "/groups"},
-    {"label": "設定", "icon": "settings", "path": "/settings"},
+    {"label": "キャラクター生成", "icon": "auto_awesome", "path": "/legacy"},
+    {"label": "キャラクター一覧", "icon": "people", "path": "/legacy/characters"},
+    {"label": "グループチャット", "icon": "groups", "path": "/legacy/groups"},
+    {"label": "設定", "icon": "settings", "path": "/legacy/settings"},
 ]
 
 DEFAULT_THEME = "sage-garden"
@@ -594,7 +594,7 @@ def page_layout(title: str = ""):
                     ui.button(
                         "生成画面を開く",
                         icon="open_in_new",
-                        on_click=lambda: ui.navigate.to("/"),
+                        on_click=lambda: ui.navigate.to("/legacy"),
                     ).props("flat color=primary size=sm").classes("mt-2")
 
             if not jobs and not character_generation_active:
@@ -686,12 +686,12 @@ def page_layout(title: str = ""):
         try:
             current_path = ui.context.client.page.path
         except Exception:
-            current_path = "/"
+            current_path = "/legacy"
 
         with ui.list().props("dense separator").classes("w-full"):
             for item in NAV_ITEMS:
                 is_active = current_path == item["path"] or (
-                    item["path"] != "/" and current_path.startswith(f"{item['path']}/")
+                    item["path"] != "/legacy" and current_path.startswith(f"{item['path']}/")
                 )
                 item_style = (
                     "background-color: var(--cs-accent-bg); border-left: 3px solid var(--cs-accent);"

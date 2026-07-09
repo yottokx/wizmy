@@ -1,7 +1,8 @@
 """
 新UI「P3: With」の並行実装パッケージ。
 
-- ルートは `/v2` プレフィックスで旧UIと並走する。
+- 正式ルート(`/`・`/characters` 等)を提供する。旧UIは `/legacy` 配下に退避中。
+- 旧 `/v2/...` URL は正式ルートへリダイレクトされる(pages/legacy_redirect.py)。
 - 依存規則: ui2 → services / core / storage / ui/state.py のみ。
   `src/ui/` の他モジュールは import しない。
 """
@@ -16,7 +17,7 @@ _MEDIA_ROOTS = ("characters", "groups", "user_personas", "narrator")
 
 
 def register_ui2(settings: AppSettings) -> None:
-    """`/v2` ページ群とメディア配信URLを登録する(main.py から1回だけ呼ぶ)。
+    """P3 ページ群とメディア配信URLを登録する(main.py から1回だけ呼ぶ)。
 
     data ルート全体は公開しない(characters.db / config.json を含むため)。
     """

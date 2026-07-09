@@ -292,7 +292,7 @@ def user_persona_media_actions(persona: UserPersona, ctx) -> CharacterMediaActio
     return CharacterMediaActions(
         target_id=user_persona_tts_id(persona.id),
         tts_id=user_persona_tts_id(persona.id),
-        result_url="/settings",
+        result_url="/legacy/settings",
         scope_prefix=f"user_persona:{persona.id}",
         metadata={"persona_id": persona.id},
         media_path=ctx.user_personas.media_path,

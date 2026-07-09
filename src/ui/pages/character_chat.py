@@ -10,7 +10,7 @@ from ..chat.style import CHAT_CSS
 from ..layout import page_layout
 
 
-@ui.page("/characters/{character_id}/chat")
+@ui.page("/legacy/characters/{character_id}/chat")
 async def character_chat_page(character_id: str) -> None:
     ctx = get_context()
     sheet = await ctx.characters.get(character_id)
@@ -18,7 +18,7 @@ async def character_chat_page(character_id: str) -> None:
     if sheet is None:
         with page_layout("キャラクターが見つかりません"):
             ui.label("指定されたキャラクターは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/characters")).props("flat color=primary")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/legacy/characters")).props("flat color=primary")
         return
 
     with page_layout(f"{sheet.name} とチャット"):

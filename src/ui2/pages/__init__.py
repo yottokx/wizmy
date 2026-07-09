@@ -10,6 +10,7 @@ from . import (  # noqa: F401
     group_member,
     groups,
     home,
+    legacy_redirect,
     media_image,
     media_voice,
     settings,

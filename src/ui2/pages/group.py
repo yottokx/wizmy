@@ -1,5 +1,5 @@
 """
-/v2/groups/{id} 箱庭シェル(グループチャット・Phase 4)。モック proposal3/group.html 準拠。
+/groups/{id} 箱庭シェル(グループチャット・Phase 4)。モック proposal3/group.html 準拠。
 
 - 描画は P3、編成は旧 `src/ui/group_chat/controller.py` を踏襲(呼ぶ services は全部既存):
   GroupChatService(グループ/セッションCRUD・メディア)/ GroupChatTurnService(話者選択+ターン)/
@@ -1027,7 +1027,7 @@ class Ui2GroupChatController:
             back = ui.element("button").classes("back").props('title="グループ一覧へ"')
             with back:
                 ui.html("←")
-            back.on("click", lambda: ui.navigate.to("/v2/groups"))
+            back.on("click", lambda: ui.navigate.to("/groups"))
             with ui.element("span").classes("gname serif").mark("ui2-group-name"):
                 ui.html(html.escape(self.group.name))
             with ui.element("span").classes("gworld"):
@@ -1177,7 +1177,7 @@ class Ui2GroupChatController:
                             ).mark("ui2-group-add-member")
                             p3_button(
                                 "+ この世界で生成",
-                                lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/generation"),
+                                lambda: ui.navigate.to(f"/groups/{self.group.id}/generation"),
                                 classes="btn quiet",
                             )
 
@@ -1270,12 +1270,12 @@ class Ui2GroupChatController:
                             ui.html("開く")
                         open_btn.on(
                             "click.stop",
-                            lambda mid=member.id: ui.navigate.to(f"/v2/groups/{self.group.id}/members/{mid}"),
+                            lambda mid=member.id: ui.navigate.to(f"/groups/{self.group.id}/members/{mid}"),
                         )
                 persona = self.group.user_persona
                 if persona is not None:
                     you = ui.element("button").classes("member you").props('title="グループペルソナを開く"')
-                    you.on("click", lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/persona"))
+                    you.on("click", lambda: ui.navigate.to(f"/groups/{self.group.id}/persona"))
                     with you:
                         _avatar_or_placeholder(persona.media, persona.display_name or persona.name or "ユーザー")
                         with ui.element("div").classes("mi"):
@@ -1774,7 +1774,7 @@ class Ui2GroupChatController:
         return f"group_chat:{self.active_session_id or 'none'}"
 
     def _result_url(self) -> str:
-        return f"/v2/groups/{self.group.id}"
+        return f"/groups/{self.group.id}"
 
     async def restore_active_ai_job(self) -> None:
         if self.active_session_id is None:
@@ -3390,7 +3390,7 @@ class Ui2GroupChatController:
                             chip_button(
                                 "開く",
                                 lambda mid=member.id: ui.navigate.to(
-                                    f"/v2/groups/{self.group.id}/members/{mid}"
+                                    f"/groups/{self.group.id}/members/{mid}"
                                 ),
                             )
                     persona = self.group.user_persona
@@ -3404,12 +3404,12 @@ class Ui2GroupChatController:
                                 ui.label("あなた — グループ専用ペルソナ").classes("text-xs").style(
                                     "color: var(--muted);"
                                 )
-                            chip_button("開く", lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/persona"))
+                            chip_button("開く", lambda: ui.navigate.to(f"/groups/{self.group.id}/persona"))
                     with ui.row().classes("gap-2 mt-1"):
                         chip_button("+ 既存キャラを適応して迎える", lambda: (dlg.close(), self.open_add_member_dialog()))
                         chip_button(
                             "+ この世界で生成",
-                            lambda: ui.navigate.to(f"/v2/groups/{self.group.id}/generation"),
+                            lambda: ui.navigate.to(f"/groups/{self.group.id}/generation"),
                         )
 
                     ui.label("危険な操作").classes("text-sm font-semibold mt-2")
@@ -3425,7 +3425,7 @@ class Ui2GroupChatController:
                                 deleted = await ctx.group_chats.delete_group(self.group.id)
                                 if deleted:
                                     ui.notify("グループを削除しました", type="positive")
-                                    ui.navigate.to("/v2/groups")
+                                    ui.navigate.to("/groups")
                                 else:
                                     ui.notify("グループが見つかりませんでした", type="warning")
 
@@ -3799,7 +3799,7 @@ class Ui2GroupChatController:
         dlg.open()
 
 
-@ui.page("/v2/groups/{group_id}")
+@ui.page("/groups/{group_id}")
 async def ui2_group_page(group_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
@@ -3809,7 +3809,7 @@ async def ui2_group_page(group_id: str) -> None:
             with ui.element("div").style("max-width: 640px; margin: 0 auto; padding: 60px 26px;"):
                 ui.label("指定されたグループは存在しません。").classes("note").style("font-size: 14px;")
                 with ui.element("div").style("margin-top: 18px;"):
-                    p3_button("グループ一覧へ", lambda: ui.navigate.to("/v2/groups"))
+                    p3_button("グループ一覧へ", lambda: ui.navigate.to("/groups"))
         return
 
     controller = Ui2GroupChatController(ctx, group, ui.context.client)

@@ -1,5 +1,5 @@
 """
-/v2/settings — ナレーター(地の文の読み上げに使う声)。
+/settings — ナレーター(地の文の読み上げに使う声)。
 
 旧 `ui/pages/settings/narrator.py` の機能を P3 スキンで再実装。
 ボイスデザイン/TTS設定は `media_ui.py` の共有レンダラを使う。
@@ -115,7 +115,7 @@ def _narrator_media_target(ctx, state: dict) -> MediaTarget:
     return MediaTarget(
         name="ナレーター",
         tts_id=_NARRATOR_TTS_ID,
-        result_url="/v2/settings",
+        result_url="/settings",
         scope_prefix="narrator",
         metadata={"target": "narrator"},
         sheet=_sheet,

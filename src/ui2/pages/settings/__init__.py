@@ -1,5 +1,5 @@
 """
-/v2/settings 設定ページ(Phase 6)。モック settings.html の行リスト骨格準拠。
+/settings 設定ページ(Phase 6)。モック settings.html の行リスト骨格準拠。
 
 縦画面: 各行の「開く」が管理ダイアログ(Quasar フォーム+P3スキン)を開く。
 横画面: 左=設定項目リスト / 右=設定内容の2ペイン(行クリックで右ペインに inline 描画)。
@@ -105,7 +105,7 @@ async def _is_landscape() -> bool:
         return False
 
 
-@ui.page("/v2/settings")
+@ui.page("/settings")
 async def ui2_settings_page() -> None:
     ctx = get_context()
     install_drag_sort_script()

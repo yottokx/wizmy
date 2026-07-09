@@ -1,10 +1,10 @@
 """
-/v2 ホーム(Phase 1)。モック proposal3/home.html 準拠。
+ホーム(/)(Phase 1)。モック proposal3/home.html 準拠。
 
 - 相方切替: `app.storage.user["ui2_companion"]` に永続化
 - 挨拶 v1: 時間帯定型+self_intro 流用(LLM呼び出し無し。home_logic 参照)
 - 最近のセッション: ChatService.list_recent + GroupChatService.list_recent_sessions を
-  updated_at 降順に統合して 3 件。1:1 は /v2/characters/{id}/chat、
+  updated_at 降順に統合して 3 件。1:1 は /characters/{id}/chat、
   グループは Phase 4 まで旧 /groups/{id} への暫定リンク
 """
 
@@ -191,7 +191,7 @@ def _render_bookmark(item: RecentSessionItem, image_html: tuple[str, str] | None
         ui.label(item.time_label).classes("when")
 
 
-@ui.page("/v2")
+@ui.page("/")
 async def ui2_home_page() -> None:
     ctx = get_context()
     sheets = await ctx.characters.list_all()
@@ -237,11 +237,11 @@ async def ui2_home_page() -> None:
                         gen_btn = ui.element("button").classes("btn primary")
                         with gen_btn:
                             ui.label("キャラクターを生成する")
-                        gen_btn.on("click", lambda: ui.navigate.to("/v2/generation"))
+                        gen_btn.on("click", lambda: ui.navigate.to("/generation"))
                         list_btn = ui.element("button").classes("btn")
                         with list_btn:
                             ui.label("キャラクター一覧へ")
-                        list_btn.on("click", lambda: ui.navigate.to("/v2/characters"))
+                        list_btn.on("click", lambda: ui.navigate.to("/characters"))
             else:
                 current = {"id": selected.id}
 
@@ -256,11 +256,11 @@ async def ui2_home_page() -> None:
                         cont_btn = ui.element("button").classes("btn primary").mark("ui2-continue")
                         with cont_btn:
                             ui.label("続きから話す")
-                        cont_btn.on("click", lambda: ui.navigate.to(f"/v2/characters/{current['id']}/chat"))
+                        cont_btn.on("click", lambda: ui.navigate.to(f"/characters/{current['id']}/chat"))
                         new_btn = ui.element("button").classes("btn")
                         with new_btn:
                             ui.label("新しいセッション")
-                        new_btn.on("click", lambda: ui.navigate.to(f"/v2/characters/{current['id']}/chat"))
+                        new_btn.on("click", lambda: ui.navigate.to(f"/characters/{current['id']}/chat"))
 
                 # ---- 相方スイッチャ ----
                 avatar_buttons: dict[str, ui.element] = {}
@@ -308,7 +308,7 @@ async def ui2_home_page() -> None:
                         more = ui.element("button").classes("more").props('title="キャラクター一覧へ"')
                         with more:
                             ui.html("+")
-                        more.on("click", lambda: ui.navigate.to("/v2/characters"))
+                        more.on("click", lambda: ui.navigate.to("/characters"))
 
                 _apply_selection()
 

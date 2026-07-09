@@ -1,5 +1,5 @@
 """
-/v2/characters/{id}/images と /v2/groups/{gid}/members/{mid}/images(Phase 6)。
+/characters/{id}/images と /groups/{gid}/members/{mid}/images(Phase 6)。
 
 モック media-image.html 準拠。画像の管理(いま)+画像生成ワークスペース(常設)。
 描画は `media_ui.py` の共有レンダラで、保存先だけ MediaTarget で差し替える。
@@ -59,13 +59,13 @@ def _render_image_page(ctx, target: MediaTarget, *, back_route: str, back_label:
         render_image_workspace(ctx, target, _refresh_now)
 
 
-@ui.page("/v2/characters/{character_id}/images")
+@ui.page("/characters/{character_id}/images")
 async def ui2_character_images_page(character_id: str) -> None:
     ctx = get_context()
     sheet = await ctx.characters.get(character_id)
     if sheet is None:
         with p3_page("キャラクター"):
-            _render_not_found("指定されたキャラクターは存在しません。", "/v2/characters", "キャラクター一覧へ")
+            _render_not_found("指定されたキャラクターは存在しません。", "/characters", "キャラクター一覧へ")
         return
 
     state: dict = {"sheet": sheet}
@@ -74,25 +74,25 @@ async def ui2_character_images_page(character_id: str) -> None:
         _render_image_page(
             ctx,
             target,
-            back_route=f"/v2/characters/{character_id}",
+            back_route=f"/characters/{character_id}",
             back_label="← シートへ",
         )
 
 
-@ui.page("/v2/groups/{group_id}/members/{member_id}/images")
+@ui.page("/groups/{group_id}/members/{member_id}/images")
 async def ui2_group_member_images_page(group_id: str, member_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
     if group is None:
         with p3_page("グループ"):
-            _render_not_found("指定されたグループは存在しません。", "/v2/groups", "グループ一覧へ")
+            _render_not_found("指定されたグループは存在しません。", "/groups", "グループ一覧へ")
         return
     member = next((item for item in group.members if item.id == member_id), None)
     if member is None:
         with p3_page("グループ"):
             _render_not_found(
                 "指定されたメンバーはこのグループに存在しません。",
-                f"/v2/groups/{group.id}",
+                f"/groups/{group.id}",
                 "グループへ戻る",
             )
         return
@@ -103,6 +103,6 @@ async def ui2_group_member_images_page(group_id: str, member_id: str) -> None:
         _render_image_page(
             ctx,
             target,
-            back_route=f"/v2/groups/{group_id}/members/{member_id}",
+            back_route=f"/groups/{group_id}/members/{member_id}",
             back_label="← シートへ",
         )

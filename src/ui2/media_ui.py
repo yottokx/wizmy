@@ -383,7 +383,7 @@ def character_media_target(ctx, character_id: str, state: dict) -> MediaTarget:
     return MediaTarget(
         name=_sheet().name or "キャラクター",
         tts_id=character_id,
-        result_url=f"/v2/characters/{character_id}",
+        result_url=f"/characters/{character_id}",
         scope_prefix=f"character:{character_id}",
         metadata={"character_id": character_id},
         sheet=_sheet,
@@ -444,7 +444,7 @@ def group_member_media_target(ctx, group, member_id: str, state: dict) -> MediaT
     return MediaTarget(
         name=_sheet().name or "住人",
         tts_id=f"group-{group_id}-member-{member_id}",
-        result_url=f"/v2/groups/{group_id}/members/{member_id}",
+        result_url=f"/groups/{group_id}/members/{member_id}",
         scope_prefix=f"group_member:{group_id}:{member_id}",
         metadata={"group_id": group_id, "member_id": member_id},
         sheet=_sheet,

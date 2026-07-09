@@ -450,7 +450,7 @@ class GroupChatPageController:
         return {"group_id": self.group.id, "session_id": self.active_session_id or ""}
 
     def _group_assist_result_url(self) -> str:
-        return f"/groups/{self.group.id}" if self.active_session_id else ""
+        return f"/legacy/groups/{self.group.id}" if self.active_session_id else ""
 
     async def _await_group_llm_assist_result(self, result_awaitable, *, failure_message: str):
         self.set_sending(True)
@@ -569,7 +569,7 @@ class GroupChatPageController:
             metadata={"session_id": session_id, "group_id": self.group.id},
             runner=_runner,
         )
-        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/legacy/groups/{self.group.id}"})
         generated_successfully = await self._wait_for_active_group_job(
             job.id,
             failure_message="再生成に失敗しました",
@@ -630,7 +630,7 @@ class GroupChatPageController:
                 playback_path = target["playback_save"](audio)
                 return {
                     "playback_path": str(playback_path),
-                    "result_url": f"/groups/{self.group.id}",
+                    "result_url": f"/legacy/groups/{self.group.id}",
                 }
 
             job = self.ctx.tts.start_synthesize_job(
@@ -952,7 +952,7 @@ class GroupChatPageController:
             metadata={"session_id": session_id, "group_id": self.group.id},
             runner=_safe_runner,
         )
-        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/legacy/groups/{self.group.id}"})
         await self._wait_for_active_group_job(
             job.id,
             failure_message="地の文生成に失敗しました",
@@ -1355,7 +1355,7 @@ setTimeout(() => {
             metadata={"session_id": session_id, "group_id": self.group.id},
             runner=_runner,
         )
-        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/legacy/groups/{self.group.id}"})
         generated_successfully = await self._wait_for_active_group_job(
             job.id,
             failure_message="グループチャット生成に失敗しました",
@@ -1464,7 +1464,7 @@ setTimeout(() => {
             metadata={"session_id": session_id, "group_id": self.group.id},
             runner=_runner,
         )
-        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/legacy/groups/{self.group.id}"})
         generated_successfully = await self._wait_for_active_group_job(
             job.id,
             failure_message="グループチャット生成に失敗しました",
@@ -1537,7 +1537,7 @@ setTimeout(() => {
             metadata={"session_id": session_id, "group_id": self.group.id},
             runner=_runner,
         )
-        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/groups/{self.group.id}"})
+        self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": f"/legacy/groups/{self.group.id}"})
         generated_successfully = await self._wait_for_active_group_job(
             job.id,
             failure_message="ゲスト発言生成に失敗しました",

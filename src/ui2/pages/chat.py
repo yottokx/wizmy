@@ -1,5 +1,5 @@
 """
-/v2/characters/{id}/chat 1:1チャット(Phase 3)。モック proposal3/chat.html 準拠。
+/characters/{id}/chat 1:1チャット(Phase 3)。モック proposal3/chat.html 準拠。
 
 - 描画は P3、編成は旧 `src/ui/chat/controller.py` を踏襲(呼ぶものは全部既存 services):
   ChatService(セッションCRUD)/ ChatTurnService(ターン・ナレーション・自動タイトル)/
@@ -11,7 +11,7 @@
 - 相手ピッカー = list_recent の character_id 集計(chat_logic.build_partner_entries)
 - セッション0件 = 初対面の空状態(自己紹介+はじめかた)。既定設定が揃っていれば
   入力からそのまま話し始められる(クイック開始)。無理なら新規セッションダイアログへ
-- /v2/chat はナビ用の入口: 最後に話した相手のチャットへリダイレクト
+- /chat はナビ用の入口: 最後に話した相手のチャットへリダイレクト
 """
 
 from __future__ import annotations
@@ -994,10 +994,10 @@ class Ui2ChatController:
                     with ui.element("div").classes("lbl"):
                         ui.html("クイック操作")
                     with ui.element("div").classes("solo-ops"):
-                        _chip_button("シートを開く", lambda: ui.navigate.to(f"/v2/characters/{self.sheet.id}"))
+                        _chip_button("シートを開く", lambda: ui.navigate.to(f"/characters/{self.sheet.id}"))
                         _chip_button(
                             "画像・音声",
-                            lambda: ui.navigate.to(f"/v2/characters/{self.sheet.id}"),
+                            lambda: ui.navigate.to(f"/characters/{self.sheet.id}"),
                             title="シートページのメディア欄へ",
                         )
                         _chip_button("メモ", lambda: self.set_input_mode("memo"), title="次の投稿をコメントにする")
@@ -1013,7 +1013,7 @@ class Ui2ChatController:
         card = ui.element("div").classes("pcard on" if entry.sheet.id == self.sheet.id else "pcard")
         card.on(
             "click",
-            lambda cid=entry.sheet.id: ui.navigate.to(f"/v2/characters/{cid}/chat"),
+            lambda cid=entry.sheet.id: ui.navigate.to(f"/characters/{cid}/chat"),
         )
         with card:
             image = entry.sheet.media.primary_image()
@@ -1204,7 +1204,7 @@ class Ui2ChatController:
             with ui.element("div").classes("starters"):
                 _chip_button("あいさつを返す", lambda: self.focus_chat_input_at_end())
                 _chip_button("シーンを設定して始める", lambda: self.open_new_chat_dialog())
-                _chip_button("シートを見る", lambda: ui.navigate.to(f"/v2/characters/{self.sheet.id}"))
+                _chip_button("シートを見る", lambda: ui.navigate.to(f"/characters/{self.sheet.id}"))
 
     def _ops_row(self, index: int, message: ChatMessagePreview) -> None:
         playable = self.tts_playable_speakers()
@@ -1453,7 +1453,7 @@ class Ui2ChatController:
         return f"chat:{self.active_session_id or 'none'}"
 
     def _result_url(self) -> str:
-        return f"/v2/characters/{self.sheet.id}/chat"
+        return f"/characters/{self.sheet.id}/chat"
 
     async def restore_active_ai_job(self) -> None:
         if self.active_session_id is None:
@@ -2888,7 +2888,7 @@ class Ui2ChatController:
         dlg.open()
 
 
-@ui.page("/v2/characters/{character_id}/chat")
+@ui.page("/characters/{character_id}/chat")
 async def ui2_chat_page(character_id: str) -> None:
     ctx = get_context()
     sheet = await ctx.characters.get(character_id)
@@ -2898,7 +2898,7 @@ async def ui2_chat_page(character_id: str) -> None:
             with ui.element("div").style("max-width: 640px; margin: 0 auto; padding: 60px 26px;"):
                 ui.label("指定されたキャラクターは存在しません。").classes("note").style("font-size: 14px;")
                 with ui.element("div").style("margin-top: 18px;"):
-                    _p3_button("キャラクター一覧へ", lambda: ui.navigate.to("/v2/characters"))
+                    _p3_button("キャラクター一覧へ", lambda: ui.navigate.to("/characters"))
         return
 
     all_sheets = await ctx.characters.list_all()
@@ -2913,7 +2913,7 @@ async def ui2_chat_page(character_id: str) -> None:
         controller.render_shell()
 
 
-@ui.page("/v2/chat")
+@ui.page("/chat")
 async def ui2_chat_entry_page():
     """ナビ「チャット」の入口: 最後に話した(実在する)相手のチャットへリダイレクト。"""
     ctx = get_context()
@@ -2923,5 +2923,5 @@ async def ui2_chat_entry_page():
     # 削除済みキャラのセッションはシート突き合わせで自然に除外される。
     partners = build_partner_entries(sheets, recent)
     partner_id = partners[0].sheet.id if partners else ""
-    target = f"/v2/characters/{partner_id}/chat" if partner_id else "/v2/characters"
+    target = f"/characters/{partner_id}/chat" if partner_id else "/characters"
     return RedirectResponse(target)

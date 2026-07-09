@@ -1,5 +1,5 @@
 """
-/v2/settings の共通部品。
+/settings の共通部品。
 
 - ドラッグ並べ替えスクリプトは旧 `ui/pages/settings/common.py` からの複製
   (§1-2 の依存規則により import しない。Phase 7 で複製元ごと整理)。

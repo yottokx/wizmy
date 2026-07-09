@@ -75,7 +75,7 @@ def _preset_options() -> dict[str, str]:
     return {p.id: p.name for p in presets}
 
 
-@ui.page("/")
+@ui.page("/legacy")
 async def generation_page() -> None:
     ctx = get_context()
 
@@ -156,7 +156,7 @@ async def generation_page() -> None:
                 ui.button(
                     "設定ページへ",
                     icon="settings",
-                    on_click=lambda: ui.navigate.to("/settings"),
+                    on_click=lambda: ui.navigate.to("/legacy/settings"),
                 ).props("flat size=sm color=primary").style("margin-top: 6px;")
             return
 
@@ -421,7 +421,7 @@ async def generation_page() -> None:
                                     "シートを開く",
                                     icon="person",
                                     on_click=lambda: (
-                                        ui.navigate.to(f"/characters/{current_result['saved_char'].id}")
+                                        ui.navigate.to(f"/legacy/characters/{current_result['saved_char'].id}")
                                         if current_result.get("saved_char")
                                         else None
                                     ),

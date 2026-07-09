@@ -1,5 +1,5 @@
 """
-/v2/settings — 画像・音声生成のAPI(Wizmy-Gen-Server / TTS API / 画像生成プロファイル)。
+/settings — 画像・音声生成のAPI(Wizmy-Gen-Server / TTS API / 画像生成プロファイル)。
 
 旧 `ui/pages/settings/media_generation.py` の機能を P3 スキンで再実装
 (機能割り当て・モード別デフォルト値・長文分割・接続テスト・並べ替え・複製・既定)。

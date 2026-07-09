@@ -1,4 +1,4 @@
-"""/v2 ホーム(Phase 1)のスモークテスト。"""
+"""ホーム(/)のスモークテスト。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _companion_name(user) -> str:
 
 async def test_v2_home_empty_state(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/v2")
+    await user.open("/")
     await user.should_see("まだ画像付きのキャラクターがいません")
     await user.should_see("まだセッションがありません")
 
@@ -49,7 +49,7 @@ async def test_v2_home_shows_favorite_companion_and_recent_sessions(nicegui_smok
     )
 
     user = nicegui_smoke_app.user
-    await user.open("/v2")
+    await user.open("/")
     # 既定の相方はお気に入り
     assert _companion_name(user) == "ミラベル"
     await user.should_see("続きから話す")
@@ -64,7 +64,7 @@ async def test_v2_home_companion_switch_persists(nicegui_smoke_app) -> None:
     await context.characters.save(_sheet("char-b", "ミラベル", favorite=True))
 
     user = nicegui_smoke_app.user
-    await user.open("/v2")
+    await user.open("/")
     assert _companion_name(user) == "ミラベル"
 
     # 相方候補はお気に入り優先順: index 0 = ミラベル, index 1 = アステル
@@ -72,5 +72,5 @@ async def test_v2_home_companion_switch_persists(nicegui_smoke_app) -> None:
     assert _companion_name(user) == "アステル"
 
     # 再訪問しても storage.user["ui2_companion"] の保存値が反映される
-    await user.open("/v2")
+    await user.open("/")
     assert _companion_name(user) == "アステル"

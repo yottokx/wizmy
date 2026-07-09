@@ -1,5 +1,5 @@
 """
-/v2/groups/{group_id}/generation グループ内キャラクター生成(Phase 5)。
+/groups/{group_id}/generation グループ内キャラクター生成(Phase 5)。
 
 グローバル生成(pages/generation.py)と同じ状態A/B/C+ForgePanel を共有した箱庭版。
 
@@ -143,7 +143,7 @@ def _default_generated_handle(sheet: CharacterSheet, group: GroupChatRecord) -> 
     return unique_handle(sanitize_handle(candidate, fallback), used)
 
 
-@ui.page("/v2/groups/{group_id}/generation")
+@ui.page("/groups/{group_id}/generation")
 async def ui2_group_generation_page(group_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
@@ -160,7 +160,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
             with ui.element("div").style("max-width: 640px; margin: 0 auto; padding: 60px 26px;"):
                 ui.label("指定されたグループは存在しません。").classes("note").style("font-size: 14px;")
                 with ui.element("div").style("margin-top: 18px;"):
-                    p3_button("グループ一覧へ", lambda: ui.navigate.to("/v2/groups"))
+                    p3_button("グループ一覧へ", lambda: ui.navigate.to("/groups"))
         return
 
     profile_options = profile_options_for_context(ctx)
@@ -179,7 +179,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
                 back = ui.element("button").classes("btn quiet")
                 with back:
                     ui.html("← 箱庭へ")
-                back.on("click", lambda: ui.navigate.to(f"/v2/groups/{group.id}"))
+                back.on("click", lambda: ui.navigate.to(f"/groups/{group.id}"))
                 with ui.element("div").classes("t"):
                     with ui.element("h1").classes("serif"):
                         ui.html("グループ内キャラクター生成")
@@ -191,7 +191,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
                     with ui.element("div").classes("sub"):
                         ui.html("グループのワールドが未設定です。先に箱庭の「管理」でワールドを設定してください。")
                     with ui.element("div").classes("go"):
-                        p3_button("グループに戻る", lambda: ui.navigate.to(f"/v2/groups/{group.id}"))
+                        p3_button("グループに戻る", lambda: ui.navigate.to(f"/groups/{group.id}"))
                 return
 
             if not profile_options:
@@ -199,7 +199,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
                     with ui.element("div").classes("sub"):
                         ui.html("LLMプロファイルが未設定です。先に設定を行ってください。")
                     with ui.element("div").classes("go"):
-                        p3_button("設定ページへ", lambda: ui.navigate.to("/v2/settings"))
+                        p3_button("設定ページへ", lambda: ui.navigate.to("/settings"))
                 return
 
             with ui.element("div").classes("world-box"):
@@ -553,7 +553,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
                     ctx.generation.mark_job_saved(job.id, saved_member.id, saved_member.character.name)
                     dlg.close()
                     ui.notify("この世界の住人として保存しました", type="positive")
-                    ui.navigate.to(f"/v2/groups/{group.id}/members/{saved_member.id}")
+                    ui.navigate.to(f"/groups/{group.id}/members/{saved_member.id}")
 
                 with ui.row().classes("justify-end gap-2 mt-4 w-full"):
                     p3_button("キャンセル", dlg.close, classes="btn quiet")
@@ -676,10 +676,10 @@ async def ui2_group_generation_page(group_id: str) -> None:
                 else:
                     p3_button(
                         "住人シートを開く",
-                        lambda: ui.navigate.to(f"/v2/groups/{group.id}/members/{saved_id}"),
+                        lambda: ui.navigate.to(f"/groups/{group.id}/members/{saved_id}"),
                         classes="btn primary",
                     )
-                    p3_button("箱庭へ戻る", lambda: ui.navigate.to(f"/v2/groups/{group.id}"))
+                    p3_button("箱庭へ戻る", lambda: ui.navigate.to(f"/groups/{group.id}"))
                 p3_button("リテイク", _retake, classes="btn quiet", title="同じ指示でもう一度生成する")
                 p3_button("全文を表示", lambda: open_sheet_dialog(sheet_md), classes="btn quiet").mark(
                     "ui2-ggen-full-sheet"

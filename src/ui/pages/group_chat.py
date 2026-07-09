@@ -88,7 +88,7 @@ from ..layout import page_layout
 from ..state import get_vault_password
 
 
-@ui.page("/groups")
+@ui.page("/legacy/groups")
 async def group_chat_page() -> None:
     ctx = get_context()
 
@@ -135,14 +135,14 @@ async def group_chat_page() -> None:
             await refresh_groups()
 
 
-@ui.page("/groups/{group_id}")
+@ui.page("/legacy/groups/{group_id}")
 async def group_chat_detail_page(group_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/legacy/groups")).props("flat color=primary")
         return
 
     with page_layout(group.name):
@@ -153,14 +153,14 @@ async def group_chat_detail_page(group_id: str) -> None:
         controller.render_shell()
 
 
-@ui.page("/groups/{group_id}/members/{member_id}")
+@ui.page("/legacy/groups/{group_id}/members/{member_id}")
 async def group_member_detail_page(group_id: str, member_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/legacy/groups")).props("flat color=primary")
         return
 
     member = next((item for item in group.members if item.id == member_id), None)
@@ -169,7 +169,7 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
             ui.label("指定されたメンバーはこのグループに存在しません。").classes("text-grey-6")
             ui.button(
                 "グループに戻る",
-                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+                on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}"),
             ).props("flat color=primary")
         return
 
@@ -178,14 +178,14 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
     def _send_member_to_group_generation(mode: str) -> None:
         app.storage.user["group_gen_mode"] = mode
         app.storage.user["group_gen_member_ids"] = [member.id]
-        ui.navigate.to(f"/groups/{group.id}/generation")
+        ui.navigate.to(f"/legacy/groups/{group.id}/generation")
 
     with page_layout(sheet.name):
         ui.add_head_html(GROUP_CHAT_CSS)
         with ui.row().classes("items-center gap-2 mb-4 flex-wrap"):
             ui.button(
                 icon="arrow_back",
-                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+                on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}"),
             ).props("flat round")
             title_label = ui.label(sheet.name).classes("text-2xl font-bold flex-1")
             ui.badge("グループ内コピー").props("outline color=primary")
@@ -303,7 +303,7 @@ async def group_member_detail_page(group_id: str, member_id: str) -> None:
 
             return CharacterMediaActions(
                 target_id=_group_member_tts_id(group.id, member.id),
-                result_url=f"/groups/{group.id}/members/{member.id}",
+                result_url=f"/legacy/groups/{group.id}/members/{member.id}",
                 scope_prefix=f"group_member:{group.id}:{member.id}",
                 metadata={"group_id": group.id, "member_id": member.id},
                 media_path=ctx.group_chats.media_path,
@@ -534,14 +534,14 @@ async def _generate_group_generation_relationship_drafts(
     return {member.id: parsed.get(member.id) or fallback[member.id] for member in base_members}
 
 
-@ui.page("/groups/{group_id}/generation")
+@ui.page("/legacy/groups/{group_id}/generation")
 async def group_generation_page(group_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/legacy/groups")).props("flat color=primary")
         return
 
     preset_mode = str(app.storage.user.pop("group_gen_mode", "") or "")
@@ -581,14 +581,14 @@ async def group_generation_page(group_id: str) -> None:
                 ui.button(
                     "グループに戻る",
                     icon="arrow_back",
-                    on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+                    on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}"),
                 ).props("flat color=primary")
             return
 
         if not profile_options:
             with ui.element("div").classes("cs-group-empty"):
                 ui.label("LLMプロファイルが未設定です。先に設定を行ってください。")
-                ui.button("設定ページへ", icon="settings", on_click=lambda: ui.navigate.to("/settings")).props(
+                ui.button("設定ページへ", icon="settings", on_click=lambda: ui.navigate.to("/legacy/settings")).props(
                     "flat color=primary"
                 )
             return
@@ -596,7 +596,7 @@ async def group_generation_page(group_id: str) -> None:
         with ui.row().classes("w-full items-center gap-3 mb-4 flex-wrap"):
             ui.button(
                 icon="arrow_back",
-                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+                on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}"),
             ).props("flat round")
             with ui.column().classes("gap-0 flex-1 min-w-0"):
                 ui.label("グループ内キャラクター生成").classes("text-2xl font-bold")
@@ -981,7 +981,7 @@ async def group_generation_page(group_id: str) -> None:
                     ctx.generation.mark_job_saved(job.id, saved_member.id, saved_member.character.name)
                     dlg.close()
                     ui.notify("グループ内キャラクターを保存しました", type="positive")
-                    ui.navigate.to(f"/groups/{group.id}/members/{saved_member.id}")
+                    ui.navigate.to(f"/legacy/groups/{group.id}/members/{saved_member.id}")
 
                 with ui.row().classes("justify-end gap-2 mt-4"):
                     ui.button("キャンセル", on_click=dlg.close).props("flat")
@@ -1191,14 +1191,14 @@ async def group_generation_page(group_id: str) -> None:
         save_result_btn.on("click", _open_current_save_dialog)
 
 
-@ui.page("/groups/{group_id}/persona")
+@ui.page("/legacy/groups/{group_id}/persona")
 async def group_persona_detail_page(group_id: str) -> None:
     ctx = get_context()
     group = await ctx.group_chats.get(group_id)
     if group is None:
         with page_layout("グループが見つかりません"):
             ui.label("指定されたグループは存在しません。").classes("text-grey-6")
-            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/groups")).props("flat color=primary")
+            ui.button("一覧に戻る", on_click=lambda: ui.navigate.to("/legacy/groups")).props("flat color=primary")
         return
 
     persona = group.user_persona
@@ -1207,7 +1207,7 @@ async def group_persona_detail_page(group_id: str) -> None:
             ui.label("このグループにはユーザーペルソナが設定されていません。").classes("text-grey-6")
             ui.button(
                 "グループに戻る",
-                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+                on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}"),
             ).props("flat color=primary")
         return
 
@@ -1219,7 +1219,7 @@ async def group_persona_detail_page(group_id: str) -> None:
         with ui.row().classes("items-center gap-2 mb-4 flex-wrap"):
             ui.button(
                 icon="arrow_back",
-                on_click=lambda: ui.navigate.to(f"/groups/{group.id}"),
+                on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}"),
             ).props("flat round")
             title_label = ui.label(_persona_title()).classes("text-2xl font-bold flex-1")
             ui.badge("グループ内コピー").props("outline color=primary")

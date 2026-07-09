@@ -2,7 +2,8 @@
 P3「With」テーマ。
 
 - 2相テーマ: hoshi(星あかり・ダーク・既定)/ hinata(ひなた・ライト)
-- 保存キーは `app.storage.user["ui2_theme"]`(旧UIの "theme" とは独立)
+- 保存キーは `app.storage.user["ui2_theme"]`。未設定なら旧UIの "theme" から
+  初回移行する(ダーク系→hoshi / ライト系→hinata)
 - トークンはモック `proposal/ui_redesign/proposal3/assets/p3.css` の :root 準拠
 """
 
@@ -100,9 +101,23 @@ def wizmy_logo_svg() -> str:
     return _LOGO_SVG_CACHE
 
 
+# 旧UIテーマ(保存キー "theme")→ ui2 テーマの対応(旧テーマの dark フラグ基準)
+_LEGACY_THEME_MAP = {
+    "sage-garden": "hinata",
+    "lavender-mist": "hinata",
+    "night-library": "hoshi",
+    "sand-terracotta": "hinata",
+}
+
+
 def get_theme() -> str:
     try:
-        theme = app.storage.user.get(THEME_KEY, DEFAULT_THEME)
+        theme = app.storage.user.get(THEME_KEY)
+        if theme not in THEMES:
+            migrated = _LEGACY_THEME_MAP.get(str(app.storage.user.get("theme", "")))
+            if migrated:
+                app.storage.user[THEME_KEY] = migrated
+                theme = migrated
     except Exception:
         theme = DEFAULT_THEME
     return theme if theme in THEMES else DEFAULT_THEME

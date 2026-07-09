@@ -15,7 +15,7 @@ from ..components.character_card import character_card
 from ..layout import page_layout
 
 
-@ui.page("/characters")
+@ui.page("/legacy/characters")
 async def characters_page() -> None:
     ctx = get_context()
 
@@ -72,7 +72,7 @@ async def characters_page() -> None:
             ui.button(
                 "新規生成",
                 icon="add",
-                on_click=lambda: ui.navigate.to("/"),
+                on_click=lambda: ui.navigate.to("/legacy"),
             ).props("color=primary unelevated").style("border-radius: 8px; font-weight: 600;").tooltip(
                 "新しいキャラを生成"
             )
@@ -123,7 +123,7 @@ async def characters_page() -> None:
                         if not search and not tag and not favorites_only:
                             ui.button(
                                 "最初のキャラを生成する",
-                                on_click=lambda: ui.navigate.to("/"),
+                                on_click=lambda: ui.navigate.to("/legacy"),
                             ).props("flat color=primary").style("margin-top: 8px;")
                 else:
                     for sheet in sheets:
@@ -153,8 +153,8 @@ async def characters_page() -> None:
 
                         character_card(
                             sheet,
-                            on_click=lambda cid: ui.navigate.to(f"/characters/{cid}"),
-                            on_chat=lambda cid: ui.navigate.to(f"/characters/{cid}/chat"),
+                            on_click=lambda cid: ui.navigate.to(f"/legacy/characters/{cid}"),
+                            on_chat=lambda cid: ui.navigate.to(f"/legacy/characters/{cid}/chat"),
                             on_delete=_make_delete(sheet),
                             on_toggle_favorite=_make_toggle_favorite(sheet),
                         )

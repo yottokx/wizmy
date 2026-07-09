@@ -1,5 +1,5 @@
 """
-ホーム(/v2)の純ロジック。
+ホーム(/)の純ロジック。
 
 挨拶(時間帯定型+self_intro 流用。LLM呼び出し無し)・相方候補の選定・
 最近セッションの統合(1:1+グループ)を、描画から切り離した純関数として持つ。
@@ -99,7 +99,7 @@ class RecentSessionItem:
     preview: str
     time_label: str
     updated_at: datetime
-    route: str  # 1:1 は /v2 チャット、グループは /v2 箱庭シェル
+    route: str  # 1:1 はチャット、グループは箱庭シェル
 
 
 def merge_recent_sessions(
@@ -128,7 +128,7 @@ def merge_recent_sessions(
                 preview=latest_message_preview(session.messages),
                 time_label=session_time_label(session.updated_at),
                 updated_at=session.updated_at,
-                route=f"/v2/characters/{session.character_id}/chat",
+                route=f"/characters/{session.character_id}/chat",
             )
         )
     for session in group_sessions:
@@ -145,7 +145,7 @@ def merge_recent_sessions(
                 preview=preview,
                 time_label=session_time_label(session.updated_at),
                 updated_at=session.updated_at,
-                route=f"/v2/groups/{session.group_id}",
+                route=f"/groups/{session.group_id}",
             )
         )
     items.sort(key=lambda item: item.updated_at, reverse=True)

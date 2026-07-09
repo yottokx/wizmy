@@ -1,5 +1,5 @@
 """
-生成ページ(グローバル /v2/generation とグループ内生成)で共有するUI部品。
+生成ページ(グローバル /generation とグループ内生成)で共有するUI部品。
 
 - 状態A/B/C(モック generation.html)の共通CSS
 - ForgePanel: 状態B(ベール+章立て+ツールログ+中断)の描画とイベント反映

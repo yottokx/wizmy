@@ -35,12 +35,12 @@ from .theme import (
 
 # ラベルは機能名(比喩ラベル禁止)。route が None の項目は未実装(後続Phase)。
 NAV_ITEMS: list[dict] = [
-    {"label": "ホーム", "route": "/v2"},
-    {"label": "キャラクター", "route": "/v2/characters"},
-    {"label": "チャット", "route": "/v2/chat"},
-    {"label": "グループ", "route": "/v2/groups"},
-    {"label": "生成", "route": "/v2/generation"},
-    {"label": "設定", "route": "/v2/settings"},
+    {"label": "ホーム", "route": "/"},
+    {"label": "キャラクター", "route": "/characters"},
+    {"label": "チャット", "route": "/chat"},
+    {"label": "グループ", "route": "/groups"},
+    {"label": "生成", "route": "/generation"},
+    {"label": "設定", "route": "/settings"},
 ]
 
 # p3.css の共通部(reset / nav / btn / bubble / 小物)+ NiceGUI 共存パッチ
@@ -436,7 +436,7 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
                         ui.html("キャラクター生成").classes("name")
                         ui.html("実行中").classes("wz-st running")
                     with ui.element("div").classes("ops"):
-                        _quiet_button("生成画面を開く", lambda: ui.navigate.to("/v2/generation"))
+                        _quiet_button("生成画面を開く", lambda: ui.navigate.to("/generation"))
 
             if not jobs and not character_generation_active:
                 ui.html("実行中または直近のAIジョブはありません。").classes("note").style(
@@ -534,7 +534,7 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
 
     with ui.element("nav").classes("wz-nav"):
         logo = ui.html(wizmy_logo_svg(), sanitize=False).classes("wz-logo")
-        logo.on("click", lambda: ui.navigate.to("/v2"))
+        logo.on("click", lambda: ui.navigate.to("/"))
         with ui.element("div").classes("links"):
             _nav_links()
         ui.element("div").classes("grow")

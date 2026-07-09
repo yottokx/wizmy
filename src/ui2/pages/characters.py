@@ -1,10 +1,10 @@
 """
-/v2/characters キャラクター一覧(Phase 2)。モック proposal3/characters.html 準拠。
+/characters キャラクター一覧(Phase 2)。モック proposal3/characters.html 準拠。
 
 - 上段: 劇場ストリップ(ピックアップ)。選出は components/pickup.py の純関数
   (ポリシー選択値 `app.storage.user["ui2_pickup_policy"]`、既定 mixed)
 - 下段: ギャラリー(検索・タグ・お気に入り絞り込み+Markdownインポート+新規生成カード)
-- チャットボタンは /v2/characters/{id}/chat へ。
+- チャットボタンは /characters/{id}/chat へ。
   新規生成カードは Phase 5 まで旧 /(生成)へ暫定リンク
 """
 
@@ -252,11 +252,11 @@ def _say_text(sheet: CharacterSheet) -> str:
 
 
 def _chat_route(character_id: str) -> str:
-    return f"/v2/characters/{character_id}/chat"
+    return f"/characters/{character_id}/chat"
 
 
 def _detail_route(character_id: str) -> str:
-    return f"/v2/characters/{character_id}"
+    return f"/characters/{character_id}"
 
 
 def _op_button(label: str, route: str, *, primary: bool = False) -> None:
@@ -378,7 +378,7 @@ def _open_import_dialog(on_imported) -> None:
     dlg.open()
 
 
-@ui.page("/v2/characters")
+@ui.page("/characters")
 async def ui2_characters_page() -> None:
     ctx = get_context()
     all_sheets = await ctx.characters.list_all()
@@ -459,7 +459,7 @@ async def ui2_characters_page() -> None:
                         .classes("gcard newcard")
                         .props('title="生成ページへ"')
                     )
-                    newcard.on("click", lambda: ui.navigate.to("/v2/generation"))
+                    newcard.on("click", lambda: ui.navigate.to("/generation"))
                     with newcard, ui.element("div").style("text-align: center;"):
                         with ui.element("div").classes("plus"):
                             ui.html("+")

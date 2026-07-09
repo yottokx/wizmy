@@ -1,5 +1,5 @@
 """
-/v2/settings — 接続(LLMエンドポイント / LLMプロファイル)。
+/settings — 接続(LLMエンドポイント / LLMプロファイル)。
 
 旧 `ui/pages/settings/endpoints.py` / `profiles.py` の機能を P3 スキンで再実装
 (接続テスト・APIキー設定/削除・並べ替え・複製・既定の用途)。

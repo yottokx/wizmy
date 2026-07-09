@@ -91,7 +91,7 @@ def render_group_card(
                 ui.button(
                     "開く",
                     icon="open_in_new",
-                    on_click=lambda group_id=group.id: ui.navigate.to(f"/groups/{group_id}"),
+                    on_click=lambda group_id=group.id: ui.navigate.to(f"/legacy/groups/{group_id}"),
                 ).props("flat color=primary dense")
                 ui.button(
                     icon="delete",
@@ -369,14 +369,14 @@ def render_group_profile_panel(
                     "キャラクターシートを開く",
                     icon="description",
                     on_click=lambda member_id=current_member.id: ui.navigate.to(
-                        f"/groups/{group.id}/members/{member_id}"
+                        f"/legacy/groups/{group.id}/members/{member_id}"
                     ),
                 ).props("outline dense").classes("cs-group-profile-action")
             elif current.get("kind") == "user" and group.user_persona is not None:
                 ui.button(
                     "ユーザーペルソナを開く",
                     icon="badge",
-                    on_click=lambda: ui.navigate.to(f"/groups/{group.id}/persona"),
+                    on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}/persona"),
                 ).props("outline dense").classes("cs-group-profile-action")
             ui.button(
                 "キャラクターを追加",
@@ -386,7 +386,7 @@ def render_group_profile_panel(
             ui.button(
                 "キャラクター生成",
                 icon="auto_awesome",
-                on_click=lambda: ui.navigate.to(f"/groups/{group.id}/generation"),
+                on_click=lambda: ui.navigate.to(f"/legacy/groups/{group.id}/generation"),
             ).props("outline dense").classes("cs-group-profile-action")
 
         with ui.element("div").classes("cs-group-profile-card"):

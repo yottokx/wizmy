@@ -80,7 +80,7 @@ class CharacterMediaActions:
 def character_media_actions(ctx, character_id: str) -> CharacterMediaActions:
     return CharacterMediaActions(
         target_id=character_id,
-        result_url=f"/characters/{character_id}",
+        result_url=f"/legacy/characters/{character_id}",
         scope_prefix=f"character:{character_id}",
         metadata={"character_id": character_id},
         media_path=ctx.characters.media_path,
