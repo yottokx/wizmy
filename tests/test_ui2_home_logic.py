@@ -148,6 +148,18 @@ class RecentSessionsTest(unittest.TestCase):
         self.assertIn("グループ: 多元の集い", items[1].preview)
         self.assertIn("トワ", items[1].preview)
 
+    def test_merge_excludes_deleted_character_chats(self) -> None:
+        chats = [
+            _chat_session("s1", "gone", datetime(2026, 7, 8, 10, 0)),  # 削除済みキャラ
+            _chat_session("s2", "a", datetime(2026, 7, 7, 9, 0)),
+            _chat_session("s3", "b", datetime(2026, 7, 6, 9, 0)),
+        ]
+        items = merge_recent_sessions(
+            chats, [], {}, limit=2, valid_character_ids={"a", "b"}
+        )
+        # 最新の "gone" は弾かれ、実在する 2 件で枠が埋まる
+        self.assertEqual(["s2", "s3"], [item.session_id for item in items])
+
     def test_recent_character_ids_dedupes_in_order(self) -> None:
         chats = [
             _chat_session("s1", "b", datetime(2026, 7, 7)),

@@ -457,9 +457,9 @@ async def ui2_characters_page() -> None:
                     newcard = (
                         ui.element("a")
                         .classes("gcard newcard")
-                        .props('title="生成ページへ(旧UI・Phase 5 で /v2 版に置き換え)"')
+                        .props('title="生成ページへ"')
                     )
-                    newcard.on("click", lambda: ui.navigate.to("/"))
+                    newcard.on("click", lambda: ui.navigate.to("/v2/generation"))
                     with newcard, ui.element("div").style("text-align: center;"):
                         with ui.element("div").classes("plus"):
                             ui.html("+")

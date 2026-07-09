@@ -72,7 +72,6 @@ from ..chat_logic import (
     PartnerEntry,
     build_partner_entries,
     filter_partner_entries,
-    most_recent_partner_id,
     user_persona_from_character_sheet,
 )
 from ..components.composer import COMPOSER_CSS, install_composer_gestures, render_swipe_menu
@@ -2916,12 +2915,13 @@ async def ui2_chat_page(character_id: str) -> None:
 
 @ui.page("/v2/chat")
 async def ui2_chat_entry_page():
-    """ナビ「チャット」の入口: 最後に話した相手のチャットへリダイレクト。"""
+    """ナビ「チャット」の入口: 最後に話した(実在する)相手のチャットへリダイレクト。"""
     ctx = get_context()
-    recent = await ctx.chats.list_recent(1)
-    partner_id = most_recent_partner_id(recent)
-    if not partner_id:
-        sheets = await ctx.characters.list_all()
-        partner_id = sheets[0].id if sheets else ""
+    sheets = await ctx.characters.list_all()
+    recent = await ctx.chats.list_recent(500)
+    # build_partner_entries は「話した相手(新しい順)→未会話」の並びで、
+    # 削除済みキャラのセッションはシート突き合わせで自然に除外される。
+    partners = build_partner_entries(sheets, recent)
+    partner_id = partners[0].sheet.id if partners else ""
     target = f"/v2/characters/{partner_id}/chat" if partner_id else "/v2/characters"
     return RedirectResponse(target)

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import datetime
 
 from nicegui import app, ui
@@ -201,8 +202,10 @@ async def ui2_home_page() -> None:
     candidates = companion_candidates(sheets)
     stored_id = str(app.storage.user.get(COMPANION_KEY, "") or "")
     selected = select_companion(candidates, stored_id, recent_character_ids(recent_chats))
-    bookmarks = merge_recent_sessions(recent_chats, recent_groups, groups_by_id)
     sheets_by_id = {sheet.id: sheet for sheet in sheets}
+    bookmarks = merge_recent_sessions(
+        recent_chats, recent_groups, groups_by_id, valid_character_ids=set(sheets_by_id)
+    )
 
     with p3_page("ホーム"):
         ui.add_css(_PAGE_CSS)
@@ -234,7 +237,7 @@ async def ui2_home_page() -> None:
                         gen_btn = ui.element("button").classes("btn primary")
                         with gen_btn:
                             ui.label("キャラクターを生成する")
-                        gen_btn.on("click", lambda: ui.navigate.to("/"))
+                        gen_btn.on("click", lambda: ui.navigate.to("/v2/generation"))
                         list_btn = ui.element("button").classes("btn")
                         with list_btn:
                             ui.label("キャラクター一覧へ")
@@ -293,7 +296,7 @@ async def ui2_home_page() -> None:
                                 continue
                             button = (
                                 ui.element("button")
-                                .props(f'title="{sheet.name}"')
+                                .props(f'title="{html.escape(sheet.name)}"')
                                 .mark(f"ui2-companion-{index}")
                             )
                             with button:

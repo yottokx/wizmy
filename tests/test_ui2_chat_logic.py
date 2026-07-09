@@ -11,7 +11,6 @@ from src.ui2.chat_logic import (
     build_partner_entries,
     character_persona_description,
     filter_partner_entries,
-    most_recent_partner_id,
     user_persona_from_character_sheet,
 )
 
@@ -70,16 +69,6 @@ def test_filter_partner_entries_by_search_and_favorites() -> None:
     assert [e.sheet.id for e in filter_partner_entries(entries, favorites_only=True)] == ["a"]
     assert filter_partner_entries(entries, search="トワ", favorites_only=True) == []
     assert [e.sheet.id for e in filter_partner_entries(entries, search="  ")] == ["a", "b", "c"]
-
-
-def test_most_recent_partner_id() -> None:
-    assert most_recent_partner_id([]) == ""
-    sessions = [
-        _session("s1", "a", datetime(2026, 7, 5)),
-        _session("s2", "b", datetime(2026, 7, 7)),
-        _session("s3", "c", datetime(2026, 7, 6)),
-    ]
-    assert most_recent_partner_id(sessions) == "b"
 
 
 def test_character_persona_description_prefers_raw_markdown() -> None:

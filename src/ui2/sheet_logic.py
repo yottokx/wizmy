@@ -38,10 +38,11 @@ class SheetSection:
 
 
 def parse_sections(markdown: str) -> list[SheetSection]:
-    """raw_markdown を ## 見出し単位の章リストへ分解する(# タイトル行は除外)。"""
+    """raw_markdown を ## 見出し単位の章リストへ分解する(# タイトル・### 以下は除外)。"""
+    # `##(?!#)` で ## 見出しだけを掴む(先頭が ### で始まっても章と誤認しない)。
     sections: list[SheetSection] = []
     for match in re.finditer(
-        r"^##\s*(.+?)\s*\n(.*?)(?=\n##\s|\Z)",
+        r"^##(?!#)\s*(.+?)\s*\n(.*?)(?=\n##(?!#)\s|\Z)",
         (markdown or "").strip(),
         re.MULTILINE | re.DOTALL,
     ):

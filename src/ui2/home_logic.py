@@ -33,7 +33,7 @@ def date_label(now: datetime) -> str:
 
 
 def time_greeting(hour: int) -> str:
-    """時間帯定型の挨拶(モックと同じ 3 区分: 〜10時 / 〜17時 / それ以降)。"""
+    """時間帯定型の挨拶(3 区分: 5〜10時台=おはよう / 11〜17時台=おかえり / それ以外=こんばんは)。"""
     if 5 <= hour < 11:
         return "おはようございます。"
     if 11 <= hour < 18:
@@ -107,10 +107,18 @@ def merge_recent_sessions(
     group_sessions: list[GroupChatSessionRecord],
     groups_by_id: dict[str, GroupChatRecord],
     limit: int = MAX_BOOKMARKS,
+    valid_character_ids: set[str] | None = None,
 ) -> list[RecentSessionItem]:
-    """1:1 とグループの最近セッションを updated_at 降順に統合する。"""
+    """1:1 とグループの最近セッションを updated_at 降順に統合する。
+
+    valid_character_ids を渡すと、そこに無い character の 1:1 セッション
+    (= 削除済みキャラ)は除外する。limit 適用前に弾くため、実在する
+    セッションで枠が埋まる。
+    """
     items: list[RecentSessionItem] = []
     for session in chat_sessions:
+        if valid_character_ids is not None and session.character_id not in valid_character_ids:
+            continue
         items.append(
             RecentSessionItem(
                 kind="chat",

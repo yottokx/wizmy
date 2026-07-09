@@ -2231,13 +2231,20 @@ class Ui2GroupChatController:
     def _narrator_tts_configured(self, tts_settings=None) -> bool:
         config = self.ctx.user_personas.get_tts_config()
         settings = tts_settings or config.narrator
+        narrator_voice_path = (
+            self.ctx.user_personas.media_path(config.narrator_voice.path) if config.narrator_voice is not None else None
+        )
         if settings.api_type == CHARACTER_TTS_API_GEN_SERVER:
             if settings.gen_server_tts_mode == CHARACTER_GEN_SERVER_TTS_MODE_VOICE_DESIGN_V3:
                 return (
                     bool(settings.voice_caption.strip())
                     and self.ctx.tts.resolve_gen_server_voice_design_endpoint(raise_on_missing=False) is not None
                 )
-            return self.ctx.tts.resolve_gen_server_voice_clone_endpoint(raise_on_missing=False) is not None
+            # クローンモードはナレーター音声ファイルの実在も要件(1:1 chat.py と同じ判定)
+            return bool(
+                narrator_voice_path is not None
+                and self.ctx.tts.resolve_gen_server_voice_clone_endpoint(raise_on_missing=False) is not None
+            )
         if settings.api_type != CHARACTER_TTS_API_TTS:
             return False
         endpoint = self.ctx.api_config.get_tts_endpoint(settings.endpoint_id)
@@ -2245,9 +2252,7 @@ class Ui2GroupChatController:
             return False
         if endpoint.provider == TTS_PROVIDER_IRODORI_SERVER:
             return bool(settings.voice_id.strip()) and self.ctx.tts.supports_voice_registry(settings.endpoint_id)
-        voice = config.narrator_voice
-        voice_path = self.ctx.user_personas.media_path(voice.path) if voice else None
-        return voice is not None and voice_path is not None
+        return narrator_voice_path is not None
 
     def _voice_design_ready(self, settings) -> bool:
         return (

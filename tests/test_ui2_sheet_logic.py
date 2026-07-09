@@ -42,6 +42,14 @@ def test_parse_sections_handles_empty_markdown() -> None:
     assert parse_sections("# 名前だけ") == []
 
 
+def test_parse_sections_ignores_leading_h3_and_keeps_h3_in_body() -> None:
+    # 先頭が ### でも「# 見出し」として拾わない。章内部の ### は本文のまま残る。
+    md = "### 前書き\n導入文。\n\n## 基本情報\n年齢: 17歳\n### 補足\n塔で育った。"
+    sections = parse_sections(md)
+    assert [s.header for s in sections] == ["基本情報"]
+    assert sections[0].body == "年齢: 17歳\n### 補足\n塔で育った。"
+
+
 def test_classify_body() -> None:
     sections = {s.header: s.body for s in parse_sections(SAMPLE_MD)}
     assert classify_body(sections["基本情報"]) == "table"

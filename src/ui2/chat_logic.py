@@ -76,15 +76,6 @@ def filter_partner_entries(
     return result
 
 
-def most_recent_partner_id(sessions: list[ChatSessionRecord]) -> str:
-    """最後に話した相手の character_id(無ければ空文字)。"""
-    latest: ChatSessionRecord | None = None
-    for session in sessions:
-        if latest is None or session.updated_at > latest.updated_at:
-            latest = session
-    return latest.character_id if latest is not None else ""
-
-
 def character_persona_description(sheet: CharacterSheet) -> str:
     if sheet.raw_markdown.strip():
         return sheet.raw_markdown.strip()
