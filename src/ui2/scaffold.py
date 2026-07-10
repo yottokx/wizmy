@@ -100,25 +100,26 @@ body {
   --wizmy-accent: var(--logo-a);
 }
 .wz-logo-fallback { color: var(--logo-p); font-weight: 800; font-size: 18px; }
-.wz-nav .links { display: flex; gap: 6px; align-items: center; }
+.wz-nav .links { display: flex; gap: 22px; align-items: center; }
 .wz-nav .links a {
-  padding: 6px 14px;
-  border-radius: 999px;
+  padding: 6px 2px;
+  border-bottom: 1px solid transparent;
   font-size: 13.5px;
+  letter-spacing: .06em;
   color: var(--muted);
-  transition: color .18s, background .18s;
+  transition: color .18s, border-color .18s;
   cursor: pointer;
 }
-.wz-nav .links a:hover { color: var(--text); background: var(--panel-2); }
-.wz-nav .links a.on { color: var(--text); background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.wz-nav .links a:hover { color: var(--text); }
+.wz-nav .links a.on { color: var(--text); border-bottom-color: var(--accent); }
 .wz-nav .links a.todo { opacity: .4; cursor: default; }
-.wz-nav .links a.todo:hover { color: var(--muted); background: transparent; }
+.wz-nav .links a.todo:hover { color: var(--muted); }
 .wz-nav .grow { flex: 1; }
 .theme-btn {
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--muted);
-  border-radius: 999px;
+  border-radius: 4px;
   padding: 5px 14px;
   font-size: 12.5px;
   cursor: pointer;
@@ -134,7 +135,7 @@ body {
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--text);
-  border-radius: 999px;
+  border-radius: 4px;
   padding: 9px 22px;
   font-size: 14px;
   cursor: pointer;
@@ -157,7 +158,7 @@ body {
   position: relative;
   background: var(--bubble);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 10px;
   padding: 14px 20px;
   box-shadow: var(--shadow);
 }
@@ -200,7 +201,7 @@ body {
   display: inline-flex;
   align-items: center;
   padding: 3px 12px;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid var(--line-2);
   color: var(--muted);
   font-size: 12px;
@@ -233,7 +234,7 @@ body {
   border: 1px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
-  border-radius: 999px;
+  border-radius: 4px;
   padding: 4px 13px;
   font-size: 12px;
   letter-spacing: 0.06em;
@@ -260,7 +261,7 @@ body {
   border: 1px solid var(--peri);
   background: color-mix(in srgb, var(--peri) 14%, transparent);
   color: var(--peri);
-  border-radius: 999px;
+  border-radius: 4px;
   padding: 4px 13px;
   font-size: 12px;
   letter-spacing: 0.06em;
@@ -285,7 +286,7 @@ body {
 .wz-job {
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 6px;
   padding: 12px 14px;
 }
 .wz-job .head { display: flex; align-items: center; gap: 10px; }
@@ -299,7 +300,7 @@ body {
   font-size: 11px;
   letter-spacing: .05em;
   padding: 2px 10px;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid var(--line-2);
   color: var(--muted);
 }
@@ -315,7 +316,7 @@ body {
   background: var(--panel) !important;
   color: var(--text) !important;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 6px;
   min-width: 190px;
 }
 .wz-nav-menu .q-item { font-size: 14px; color: var(--muted); letter-spacing: .04em; }
@@ -333,7 +334,7 @@ body {
   .wz-nav { gap: 10px; padding: 5px 12px; }
   .wz-logo { height: 24px; }
   .wz-nav .links { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .wz-nav .links a { white-space: nowrap; padding: 5px 11px; font-size: 12.5px; }
+  .wz-nav .links a { white-space: nowrap; padding: 5px 2px; font-size: 12.5px; }
   .theme-btn { white-space: nowrap; padding: 4px 11px; font-size: 11.5px; }
 }
 

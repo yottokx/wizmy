@@ -112,14 +112,14 @@ MEDIA_CSS = """
 .img-main .main-ph {
   width: 100%; height: 100%;
   display: grid; place-items: center;
-  color: var(--peri); font-size: 56px;
-  font-family: "Yu Mincho", serif;
+  color: var(--muted); font-size: 13px;
+  letter-spacing: .08em;
 }
 .img-main .tag {
   position: absolute; top: 12px; left: 12px;
   font-size: 11px; letter-spacing: .1em;
   color: var(--accent-ink); background: var(--accent);
-  border-radius: 999px; padding: 3px 12px;
+  border-radius: 4px; padding: 3px 12px;
   box-shadow: 0 4px 16px var(--glow);
 }
 .img-side { min-width: 0; }
@@ -144,7 +144,7 @@ MEDIA_CSS = """
 }
 .th:hover .ops, .th:focus-within .ops { opacity: 1; }
 .th .ops button {
-  border: none; border-radius: 999px; cursor: pointer;
+  border: none; border-radius: 4px; cursor: pointer;
   font-size: 10.5px; padding: 3px 10px;
   background: rgba(240,242,255,.16); color: #f4f5ff;
   backdrop-filter: blur(4px);
@@ -182,7 +182,7 @@ MEDIA_CSS = """
 .tagbox:focus-within { border-color: var(--peri); }
 .tagbox .tg {
   font-size: 12px; letter-spacing: .02em;
-  border: 1px solid var(--line-2); border-radius: 999px;
+  border: 1px solid var(--line-2); border-radius: 4px;
   padding: 2px 10px; color: var(--text);
   background: color-mix(in srgb, var(--peri) 10%, transparent);
   cursor: pointer; white-space: nowrap;
@@ -738,7 +738,7 @@ def render_image_now(ctx, target: MediaTarget, refresh: Callable[[], None]) -> N
                     ui.html("メイン")
             else:
                 with ui.element("div").classes("main-ph"):
-                    ui.html(html.escape((target.name or "?")[:1]))
+                    ui.html("画像がありません")
 
         with ui.element("div").classes("img-side"):
             with ui.element("div").classes("lbl"):

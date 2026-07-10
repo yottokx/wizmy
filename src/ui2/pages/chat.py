@@ -116,10 +116,8 @@ html, body { overscroll-behavior: none; }
 }
 .partner {
   display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  padding: 4px 4px 14px;
+  border-bottom: 1px solid var(--line);
   margin-bottom: 12px;
 }
 .partner .avatar { width: 46px; height: 46px; object-fit: cover; flex: none; }
@@ -134,29 +132,16 @@ html, body { overscroll-behavior: none; }
 .partner .oc { font-size: 10.5px; color: var(--muted); }
 .partner .sw { margin-left: auto; flex: none; }
 .sessions .lbl { font-size: 11px; letter-spacing: .3em; color: var(--muted); padding: 0 8px 8px; }
-.sess { position: relative; padding: 10px 12px; border-radius: 12px; cursor: pointer; border: 1px solid transparent; }
+.sess { position: relative; padding: 10px 12px; cursor: pointer; border-left: 2px solid transparent; }
 .sess:hover { background: var(--panel); }
-.sess.on { background: var(--panel); border-color: var(--line-2); }
-.sess .t { font-size: 13.5px; font-weight: 600; letter-spacing: .03em; line-height: 1.5; padding-right: 30px; }
+.sess.on { background: var(--panel); border-left-color: var(--accent); }
+.sess .t { font-size: 13.5px; font-weight: 600; letter-spacing: .03em; line-height: 1.5; }
 .sess .s { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sess .sess-ops {
-  position: absolute; top: 8px; right: 8px;
-  display: flex; gap: 4px;
-  opacity: 0; transition: opacity .18s;
-}
-.sess:hover .sess-ops { opacity: 1; }
-.sess-ops button {
-  border: none; background: var(--panel-2); color: var(--muted);
-  border-radius: 8px; padding: 2px 8px; font-size: 11px; cursor: pointer;
-}
-.sess-ops button:hover { color: var(--text); }
 .no-sess { padding: 10px 12px; font-size: 12px; color: var(--muted); line-height: 1.7; }
 .scene {
   margin-top: auto;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  padding: 14px 6px 4px;
 }
 .scene .lbl2 { font-size: 10.5px; letter-spacing: .26em; color: var(--peri); margin-bottom: 4px; }
 .scene .tx {
@@ -179,7 +164,13 @@ html, body { overscroll-behavior: none; }
 .stream-head .sp { flex: 1; }
 
 .stream { flex: 1; min-height: 0; overflow-y: auto; padding: 30px 34px 20px; }
-.stream-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+.stream-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+/* 台本方式: 吹き出しの代わりに要素間をヘアラインで区切る(地の文・コメント含む) */
+.stream-inner > * + * { border-top: 1px solid var(--line); padding-top: 20px; }
+/* 横画面は余白のみで区切る(ヘアラインは縦画面・スマホのみ) */
+@media (orientation: landscape) {
+  .stream-inner > * + * { border-top: none; }
+}
 
 .narr-wrap { text-align: center; }
 .narr {
@@ -188,40 +179,52 @@ html, body { overscroll-behavior: none; }
   letter-spacing: .08em;
   font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
 }
-.narr::before { content: "— "; }
-.narr::after { content: " —"; }
-.narr-wrap .ops { display: flex; gap: 4px; justify-content: center; margin-top: 6px; opacity: 0; transition: opacity .18s; }
+.narr-wrap .ops { display: flex; gap: 4px; justify-content: flex-end; margin-top: 0; margin-bottom: -12px; opacity: 0; transition: opacity .18s; }
 .narr-wrap:hover .ops { opacity: 1; }
 
 .memo {
-  max-width: 560px; margin: 0 auto; width: fit-content;
-  border: 1px dashed var(--line-2); border-radius: 14px;
-  padding: 10px 18px;
-  color: var(--muted); font-size: 13px; line-height: 1.7;
+  max-width: 560px; width: fit-content;
+  margin: 0 auto;
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--peri);
+  padding: 10px 18px 8px;
+  color: var(--muted); font-size: 13px; line-height: 1.7; text-align: left;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.memo .memo-k { font-size: 10.5px; letter-spacing: .24em; color: var(--peri); margin-bottom: 2px; }
-.memo .ops { display: flex; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; }
+.memo .ops { display: flex; gap: 4px; justify-content: flex-end; margin-top: 4px; opacity: 0; transition: opacity .18s; }
 .memo:hover .ops { opacity: 1; }
 
 .msg { display: flex; gap: 14px; align-items: flex-start; }
 .msg .avatar { width: 44px; height: 44px; object-fit: cover; flex: none; }
-.msg .body { min-width: 0; }
-.msg .who { font-size: 12.5px; letter-spacing: .16em; color: var(--peri); margin: 2px 0 6px; }
-.msg .bubble { padding: 12px 18px; font-size: 15px; border-top-left-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg .ops { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; align-items: center; }
+.msg .body { min-width: 0; flex: 1; }
+.msg.user .body { flex: 0 1 auto; }
+.msg .who { font-size: 12.5px; letter-spacing: .16em; color: var(--peri); margin: 2px 0 4px; }
+.msg .bubble {
+  background: none; border: none; box-shadow: none; border-radius: 0;
+  padding: 0; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg .bubble::before { display: none; }
+.msg .ops { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; margin-top: 0; margin-bottom: -12px; opacity: 0; transition: opacity .18s; align-items: center; }
 .msg:hover .ops { opacity: 1; }
 .msg.user { flex-direction: row-reverse; }
-.msg.user .bubble { background: var(--bubble-user); border-top-left-radius: 18px; border-top-right-radius: 6px; }
+.msg.user .bubble { background: none; border-radius: 0; text-align: left; }
 .msg.user .who { text-align: right; color: var(--muted); }
-.msg.user .ops { justify-content: flex-end; }
-.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; white-space: nowrap; }
+.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; line-height: 1.4; white-space: nowrap; }
+.ops .btn.quiet:hover {
+  background: none; transform: none;
+  text-decoration: underline; text-underline-offset: 3px;
+}
 .ops .tm { font-size: 11px; color: var(--muted); }
 
 /* 初対面(セッション0件)の空状態 */
 .fresh { padding-top: 6vh; text-align: center; }
 .fresh .hello { color: var(--peri); font-size: 11px; letter-spacing: .34em; margin-bottom: 18px; }
-.fresh .bubble { display: inline-block; max-width: 520px; text-align: left; font-size: 15px; }
+.fresh .bubble {
+  display: inline-block; max-width: 520px; text-align: left; font-size: 15px;
+  background: none; border: none; box-shadow: none; border-radius: 0; padding: 0;
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", serif; line-height: 2;
+}
+.fresh .bubble::before { display: none; }
 .fresh .starters { display: flex; gap: 8px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
 
 /* ---------- コンポーザー ---------- */
@@ -234,7 +237,7 @@ html, body { overscroll-behavior: none; }
 .p3-cmd-palette {
   background: var(--panel);
   border: 1px solid var(--line-2);
-  border-radius: 14px;
+  border-radius: 6px;
   box-shadow: var(--shadow);
   margin-bottom: 10px;
   padding: 6px;
@@ -248,7 +251,7 @@ html, body { overscroll-behavior: none; }
 .p3-cmd-option {
   display: flex; gap: 12px; align-items: baseline;
   border: none; background: none; color: var(--text);
-  text-align: left; padding: 7px 12px; border-radius: 10px; cursor: pointer;
+  text-align: left; padding: 7px 12px; border-radius: 4px; cursor: pointer;
 }
 .p3-cmd-option:hover, .p3-cmd-option-active { background: var(--panel-2); }
 .p3-cmd-name { font-size: 13px; color: var(--accent); font-weight: 600; flex: none; }
@@ -258,7 +261,7 @@ html, body { overscroll-behavior: none; }
 .p3-choice-option {
   display: block; width: 100%; text-align: left;
   border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text);
-  border-radius: 12px; padding: 10px 14px; cursor: pointer;
+  border-radius: 4px; padding: 10px 14px; cursor: pointer;
   font-size: 13.5px; line-height: 1.6;
 }
 .p3-choice-option-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--glow); }
@@ -280,17 +283,17 @@ html, body { overscroll-behavior: none; }
   -webkit-mask-image: linear-gradient(to top, transparent 2%, #000 30%);
   mask-image: linear-gradient(to top, transparent 2%, #000 30%);
 }
-.presence .pname {
-  position: absolute; left: 20px; bottom: 14px; z-index: 2;
-  font-size: 19px; letter-spacing: .14em;
+.presence .pmeta { position: absolute; left: 20px; right: 16px; bottom: 8px; z-index: 2; }
+.presence .pname-row { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.presence .pname { font-size: 19px; letter-spacing: .14em; }
+.presence .pocc { font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+.presence .sheet-btn {
+  border: none; background: none; padding: 0; flex: none;
+  font-size: 11.5px; color: var(--muted); cursor: pointer;
+  opacity: 0; transition: opacity .18s, color .15s;
 }
-.presence .pocc {
-  position: absolute; left: 20px; bottom: 2px; z-index: 2;
-  font-size: 11px; color: var(--muted); letter-spacing: .04em;
-}
-.cast { padding: 22px 18px 16px; border-top: 1px solid var(--line); max-height: 50%; overflow-y: auto; flex: none; }
-.cast .lbl { font-size: 10.5px; letter-spacing: .3em; color: var(--muted); margin-bottom: 12px; }
-.cast .solo-ops { display: flex; gap: 8px; flex-wrap: wrap; }
+.presence .pmeta:hover .sheet-btn { opacity: 1; }
+.presence .sheet-btn:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 
 /* ---------- 相手ピッカー(オーバーレイ) ----------
    パネル・検索・pcard のスキンは group_setup.PICKER_CSS と共用 */
@@ -332,7 +335,7 @@ html, body { overscroll-behavior: none; }
 /* ダイアログ・メニューのP3スキン */
 .q-menu { background: var(--panel); color: var(--text); }
 .p3-ta { width: 100%; }
-.p3-ta .q-field__control { background: var(--bg-2) !important; border-radius: 12px; }
+.p3-ta .q-field__control { background: var(--bg-2) !important; border-radius: 6px; }
 .p3-ta .q-field__control:before { border-color: var(--line-2) !important; }
 .p3-ta textarea, .p3-ta input { color: var(--text) !important; line-height: 1.8; }
 
@@ -382,7 +385,7 @@ html, body { overscroll-behavior: none; }
     pointer-events: none;
     opacity: .2;
   }
-  .presence .pname, .presence .pocc, .presence .cast { display: none; }
+  .presence .pmeta { display: none; }
   .stream-wrap { position: relative; z-index: 1; flex: 1; min-height: 0; }
   /* キャストバー・セッションヘッダは1行コンパクト */
   .mobile-cast { display: flex; gap: 10px; padding: 6px 12px; }
@@ -393,11 +396,13 @@ html, body { overscroll-behavior: none; }
   .hist-btn { white-space: nowrap; flex: none; padding: 4px 10px; font-size: 12px; }
   .stream { padding: 12px 12px 8px; overflow-x: hidden; }
   .stream-inner { gap: 14px; }
+  .stream-inner > * + * { padding-top: 14px; }
   .msg { gap: 10px; }
-  .msg .bubble { font-size: 14.5px; padding: 10px 14px; }
+  .msg .bubble { font-size: 14.5px; }
   .msg .avatar { width: 34px; height: 34px; }
   .msg .who { margin: 0 0 4px; }
   .msg .ops, .narr-wrap .ops, .memo .ops { opacity: .75; gap: 2px; }
+  .msg .ops, .narr-wrap .ops { margin-bottom: 0; }
   .ops .btn.quiet { font-size: 11px; padding: 1px 8px; }
   .composer { padding: 8px 10px 10px; }
   .picker { padding: 4vh 14px 30px; }
@@ -408,7 +413,7 @@ html, body { overscroll-behavior: none; }
 @media (max-height: 760px) {
   .stream-head { padding: 8px 26px; }
   .stream { padding: 18px 34px 12px; }
-  .stream-inner { gap: 18px; }
+  .stream-inner { gap: 12px; }
   .composer { padding: 8px 34px 12px; }
   .comp-input .q-field__control { min-height: 30px; }
   .partner { padding: 7px 10px; margin-bottom: 8px; }
@@ -986,21 +991,20 @@ class Ui2ChatController:
                         raw_img(url).style(
                             f"object-position: {image_object_position(self.image, 'bust')};"
                         )
-                    with ui.element("div").classes("pname serif"):
-                        ui.html(html.escape(self.sheet.name))
-                    with ui.element("div").classes("pocc"):
-                        ui.html(html.escape(self.sheet.occupation))
-                with ui.element("div").classes("cast"):
-                    with ui.element("div").classes("lbl"):
-                        ui.html("クイック操作")
-                    with ui.element("div").classes("solo-ops"):
-                        _chip_button("シートを開く", lambda: ui.navigate.to(f"/characters/{self.sheet.id}"))
-                        _chip_button(
-                            "画像・音声",
-                            lambda: ui.navigate.to(f"/characters/{self.sheet.id}"),
-                            title="シートページのメディア欄へ",
-                        )
-                        _chip_button("メモ", lambda: self.set_input_mode("memo"), title="次の投稿をコメントにする")
+                    with ui.element("div").classes("pmeta"):
+                        with ui.element("div").classes("pname-row"):
+                            with ui.element("div").classes("pname serif"):
+                                ui.html(html.escape(self.sheet.name))
+                            sheet_btn = (
+                                ui.element("button")
+                                .classes("sheet-btn")
+                                .props('title="キャラクターシートを開く"')
+                            )
+                            with sheet_btn:
+                                ui.html("シートを開く")
+                            sheet_btn.on("click", lambda: ui.navigate.to(f"/characters/{self.sheet.id}"))
+                        with ui.element("div").classes("pocc"):
+                            ui.html(html.escape(self.sheet.occupation))
 
         self._render_picker()
         self.refresh_sessions_pane()
@@ -1112,15 +1116,6 @@ class Ui2ChatController:
                         ui.html(html.escape(session.title or DEFAULT_CHAT_TITLE))
                     with ui.element("div").classes("s"):
                         ui.html(html.escape(latest_message_preview(session.messages)))
-                    with ui.element("div").classes("sess-ops"):
-                        rename = ui.element("button").props('title="タイトル変更"')
-                        with rename:
-                            ui.html("✎")
-                        rename.on("click.stop", lambda sid=session.id: self.open_rename_chat_dialog(sid))
-                        delete = ui.element("button").props('title="セッション削除"')
-                        with delete:
-                            ui.html("×")
-                        delete.on("click.stop", lambda sid=session.id: self.confirm_delete_chat_session(sid))
 
     def refresh_scene(self) -> None:
         if self.scene_box is None:
@@ -1146,11 +1141,10 @@ class Ui2ChatController:
 
     def chat_world_label(self) -> str:
         if self.settings is None:
-            world = self.sheet.world.strip().splitlines()[0] if self.sheet.world.strip() else ""
-            return f"{self.sheet.name} — {world}" if world else self.sheet.name
+            return self.sheet.world.strip().splitlines()[0] if self.sheet.world.strip() else ""
         profile = self.ctx.api_config.get_llm_profile(self.settings.profile_id)
         profile_name = profile.name if profile else "不明なプロファイル"
-        return f"{self.sheet.name} — {self.settings.chat_mode_name} / {profile_name}"
+        return f"{self.settings.chat_mode_name} / {profile_name}"
 
     def refresh_chat_header(self) -> None:
         if self.head_title is not None:
@@ -1256,9 +1250,7 @@ class Ui2ChatController:
                 self._ops_row(index, message)
             return
         if message.speaker == "memo":
-            with ui.element("div").classes("memo"):
-                with ui.element("div").classes("memo-k"):
-                    ui.html("コメント")
+            with ui.element("div").classes("memo-wrap"), ui.element("div").classes("memo"):
                 ui.html(_inline_html(message.text))
                 self._ops_row(index, message)
             return

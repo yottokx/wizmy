@@ -29,15 +29,12 @@ _ACTIVE_GENERATION_KEY = "ui2_active_generation"
 # モック generation.html の <style> 移植+ツールログ/プレースホルダ/共通フォーム
 GENERATION_CSS = (
     """
-.gen-wrap { max-width: 1080px; margin: 0 auto; padding: 34px 26px 60px; }
+.gen-wrap { max-width: 780px; margin: 0 auto; padding: 34px 26px 60px; }
 
 /* ---------- 状態A:問いかけ ---------- */
 .ask {
   position: relative;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 26px;
-  padding: 54px 60px 44px;
+  padding: 44px 0 24px;
   overflow: hidden;
 }
 .ask h1 {
@@ -84,30 +81,30 @@ GENERATION_CSS = (
 /* 状態Aの中央テキストエリア(モック .ask textarea 相当) */
 .ask-ta { display: block; width: 100%; }
 .ask-ta .q-field__control {
-  background: var(--bg-2) !important;
+  background: transparent !important;
   border: 1px solid var(--line-2);
-  border-radius: 18px;
-  padding: 10px 22px;
+  border-radius: 0;
+  padding: 10px 18px;
   min-height: 110px;
+  transition: border-color .18s;
 }
 .ask-ta .q-field__control:before, .ask-ta .q-field__control:after { display: none; }
-.ask-ta .q-field__control:focus-within { border-color: var(--peri); }
+.ask-ta .q-field__control:focus-within { border-color: var(--accent); }
 .ask-ta textarea { color: var(--text) !important; font-size: 15px; line-height: 1.9; }
 
 /* Quasar textarea/input の P3 スキン(シートページと同じ .p3-ta) */
 .p3-ta { width: 100%; }
-.p3-ta .q-field__control { background: var(--bg-2) !important; border-radius: 12px; }
+.p3-ta .q-field__control { background: transparent !important; border-radius: 0; }
 .p3-ta .q-field__control:before { border-color: var(--line-2) !important; }
 .p3-ta textarea, .p3-ta input { color: var(--text) !important; line-height: 1.9; }
 
 /* ベースキャラクター行(修正/関連) */
 .base-box {
   display: flex; align-items: center; gap: 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--line-2);
-  border-radius: 16px;
-  padding: 12px 16px;
-  margin-bottom: 14px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 4px;
+  margin-bottom: 16px;
 }
 .base-box .b-face {
   width: 46px; height: 46px; border-radius: 50%; flex: none;
@@ -123,10 +120,7 @@ GENERATION_CSS = (
 /* ---------- 状態B:生成中(章立て+ブレインストーミングログ) ---------- */
 .forge {
   position: relative;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 26px;
-  padding: 30px 38px 28px;
+  padding: 34px 0 20px;
   overflow: hidden;
 }
 
@@ -151,19 +145,27 @@ GENERATION_CSS = (
 .chap.todo { opacity: .4; }
 
 .gen-status { font-size: 12px; color: var(--muted); letter-spacing: .04em; margin-top: 14px; }
-.gen-log-cap { font-size: 11px; letter-spacing: .22em; color: var(--muted); margin: 14px 0 6px; }
+.gen-log-cap {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: none; background: none; padding: 0; cursor: pointer;
+  font-size: 11px; letter-spacing: .22em; color: var(--muted); margin: 14px 0 6px;
+  transition: color .15s;
+}
+.gen-log-cap:hover { color: var(--text); }
+.gen-log-cap .caret { display: inline-block; font-size: 9px; transition: transform .2s; }
+.gen-log-cap.closed .caret { transform: rotate(-90deg); }
 /* ブレインストーミングログ: 出力行数に依存しない固定高さ(未出力でも枠を出す) */
 .gen-log {
   height: 11rem;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 12px;
   background: var(--bg-2);
   padding: 8px 12px;
   font-size: 12px;
   line-height: 1.8;
   color: var(--muted);
 }
+.gen-log.closed { display: none; }
 .gen-log .mk { margin-right: 6px; }
 .gen-log .mk.hit { color: var(--accent); }
 .forge .ops { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
@@ -171,17 +173,19 @@ GENERATION_CSS = (
 /* ---------- 状態C:誕生(画像列なしの1カラム) ---------- */
 .born {
   position: relative;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 26px;
-  padding: 34px 42px 32px;
+  padding: 34px 0 24px;
   overflow: hidden;
 }
 .born-body { position: relative; z-index: 2; min-width: 0; max-width: 760px; }
 .born-body .hello { color: var(--peri); font-size: 12px; letter-spacing: .34em; margin-bottom: 14px; }
 .born-body h2 { margin: 0 0 4px; font-size: 34px; letter-spacing: .1em; font-weight: 600; }
 .born-body .oc { color: var(--muted); font-size: 13.5px; margin-bottom: 24px; }
-.born-body .bubble { max-width: 480px; font-size: 15px; }
+.born-body .bubble {
+  max-width: 520px; font-size: 15px;
+  background: none; border: none; box-shadow: none; border-radius: 0; padding: 0;
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", serif; line-height: 2;
+}
+.born-body .bubble::before { display: none; }
 .born-body .facts { display: flex; gap: 8px; flex-wrap: wrap; margin: 24px 0 8px; }
 .born-body .facts .chip { cursor: default; }
 .born-body .save-note { font-size: 12px; color: var(--accent); margin-bottom: 18px; letter-spacing: .04em; }
@@ -213,9 +217,9 @@ GENERATION_CSS = (
 /* ============ 縦画面・スマホ ============ */
 @media (max-width: 900px) {
   .gen-wrap { padding: 24px 16px 40px; }
-  .ask { padding: 36px 20px 32px; }
+  .ask { padding: 26px 0 18px; }
   .ask h1 { font-size: 23px; }
-  .forge, .born { padding: 22px; }
+  .forge, .born { padding: 20px 0 14px; }
   .born-body h2 { font-size: 26px; }
 }
 @media (max-width: 560px) {
@@ -264,6 +268,7 @@ class ForgePanel:
         self._progress = ChapterProgress()
         self._on_stop = on_stop
         self._on_back = on_back
+        self._log_open = False
 
     def build(self) -> None:
         sparkle_field(12)
@@ -272,19 +277,34 @@ class ForgePanel:
                 ui.html("生成の進捗")
             self._rows_box = ui.element("div")
             self._status = ui.element("div").classes("gen-status")
-            with ui.element("div").classes("gen-log-cap"):
-                ui.html("ブレインストーミングログ")
-            self._log = ui.element("div").classes("gen-log")
+            self._log_cap = ui.element("button").classes("gen-log-cap closed")
+            with self._log_cap:
+                ui.html('<span class="caret">▾</span><span>ブレインストーミングログ</span>')
+            self._log_cap.on("click", self._toggle_log)
+            self._log = ui.element("div").classes("gen-log closed")
             with ui.element("div").classes("ops"):
                 self._stop_btn = p3_button("中断", self._on_stop, classes="btn quiet").mark("ui2-gen-stop")
                 self._back_btn = p3_button("入力に戻る", self._on_back, classes="btn quiet")
         self.reset()
+
+    def _set_log_open(self, is_open: bool) -> None:
+        self._log_open = is_open
+        if is_open:
+            self._log_cap.classes(remove="closed")
+            self._log.classes(remove="closed")
+        else:
+            self._log_cap.classes("closed")
+            self._log.classes("closed")
+
+    def _toggle_log(self) -> None:
+        self._set_log_open(not self._log_open)
 
     def reset(self) -> None:
         self._progress.reset()
         self._render_rows()
         self._set_status("待機中")
         self._log.clear()
+        self._set_log_open(False)
         self._stop_btn.set_visibility(True)
         self._back_btn.set_visibility(False)
 

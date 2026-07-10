@@ -32,12 +32,6 @@ def entry_type_label(value: str) -> str:
     return ENTRY_TYPE_LABELS.get(value, "適応")
 
 
-def world_source_chip_label(group: GroupChatRecord) -> str:
-    if group.world_source_type == "character":
-        return "世界: キャラクター由来"
-    return "世界: 新規生成"
-
-
 def group_participants(group: GroupChatRecord) -> list[dict[str, Any]]:
     """メンバー+ユーザーペルソナを共通形式の participant dict 列にする。"""
     participants: list[dict[str, Any]] = []

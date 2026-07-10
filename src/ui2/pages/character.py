@@ -70,9 +70,6 @@ _PAGE_CSS = """
   width: 100%; height: 100%;
   display: grid; place-items: center;
   background: var(--panel);
-  color: var(--peri);
-  font-size: 64px;
-  font-family: "Yu Mincho", serif;
 }
 .side .back {
   position: absolute; top: 14px; left: 14px; z-index: 3;
@@ -146,7 +143,7 @@ _PAGE_CSS = """
 /* ---------- 右:シート ---------- */
 .sheet-wrap { padding: 26px 34px 60px; min-width: 0; }
 .sheet-head { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
-.vmode { display: flex; border: 1px solid var(--line-2); border-radius: 999px; overflow: hidden; }
+.vmode { display: flex; border: 1px solid var(--line-2); border-radius: 4px; overflow: hidden; }
 .vmode button { border: none; background: none; cursor: pointer; padding: 7px 20px; font-size: 13px; color: var(--muted); }
 .vmode button.on { background: var(--panel-2); color: var(--text); }
 .sheet-head .grow { flex: 1; }
@@ -333,7 +330,10 @@ async def ui2_character_page(character_id: str) -> None:
                     raw_img(url).style(f"object-position: {image_object_position(image)};")
                 else:
                     with ui.element("div").classes("portrait-ph"):
-                        ui.html(html.escape((_sheet().name or "?")[:1]))
+                        manage = ui.element("button").classes("btn quiet")
+                        with manage:
+                            ui.html("画像を管理・生成")
+                        manage.on("click", lambda: ui.navigate.to(f"/characters/{character_id}/images"))
 
         def _render_side_body() -> None:
             sheet = _sheet()

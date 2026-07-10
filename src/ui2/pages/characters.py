@@ -129,7 +129,7 @@ _PAGE_CSS = """
   margin-left: auto;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 4px;
   padding: 7px 18px;
   color: var(--text);
   font-size: 13px;
@@ -190,17 +190,9 @@ _PAGE_CSS = """
 /* 絵姿がまだない子 */
 .gcard.noimg { display: grid; place-items: center; background: var(--panel-2); }
 .gcard.noimg .ph { text-align: center; padding: 0 18px; color: var(--muted); }
-.gcard.noimg .initial {
-  width: 74px; height: 74px; margin: 0 auto 14px;
-  border-radius: 50%;
-  display: grid; place-items: center;
-  font-size: 30px;
-  color: var(--peri);
-  border: 1.5px dashed var(--line-2);
-  font-family: "Yu Mincho", serif;
-}
 .gcard.noimg .nm2 { color: var(--text); font-size: 15px; letter-spacing: .08em; }
-.gcard.noimg .cta { margin-top: 12px; font-size: 12px; color: var(--accent); }
+.gcard.noimg .noimg-ops { margin-top: 14px; display: flex; justify-content: center; }
+.gcard.noimg .noimg-ops .btn { padding: 5px 16px; font-size: 12px; }
 
 /* 迎えるカード */
 .gcard.newcard {
@@ -288,7 +280,6 @@ def _render_strip(sheet: CharacterSheet, *, default: bool) -> None:
                     ui.html(html.escape(f"「{say}」"))
             with ui.element("div").classes("ops"):
                 _op_button("チャット", _chat_route(sheet.id), primary=True)
-                _op_button("詳細", _detail_route(sheet.id))
 
 
 def _render_gcard(sheet: CharacterSheet) -> None:
@@ -299,14 +290,12 @@ def _render_gcard(sheet: CharacterSheet) -> None:
         card.on("click", lambda cid=sheet.id: ui.navigate.to(_detail_route(cid)))
         with card:
             with ui.element("div").classes("ph"):
-                with ui.element("div").classes("initial"):
-                    ui.html(html.escape((sheet.name or "?")[:1]))
                 with ui.element("div").classes("nm2 serif"):
                     ui.html(html.escape(sheet.name))
                 with ui.element("div").classes("oc").style("font-size: 11px;"):
                     ui.html(html.escape(sheet.occupation))
-                with ui.element("div").classes("cta"):
-                    ui.html("+ 画像を設定")
+                with ui.element("div").classes("noimg-ops"):
+                    _op_button("チャット", _chat_route(sheet.id), primary=True)
         return
 
     card = ui.element("div").classes("gcard")
@@ -321,7 +310,6 @@ def _render_gcard(sheet: CharacterSheet) -> None:
                 ui.html(STAR_SVG)
         with ui.element("div").classes("hover-ops"):
             _op_button("チャット", _chat_route(sheet.id), primary=True)
-            _op_button("詳細", _detail_route(sheet.id))
         with ui.element("div").classes("info"):
             with ui.element("div").classes("nm serif"):
                 ui.html(html.escape(sheet.name))

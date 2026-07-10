@@ -77,7 +77,6 @@ from ..group_logic import (
     participant_by_speaker_id,
     relationship_key_map_for_group,
     validate_handle_values,
-    world_source_chip_label,
 )
 from ..group_logic import (
     active_members as _active_members_of,
@@ -132,16 +131,17 @@ html, body { overscroll-behavior: none; }
 }
 .gband .gname { font-size: 19px; letter-spacing: .14em; white-space: nowrap; }
 .gband .gworld {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   color: var(--muted);
   line-height: 1.6;
-  max-width: 640px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.gband .chips { margin-left: auto; display: flex; gap: 8px; flex: none; }
+.gband .chips { display: flex; gap: 8px; flex: none; }
 .gband .chip { cursor: default; background: color-mix(in srgb, var(--bg) 55%, transparent); }
 .gband .chip.manage { cursor: pointer; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .gband .back {
@@ -177,29 +177,16 @@ html, body { overscroll-behavior: none; }
   min-height: 0;
 }
 .sessions .lbl { font-size: 11px; letter-spacing: .3em; color: var(--muted); padding: 0 8px 8px; }
-.sess { position: relative; padding: 10px 12px; border-radius: 12px; cursor: pointer; border: 1px solid transparent; }
+.sess { position: relative; padding: 10px 12px; cursor: pointer; border-left: 2px solid transparent; }
 .sess:hover { background: var(--panel); }
-.sess.on { background: var(--panel); border-color: var(--line-2); }
-.sess .t { font-size: 13.5px; font-weight: 600; letter-spacing: .03em; line-height: 1.5; padding-right: 30px; }
+.sess.on { background: var(--panel); border-left-color: var(--accent); }
+.sess .t { font-size: 13.5px; font-weight: 600; letter-spacing: .03em; line-height: 1.5; }
 .sess .s { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sess .sess-ops {
-  position: absolute; top: 8px; right: 8px;
-  display: flex; gap: 4px;
-  opacity: 0; transition: opacity .18s;
-}
-.sess:hover .sess-ops { opacity: 1; }
-.sess-ops button {
-  border: none; background: var(--panel-2); color: var(--muted);
-  border-radius: 8px; padding: 2px 8px; font-size: 11px; cursor: pointer;
-}
-.sess-ops button:hover { color: var(--text); }
 .no-sess { padding: 10px 12px; font-size: 12px; color: var(--muted); line-height: 1.7; }
 .scene {
   margin-top: auto;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  padding: 14px 6px 4px;
 }
 .scene .lbl2 { font-size: 10.5px; letter-spacing: .26em; color: var(--peri); margin-bottom: 4px; }
 .scene .tx {
@@ -222,7 +209,13 @@ html, body { overscroll-behavior: none; }
 .stream-head .sp { flex: 1; }
 
 .stream { flex: 1; min-height: 0; overflow-y: auto; padding: 30px 34px 20px; }
-.stream-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+.stream-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+/* 台本方式: 吹き出しの代わりに要素間をヘアラインで区切る(地の文・コメント含む) */
+.stream-inner > * + * { border-top: 1px solid var(--line); padding-top: 20px; }
+/* 横画面は余白のみで区切る(ヘアラインは縦画面・スマホのみ) */
+@media (orientation: landscape) {
+  .stream-inner > * + * { border-top: none; }
+}
 
 .narr-wrap { text-align: center; }
 .narr {
@@ -231,22 +224,21 @@ html, body { overscroll-behavior: none; }
   letter-spacing: .08em;
   font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
 }
-.narr::before { content: "— "; }
-.narr::after { content: " —"; }
-.narr-wrap .ops { display: flex; gap: 4px; justify-content: center; margin-top: 6px; opacity: 0; transition: opacity .18s; }
+.narr-wrap .ops { display: flex; gap: 4px; justify-content: flex-end; margin-top: 0; margin-bottom: -12px; opacity: 0; transition: opacity .18s; }
 .narr-wrap:hover .ops { opacity: 1; }
 
 .sysmsg { text-align: center; font-size: 11.5px; color: var(--peri); letter-spacing: .18em; }
 
 .memo {
-  max-width: 560px; margin: 0 auto; width: fit-content;
-  border: 1px dashed var(--line-2); border-radius: 14px;
-  padding: 10px 18px;
-  color: var(--muted); font-size: 13px; line-height: 1.7;
+  max-width: 560px; width: fit-content;
+  margin: 0 auto;
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--peri);
+  padding: 10px 18px 8px;
+  color: var(--muted); font-size: 13px; line-height: 1.7; text-align: left;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.memo .memo-k { font-size: 10.5px; letter-spacing: .24em; color: var(--peri); margin-bottom: 2px; }
-.memo .ops { display: flex; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; }
+.memo .ops { display: flex; gap: 4px; justify-content: flex-end; margin-top: 4px; opacity: 0; transition: opacity .18s; }
 .memo:hover .ops { opacity: 1; }
 
 .msg { display: flex; gap: 14px; align-items: flex-start; }
@@ -258,17 +250,25 @@ html, body { overscroll-behavior: none; }
   font-family: "Yu Mincho", serif; font-size: 17px;
   border: 2px solid var(--line-2);
 }
-.msg .body { min-width: 0; }
-.msg .who { font-size: 12.5px; letter-spacing: .16em; color: var(--peri); margin: 2px 0 6px; }
+.msg .body { min-width: 0; flex: 1; }
+.msg.user .body { flex: 0 1 auto; }
+.msg .who { font-size: 12.5px; letter-spacing: .16em; color: var(--peri); margin: 2px 0 4px; }
 .msg .who .hd { color: var(--muted); letter-spacing: .04em; font-size: 11px; }
-.msg .bubble { padding: 12px 18px; font-size: 15px; border-top-left-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg .ops { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity .18s; align-items: center; }
+.msg .bubble {
+  background: none; border: none; box-shadow: none; border-radius: 0;
+  padding: 0; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg .bubble::before { display: none; }
+.msg .ops { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; margin-top: 0; margin-bottom: -12px; opacity: 0; transition: opacity .18s; align-items: center; }
 .msg:hover .ops { opacity: 1; }
 .msg.user { flex-direction: row-reverse; }
-.msg.user .bubble { background: var(--bubble-user); border-top-left-radius: 18px; border-top-right-radius: 6px; }
+.msg.user .bubble { background: none; border-radius: 0; text-align: left; }
 .msg.user .who { text-align: right; color: var(--muted); }
-.msg.user .ops { justify-content: flex-end; }
-.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; white-space: nowrap; }
+.ops .btn.quiet { padding: 2px 10px; font-size: 11.5px; line-height: 1.4; white-space: nowrap; }
+.ops .btn.quiet:hover {
+  background: none; transform: none;
+  text-decoration: underline; text-underline-offset: 3px;
+}
 .ops .tm { font-size: 11px; color: var(--muted); }
 
 .empty-stream { padding-top: 8vh; text-align: center; }
@@ -284,7 +284,7 @@ html, body { overscroll-behavior: none; }
 .p3-cmd-palette {
   background: var(--panel);
   border: 1px solid var(--line-2);
-  border-radius: 14px;
+  border-radius: 6px;
   box-shadow: var(--shadow);
   margin-bottom: 10px;
   padding: 6px;
@@ -298,7 +298,7 @@ html, body { overscroll-behavior: none; }
 .p3-cmd-option {
   display: flex; gap: 12px; align-items: baseline;
   border: none; background: none; color: var(--text);
-  text-align: left; padding: 7px 12px; border-radius: 10px; cursor: pointer;
+  text-align: left; padding: 7px 12px; border-radius: 4px; cursor: pointer;
 }
 .p3-cmd-option:hover, .p3-cmd-option-active { background: var(--panel-2); }
 .p3-cmd-name { font-size: 13px; color: var(--accent); font-weight: 600; flex: none; }
@@ -308,7 +308,7 @@ html, body { overscroll-behavior: none; }
 .p3-mention-palette {
   background: var(--panel);
   border: 1px solid var(--line-2);
-  border-radius: 14px;
+  border-radius: 6px;
   box-shadow: var(--shadow);
   margin-bottom: 10px;
   padding: 6px;
@@ -322,7 +322,7 @@ html, body { overscroll-behavior: none; }
 .p3-mention-option {
   display: flex; gap: 10px; align-items: center;
   border: none; background: none; color: var(--text);
-  text-align: left; padding: 6px 12px; border-radius: 10px; cursor: pointer;
+  text-align: left; padding: 6px 12px; border-radius: 4px; cursor: pointer;
 }
 .p3-mention-option:hover, .p3-mention-option-active { background: var(--panel-2); }
 .p3-mention-option.p3-mention-option-hidden { display: none; }
@@ -341,7 +341,7 @@ html, body { overscroll-behavior: none; }
 .p3-choice-option {
   display: block; width: 100%; text-align: left;
   border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text);
-  border-radius: 12px; padding: 10px 14px; cursor: pointer;
+  border-radius: 4px; padding: 10px 14px; cursor: pointer;
   font-size: 13.5px; line-height: 1.6;
 }
 .p3-choice-option-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--glow); }
@@ -409,7 +409,7 @@ html, body { overscroll-behavior: none; }
   position: relative;
   display: flex; align-items: center; gap: 11px;
   padding: 7px 10px;
-  border-radius: 12px;
+  border-radius: 4px;
   cursor: pointer;
   border: 1px solid transparent;
   width: 100%;
@@ -434,22 +434,11 @@ html, body { overscroll-behavior: none; }
   position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
   opacity: 0; transition: opacity .18s;
   border: 1px solid var(--line-2); background: var(--panel-2); color: var(--muted);
-  border-radius: 8px; padding: 2px 9px; font-size: 11px; cursor: pointer;
+  border-radius: 4px; padding: 2px 9px; font-size: 11px; cursor: pointer;
 }
 .member:hover .open-btn { opacity: 1; }
 .member .open-btn:hover { color: var(--text); }
-.tag {
-  display: inline-block;
-  font-size: 9.5px;
-  color: var(--peri);
-  border: 1px solid color-mix(in srgb, var(--peri) 45%, transparent);
-  border-radius: 6px;
-  padding: 0 6px;
-  margin-left: 6px;
-  vertical-align: 1px;
-  letter-spacing: .08em;
-}
-.member.you { border-top: 1px dashed var(--line-2); border-radius: 0 0 12px 12px; margin-top: 6px; padding-top: 12px; }
+.member.you { border-top: 1px dashed var(--line-2); border-radius: 0 0 4px 4px; margin-top: 6px; padding-top: 12px; cursor: default; }
 .member.you .nm { color: var(--muted); }
 .add-row { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .add-row .btn { padding: 5px 12px; font-size: 11.5px; }
@@ -457,12 +446,12 @@ html, body { overscroll-behavior: none; }
 /* ダイアログ・メニューのP3スキン */
 .q-menu { background: var(--panel); color: var(--text); }
 .p3-ta { width: 100%; }
-.p3-ta .q-field__control { background: var(--bg-2) !important; border-radius: 12px; }
+.p3-ta .q-field__control { background: var(--bg-2) !important; border-radius: 6px; }
 .p3-ta .q-field__control:before { border-color: var(--line-2) !important; }
 .p3-ta textarea, .p3-ta input { color: var(--text) !important; line-height: 1.8; }
 
 /* 関係性(管理ダイアログ) */
-.rel-row { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.rel-row { border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
 .rel-row .pair { font-size: 12.5px; font-weight: 600; letter-spacing: .04em; }
 .rel-row .tx { font-size: 12.5px; color: var(--muted); line-height: 1.7; margin-top: 4px; white-space: pre-wrap; }
 .rel-head { display: flex; align-items: center; gap: 6px; }
@@ -472,8 +461,8 @@ html, body { overscroll-behavior: none; }
 .pick {
   display: inline-flex; align-items: center; gap: 8px;
   border: 1px solid var(--line-2);
-  border-radius: 999px;
-  padding: 4px 14px 4px 5px;
+  border-radius: 4px;
+  padding: 4px 12px 4px 5px;
   font-size: 12.5px;
   cursor: pointer;
   background: transparent;
@@ -559,7 +548,6 @@ html, body { overscroll-behavior: none; }
   .gband .back { width: 28px; height: 28px; font-size: 13px; }
   .gband .gname { font-size: 14.5px; letter-spacing: .08em; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .gband .gworld { display: none; }
-  .gband .chip:not(.manage) { display: none; }
   .gband .chips { overflow: hidden; flex: none; min-width: 0; }
   .gband .chip { white-space: nowrap; }
   .shell { display: flex; flex-direction: column; }
@@ -587,11 +575,13 @@ html, body { overscroll-behavior: none; }
   .hist-btn { white-space: nowrap; flex: none; padding: 4px 10px; font-size: 12px; }
   .stream { padding: 12px 12px 8px; overflow-x: hidden; }
   .stream-inner { gap: 14px; }
+  .stream-inner > * + * { padding-top: 14px; }
   .msg { gap: 10px; }
-  .msg .bubble { font-size: 14.5px; padding: 10px 14px; }
+  .msg .bubble { font-size: 14.5px; }
   .msg .avatar, .msg .avatar-ph { width: 34px; height: 34px; }
   .msg .who { margin: 0 0 4px; }
   .msg .ops, .narr-wrap .ops, .memo .ops { opacity: .75; gap: 2px; }
+  .msg .ops, .narr-wrap .ops { margin-bottom: 0; }
   .ops .btn.quiet { font-size: 11px; padding: 1px 8px; }
   .composer { padding: 8px 10px 10px; }
 }
@@ -602,7 +592,7 @@ html, body { overscroll-behavior: none; }
   .gband .gworld { -webkit-line-clamp: 1; }
   .stream-head { padding: 8px 26px; }
   .stream { padding: 18px 34px 12px; }
-  .stream-inner { gap: 18px; }
+  .stream-inner { gap: 12px; }
   .composer { padding: 8px 34px 12px; }
   .comp-input .q-field__control { min-height: 30px; }
 }
@@ -1040,14 +1030,6 @@ class Ui2GroupChatController:
             return
         self.band_chips.clear()
         with self.band_chips:
-            with ui.element("span").classes("chip"):
-                ui.html(html.escape(world_source_chip_label(self.group)))
-            with ui.element("span").classes("chip"):
-                ui.html(f"メンバー {len(self.group.members)}人")
-            persona = self.group.user_persona
-            if persona is not None:
-                with ui.element("span").classes("chip"):
-                    ui.html(html.escape(f"あなた: {persona.display_name or persona.name or 'ユーザー'}"))
             manage = (
                 ui.element("button")
                 .classes("chip manage")
@@ -1208,13 +1190,12 @@ class Ui2GroupChatController:
     def _presence_entries(self) -> list[PresenceEntry]:
         entries: list[PresenceEntry] = []
         for member in self.group.members:
-            sub_parts = [part for part in (member.character.occupation, entry_type_label(member.world_entry_type)) if part]
             image = member.character.media.primary_image()
             entries.append(
                 PresenceEntry(
                     key=f"member:{member.id}",
                     label=member.character.name,
-                    sub=" — ".join(sub_parts),
+                    sub=member.character.occupation,
                     image=image,
                     image_path=self.ctx.group_chats.media_path(image.path) if image is not None else None,
                 )
@@ -1254,15 +1235,8 @@ class Ui2GroupChatController:
                         with ui.element("div").classes("mi"):
                             with ui.element("div").classes("nm"):
                                 ui.html(html.escape(member.character.name))
-                                with ui.element("span").classes("tag"):
-                                    ui.html("適応" if member.world_entry_type != "native" else "住人")
                             with ui.element("div").classes("st"):
-                                sub = " — ".join(
-                                    part
-                                    for part in (entry_type_label(member.world_entry_type), member.character.occupation)
-                                    if part
-                                )
-                                ui.html(html.escape(sub))
+                                ui.html(html.escape(member.character.occupation))
                         if member.id in candidates:
                             ui.element("span").classes("dot").props('title="次の話者候補"')
                         open_btn = ui.element("span").classes("open-btn").props('title="適応プロフィールを開く"')
@@ -1274,17 +1248,21 @@ class Ui2GroupChatController:
                         )
                 persona = self.group.user_persona
                 if persona is not None:
-                    you = ui.element("button").classes("member you").props('title="グループペルソナを開く"')
-                    you.on("click", lambda: ui.navigate.to(f"/groups/{self.group.id}/persona"))
+                    you = ui.element("div").classes("member you")
                     with you:
                         _avatar_or_placeholder(persona.media, persona.display_name or persona.name or "ユーザー")
                         with ui.element("div").classes("mi"):
                             with ui.element("div").classes("nm"):
                                 ui.html(html.escape(persona.display_name or persona.name or "ユーザー"))
-                                with ui.element("span").classes("tag"):
-                                    ui.html("ペルソナ")
                             with ui.element("div").classes("st"):
                                 ui.html("あなた — この世界での姿")
+                        open_btn = ui.element("span").classes("open-btn").props('title="グループペルソナを開く"')
+                        with open_btn:
+                            ui.html("開く")
+                        open_btn.on(
+                            "click.stop",
+                            lambda: ui.navigate.to(f"/groups/{self.group.id}/persona"),
+                        )
         if self.mobile_cast is not None:
             self.mobile_cast.clear()
             with self.mobile_cast:
@@ -1320,15 +1298,6 @@ class Ui2GroupChatController:
                         ui.html(html.escape(session.title or DEFAULT_GROUP_CHAT_TITLE))
                     with ui.element("div").classes("s"):
                         ui.html(html.escape(latest_group_message_preview(session.messages)))
-                    with ui.element("div").classes("sess-ops"):
-                        rename = ui.element("button").props('title="タイトル変更"')
-                        with rename:
-                            ui.html("✎")
-                        rename.on("click.stop", lambda sid=session.id: self.open_rename_chat_dialog(sid))
-                        delete = ui.element("button").props('title="セッション削除"')
-                        with delete:
-                            ui.html("×")
-                        delete.on("click.stop", lambda sid=session.id: self.confirm_delete_chat_session(sid))
 
     def chat_title(self) -> str:
         return self.title or "セッションを開始"
@@ -1338,9 +1307,7 @@ class Ui2GroupChatController:
             return "新しいセッションを開始してください"
         profile = self.ctx.api_config.get_llm_profile(str(self.settings.get("profile_id", "")))
         profile_name = profile.name if profile else "不明なプロファイル"
-        names = [member.character.name for member in self.active_members()]
-        members = "、".join(names) if names else "参加キャラなし"
-        return f"{members} / {profile_name}"
+        return profile_name
 
     def refresh_chat_header(self) -> None:
         if self.head_title is not None:
@@ -1479,9 +1446,7 @@ class Ui2GroupChatController:
                 self._ops_row(index, message)
             return
         if role == "memo":
-            with ui.element("div").classes("memo"):
-                with ui.element("div").classes("memo-k"):
-                    ui.html("コメント")
+            with ui.element("div").classes("memo-wrap"), ui.element("div").classes("memo"):
                 ui.html(_inline_html(text))
                 self._ops_row(index, message)
             return

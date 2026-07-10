@@ -18,7 +18,6 @@ from src.ui2.group_logic import (
     participant_by_speaker_id,
     relationship_key_map_for_group,
     validate_handle_values,
-    world_source_chip_label,
     world_source_options,
 )
 from tests.group_chat_test_helpers import make_group_chat, make_group_members, make_group_settings
@@ -148,13 +147,11 @@ class OptionBuildersTest(unittest.TestCase):
             list(options),
         )
 
-    def test_entry_type_and_chip_labels(self) -> None:
+    def test_entry_type_labels(self) -> None:
         self.assertEqual("住人", entry_type_label("native"))
         self.assertEqual("来訪者", entry_type_label("visitor"))
         self.assertEqual("世界の土台", entry_type_label("world_source"))
         self.assertEqual("適応", entry_type_label(""))
-        group = make_group_chat()
-        self.assertEqual("世界: 新規生成", world_source_chip_label(group))
 
 
 class RelationshipDraftMappingTest(unittest.TestCase):

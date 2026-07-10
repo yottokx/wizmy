@@ -63,7 +63,7 @@ PICKER_CSS = """
 .picker-head .psearch {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 4px;
   padding: 7px 18px;
   color: var(--text);
   font-size: 13px;

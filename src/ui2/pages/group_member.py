@@ -28,8 +28,6 @@ from ...core.character.schemas import CharacterSheet
 from ...core.conversation.group_setup import sanitize_handle
 from ...core.group_chat.schemas import GroupMember
 from ..components.portrait import image_object_position, media_url, raw_img
-from ..components.rect_editor import open_rect_dialog
-from ..group_logic import entry_type_label
 from ..group_setup import chip_button, p3_button
 from ..scaffold import p3_page
 from ..sheet_logic import (
@@ -108,8 +106,14 @@ _PAGE_CSS = """
 
 .side .blk { margin-top: 24px; }
 .side .blk .lbl { font-size: 10.5px; letter-spacing: .3em; color: var(--muted); margin-bottom: 10px; }
-.adapt-info { font-size: 12.5px; color: var(--muted); line-height: 1.8; }
-.adapt-info b { color: var(--text); font-weight: 600; }
+.side-body .intro-quote {
+  font-style: italic;
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 .thumbs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .thumbs img, .thumbs .more-th {
@@ -139,7 +143,7 @@ _PAGE_CSS = """
 /* ---------- 右:シート ---------- */
 .sheet-wrap { padding: 26px 34px 60px; min-width: 0; }
 .sheet-head { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
-.vmode { display: flex; border: 1px solid var(--line-2); border-radius: 999px; overflow: hidden; }
+.vmode { display: flex; border: 1px solid var(--line-2); border-radius: 4px; overflow: hidden; }
 .vmode button { border: none; background: none; cursor: pointer; padding: 7px 20px; font-size: 13px; color: var(--muted); }
 .vmode button.on { background: var(--panel-2); color: var(--text); }
 .sheet-head .grow { flex: 1; }
@@ -206,26 +210,6 @@ _PAGE_CSS = """
   .md-ed textarea { min-height: 50vh; }
 }
 """
-
-
-def _open_upload_dialog(*, title: str, accept: str, max_file_size: int, on_upload) -> None:
-    with ui.dialog() as dlg, ui.card().classes("min-w-[380px]").style(_DIALOG_CARD_STYLE):
-        ui.label(title).classes("text-base font-semibold mb-2")
-
-        async def _handle(e) -> None:
-            if await on_upload(e):
-                dlg.close()
-
-        ui.upload(
-            label="ファイルをドロップ / 選択",
-            on_upload=_handle,
-            auto_upload=True,
-            max_file_size=max_file_size,
-        ).props(f"accept={accept} flat bordered").classes("w-full")
-        with ui.row().classes("justify-end mt-3 w-full"):
-            p3_button("閉じる", dlg.close, classes="btn quiet")
-    dlg.open()
-
 
 def _render_not_found(message: str, back_route: str, back_label: str) -> None:
     with ui.element("div").style("max-width: 640px; margin: 0 auto; padding: 60px 26px;"):
@@ -347,10 +331,10 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                 with ui.element("div").classes("oc"):
                     ui.html(html.escape(f"@{current.handle}" + (f" ・ {oc}" if oc else "")))
                     with ui.element("span").classes("tag"):
-                        ui.html("適応コピー")
+                        ui.html("グループ内キャラ")
                 intro = strip_outer_quotes(sheet.self_intro)
                 if intro:
-                    with ui.element("div").classes("bubble tail-left"):
+                    with ui.element("div").classes("intro-quote"):
                         ui.html(html.escape(f"「{intro}」"))
                 with ui.element("div").classes("side-actions"):
                     p3_button(
@@ -360,22 +344,6 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                     )
                     p3_button("修正して生成", lambda: _send_to_group_generation("modify"))
                     p3_button("知りあいを生成", lambda: _send_to_group_generation("related"), classes="btn quiet")
-
-                # ---- 適応情報 ----
-                with ui.element("div").classes("blk"):
-                    with ui.element("div").classes("lbl"):
-                        ui.html("この世界では")
-                    with ui.element("div").classes("adapt-info"):
-                        parts = []
-                        if current.world_entry_type:
-                            parts.append(f"<b>{html.escape(entry_type_label(current.world_entry_type))}</b>")
-                        else:
-                            parts.append("<b>この世界に適応した住人</b>")
-                        if current.arrival_reason:
-                            parts.append(html.escape(current.arrival_reason))
-                        if current.world_adaptation_note:
-                            parts.append(html.escape(current.world_adaptation_note))
-                        ui.html("<br>".join(parts))
 
                 # ---- 画像 ----
                 with ui.element("div").classes("blk"):
@@ -409,10 +377,6 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                             with ui.element("span").classes("note"):
                                 ui.html("まだ画像がありません")
                     with ui.element("div").classes("media-links"):
-                        chip_button("アップロード", _open_image_upload)
-                        if sheet.media.primary_image() is not None:
-                            chip_button("顔範囲", lambda: _open_rect("face"))
-                            chip_button("バスト範囲", lambda: _open_rect("bust"))
                         chip_button(
                             "画像を管理・生成",
                             lambda: ui.navigate.to(f"/groups/{group.id}/members/{member_id}/images"),
@@ -433,7 +397,6 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                                 text += f" — 声イメージ: {sheet.voice_image}"
                             ui.html(html.escape(text))
                     with ui.element("div").classes("media-links"):
-                        chip_button("アップロード", _open_voice_upload)
                         chip_button(
                             "音声を管理・ボイスデザイン",
                             lambda: ui.navigate.to(f"/groups/{group.id}/members/{member_id}/voice"),
@@ -556,69 +519,6 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
             _render_portrait()
             _render_side_body()
             ui.notify("メイン画像を変更しました", type="positive")
-
-        def _open_image_upload() -> None:
-            async def _on_upload(e) -> bool:
-                try:
-                    _apply_saved(await ctx.group_chats.save_member_image(group.id, member_id, e.file))
-                    ui.notify("画像を保存しました", type="positive")
-                    _render_portrait()
-                    _render_side_body()
-                    return True
-                except Exception as err:  # noqa: BLE001 - UI通知のための包括捕捉
-                    ui.notify(f"画像の保存に失敗しました: {err}", type="negative")
-                    return False
-
-            _open_upload_dialog(
-                title="画像をアップロード",
-                accept="image/*",
-                max_file_size=20 * 1024 * 1024,
-                on_upload=_on_upload,
-            )
-
-        def _open_voice_upload() -> None:
-            async def _on_upload(e) -> bool:
-                try:
-                    _apply_saved(await ctx.group_chats.save_member_voice(group.id, member_id, e.file))
-                    ui.notify("音声を保存しました", type="positive")
-                    _render_side_body()
-                    return True
-                except Exception as err:  # noqa: BLE001 - UI通知のための包括捕捉
-                    ui.notify(f"音声の保存に失敗しました: {err}", type="negative")
-                    return False
-
-            _open_upload_dialog(
-                title="音声をアップロード",
-                accept="audio/*",
-                max_file_size=50 * 1024 * 1024,
-                on_upload=_on_upload,
-            )
-
-        def _open_rect(kind: str) -> None:
-            image = _sheet().media.primary_image()
-            if image is None:
-                ui.notify("範囲を設定する画像がありません", type="warning")
-                return
-            image_path = ctx.group_chats.media_path(image.path)
-            if image_path is None:
-                ui.notify("画像ファイルが見つかりません", type="warning")
-                return
-
-            async def _on_save(rect, width: int, height: int) -> None:
-                if kind == "face":
-                    saved = await ctx.group_chats.update_member_face_rect(
-                        group.id, member_id, rect, image_width=width, image_height=height
-                    )
-                else:
-                    saved = await ctx.group_chats.update_member_bust_rect(
-                        group.id, member_id, rect, image_width=width, image_height=height
-                    )
-                _apply_saved(saved)
-                _render_portrait()
-                _render_side_body()
-
-            open_rect_dialog(image=image, image_path=image_path, kind=kind, on_save=_on_save)
-
         def _set_view(view: str) -> None:
             state["view"] = view
             is_md = view == "md"
@@ -682,7 +582,7 @@ async def ui2_group_persona_page(group_id: str) -> None:
             with title_el:
                 ui.html(html.escape(_title()))
             with ui.element("div").classes("note"):
-                ui.html(html.escape(f"グループ「{group.name}」専用のあなた（グループ内コピー）"))
+                ui.html(html.escape(f"グループ「{group.name}」専用のあなた"))
 
             info_box = ui.element("div").style(
                 "margin-top: 22px; background: var(--panel); border: 1px solid var(--line);"
@@ -703,10 +603,6 @@ async def ui2_group_persona_page(group_id: str) -> None:
                             ("ハンドル", f"@{persona.handle}"),
                             ("表示名", persona.display_name),
                             ("名前", persona.name),
-                            (
-                                "この世界では",
-                                entry_type_label(persona.world_entry_type) if persona.world_entry_type else "",
-                            ),
                             ("来訪理由", persona.arrival_reason),
                         ):
                             if not value:

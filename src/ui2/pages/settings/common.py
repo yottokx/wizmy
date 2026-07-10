@@ -323,7 +323,7 @@ def badge(text: str, *, tone: str = "muted") -> ui.element:
     }
     el = ui.element("span").style(
         "display: inline-flex; align-items: center; font-size: 11px; letter-spacing: .05em;"
-        " padding: 1px 10px; border-radius: 999px; border: 1px solid; white-space: nowrap;"
+        " padding: 1px 10px; border-radius: 4px; border: 1px solid; white-space: nowrap;"
         + colors.get(tone, colors["muted"])
     )
     with el:

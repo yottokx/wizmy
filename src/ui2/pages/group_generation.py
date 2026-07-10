@@ -77,10 +77,9 @@ _PAGE_CSS = """
 .ghead h1 { margin: 0; font-size: 21px; letter-spacing: .12em; font-weight: 600; }
 .ghead .g-sub { font-size: 12px; color: var(--muted); letter-spacing: .05em; }
 .world-box {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 4px 14px;
   margin-bottom: 18px;
 }
 .world-box .lbl { font-size: 10.5px; letter-spacing: .3em; color: var(--muted); margin-bottom: 6px; }

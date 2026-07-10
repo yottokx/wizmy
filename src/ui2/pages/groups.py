@@ -92,15 +92,6 @@ _PAGE_CSS = """
   min-height: 2.6em;
 }
 .gbody .stats { display: flex; gap: 14px; font-size: 11.5px; color: var(--muted); letter-spacing: .04em; }
-.gcard .ops {
-  position: absolute; top: 12px; right: 12px;
-  display: flex; gap: 6px;
-  opacity: 0; transform: translateY(-4px);
-  transition: opacity .2s, transform .2s;
-}
-.gcard:hover .ops { opacity: 1; transform: none; }
-.gcard .ops .btn { padding: 4px 12px; font-size: 11.5px; background: rgba(10,12,32,.55); border-color: rgba(255,255,255,.28); color: #fff; backdrop-filter: blur(4px); }
-.gcard .ops .btn.danger:hover { border-color: #e08a8a; color: #f0b0b0; }
 .gcard.new {
   display: grid; place-items: center;
   min-height: 264px;
@@ -149,8 +140,8 @@ _PAGE_CSS = """
 .pick {
   display: inline-flex; align-items: center; gap: 8px;
   border: 1px solid var(--line-2);
-  border-radius: 999px;
-  padding: 4px 14px 4px 5px;
+  border-radius: 4px;
+  padding: 4px 12px 4px 5px;
   font-size: 12.5px;
   cursor: pointer;
   background: transparent;
@@ -197,7 +188,7 @@ def _member_image_assets(group: GroupChatRecord) -> list:
     return [member.character.media.primary_image() for member in group.members[:3]]
 
 
-def _render_group_card(ctx, group: GroupChatRecord, session_count: int, on_delete) -> None:
+def _render_group_card(ctx, group: GroupChatRecord, session_count: int) -> None:
     card = ui.element("div").classes("gcard").mark("ui2-group-card")
     card.on("click", lambda gid=group.id: ui.navigate.to(f"/groups/{gid}"))
     with card:
@@ -227,15 +218,6 @@ def _render_group_card(ctx, group: GroupChatRecord, session_count: int, on_delet
                         f" ・ 更新: {session_time_label(group.updated_at)}"
                     )
                 )
-        with ui.element("div").classes("ops"):
-            open_btn = ui.element("button").classes("btn")
-            with open_btn:
-                ui.html("ひらく")
-            open_btn.on("click.stop", lambda gid=group.id: ui.navigate.to(f"/groups/{gid}"))
-            delete_btn = ui.element("button").classes("btn danger")
-            with delete_btn:
-                ui.html("削除")
-            delete_btn.on("click.stop", lambda g=group: on_delete(g))
 
 
 async def _load_groups_with_counts(ctx) -> list[tuple[GroupChatRecord, int]]:
@@ -273,30 +255,11 @@ async def ui2_groups_page() -> None:
 
             grid = ui.element("div").classes("ggrid").mark("ui2-groups-grid")
 
-            def _confirm_delete(group: GroupChatRecord) -> None:
-                with ui.dialog() as dlg, ui.card().classes("w-full max-w-md").style(_DIALOG_CARD_STYLE):
-                    ui.label(f"「{group.name}」を削除しますか？").classes("text-base font-semibold")
-                    ui.label("この箱庭のセッション・住人・メディアも削除されます。元に戻せません。").classes("note")
-
-                    async def _delete() -> None:
-                        dlg.close()
-                        deleted = await ctx.group_chats.delete_group(group.id)
-                        if deleted:
-                            ui.notify("グループを削除しました", type="positive")
-                            await _refresh_groups()
-                        else:
-                            ui.notify("グループが見つかりませんでした", type="warning")
-
-                    with ui.row().classes("justify-end gap-2 mt-4 w-full"):
-                        p3_button("キャンセル", dlg.close, classes="btn quiet")
-                        p3_button("削除", _delete, classes="btn primary").mark("ui2-group-delete-confirm")
-                dlg.open()
-
             def _render_grid(groups_with_counts: list[tuple[GroupChatRecord, int]]) -> None:
                 grid.clear()
                 with grid:
                     for group, session_count in groups_with_counts:
-                        _render_group_card(ctx, group, session_count, _confirm_delete)
+                        _render_group_card(ctx, group, session_count)
                     new_card = ui.element("div").classes("gcard new")
                     with new_card:
                         with ui.element("div"):

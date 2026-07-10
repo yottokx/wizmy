@@ -18,11 +18,14 @@ COMPOSER_CSS = """
 .comp-row { display: flex; gap: 12px; align-items: flex-end; }
 .comp-box {
   flex: 1; min-width: 0;
-  background: var(--panel);
-  border: 1px solid var(--line-2);
-  border-radius: 20px;
-  padding: 8px 18px 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 0;
+  padding: 6px 4px 8px;
+  transition: border-color .18s;
 }
+.comp-box:focus-within { border-bottom-color: var(--accent); }
 .comp-role {
   display: inline-flex; align-items: center;
   background: none; border: none; padding: 0;
@@ -53,7 +56,7 @@ COMPOSER_CSS = """
 .p3-swipe-menu {
   background: var(--panel);
   border: 1px solid var(--line-2);
-  border-radius: 14px;
+  border-radius: 6px;
   box-shadow: var(--shadow);
   margin-bottom: 10px;
   padding: 6px;
@@ -65,7 +68,7 @@ COMPOSER_CSS = """
 .p3-swipe-option {
   display: flex; gap: 12px; align-items: baseline;
   border: none; background: none; color: var(--text);
-  text-align: left; padding: 9px 12px; border-radius: 10px; cursor: pointer;
+  text-align: left; padding: 9px 12px; border-radius: 4px; cursor: pointer;
 }
 .p3-swipe-option:hover { background: var(--panel-2); }
 .p3-swipe-option .cmd { font-size: 13px; color: var(--accent); font-weight: 600; flex: none; }
@@ -77,7 +80,7 @@ COMPOSER_CSS = """
 @media (max-width: 860px) {
   .comp-input textarea { font-size: 16px; }
   .comp-row { gap: 8px; }
-  .comp-box { padding: 6px 14px 4px; }
+  .comp-box { padding: 4px 2px 6px; }
   .comp-send { flex: none; padding: 8px 14px; font-size: 13px; }
 }
 """
