@@ -1,5 +1,6 @@
 """
-/groups グループ一覧+作成フロー(Phase 4)。モック proposal3/groups.html 準拠。
+/groups グループ一覧(Phase 4)。モック proposal3/groups.html 準拠。
+作成フローは /groups/new(pages/create_group.py)に分離。
 
 - 一覧: 箱庭カード(三連の住人ポートレート+世界観+統計)。ひらく/削除。
 - 作成フロー: 旧ウィザードと同じ入力導線の4ステップ
@@ -102,19 +103,10 @@ _PAGE_CSS = """
 .gcard.new .plus { font-size: 38px; color: var(--accent); line-height: 1; text-align: center; }
 .gcard.new .t { color: var(--muted); font-size: 13px; letter-spacing: .14em; margin-top: 10px; text-align: center; }
 
-/* ---------- 作成フロー ---------- */
-.state-lbl {
-  display: flex; align-items: center; gap: 14px;
-  margin: 60px 0 20px;
-  color: var(--muted); font-size: 12px; letter-spacing: .3em;
-}
-.state-lbl::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+/* ---------- 作成フロー(/groups/new) ---------- */
 .create {
   position: relative;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 26px;
-  padding: 36px 44px 34px;
+  padding: 6px 0 30px;
   overflow: hidden;
 }
 .step { display: flex; gap: 20px; padding: 20px 0; }
@@ -127,7 +119,7 @@ _PAGE_CSS = """
 .opt {
   flex: 1; min-width: 240px;
   border: 1px solid var(--line-2);
-  border-radius: 16px;
+  border-radius: 6px;
   padding: 14px 18px;
   cursor: pointer;
   transition: border-color .18s, background .18s;
@@ -164,7 +156,7 @@ _PAGE_CSS = """
 
 /* 関係性(Step 四) */
 .rels { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
-.rel-row { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.rel-row { border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
 .rel-row .rel-head { display: flex; align-items: center; gap: 6px; }
 .rel-row .pair { font-size: 12.5px; font-weight: 600; letter-spacing: .04em; }
 .rel-row .sp { flex: 1; }
@@ -172,13 +164,13 @@ _PAGE_CSS = """
 
 /* P3 スキン(Quasar 部品) */
 .p3-ta { width: 100%; }
-.p3-ta .q-field__control { background: var(--bg-2) !important; border-radius: 12px; }
+.p3-ta .q-field__control { background: var(--bg-2) !important; border-radius: 6px; }
 .p3-ta .q-field__control:before { border-color: var(--line-2) !important; }
 .p3-ta textarea, .p3-ta input { color: var(--text) !important; line-height: 1.8; }
 
 @media (max-width: 860px) {
   .wrap { padding: 24px 16px; }
-  .create { padding: 24px 20px; }
+  .create { padding: 6px 0 24px; }
   .step { flex-direction: column; gap: 8px; }
 }
 """
@@ -247,11 +239,7 @@ async def ui2_groups_page() -> None:
                 mk = ui.element("button").classes("btn primary mk")
                 with mk:
                     ui.html("+ 新しいグループ")
-                mk.on(
-                    "click",
-                    js_handler="() => document.getElementById('createLbl')"
-                    "?.scrollIntoView({behavior:'smooth'})",
-                )
+                mk.on("click", lambda: ui.navigate.to("/groups/new"))
 
             grid = ui.element("div").classes("ggrid").mark("ui2-groups-grid")
 
@@ -267,22 +255,9 @@ async def ui2_groups_page() -> None:
                                 ui.html("+")
                             with ui.element("div").classes("t"):
                                 ui.html("新しいグループ")
-                    new_card.on(
-                        "click",
-                        js_handler="() => document.getElementById('createLbl')"
-                        "?.scrollIntoView({behavior:'smooth'})",
-                    )
-
-            async def _refresh_groups() -> None:
-                _render_grid(await _load_groups_with_counts(ctx))
+                    new_card.on("click", lambda: ui.navigate.to("/groups/new"))
 
             _render_grid(initial_groups)
-
-            with ui.element("div").classes("state-lbl").props('id="createLbl"'):
-                ui.html("新しいグループを作る（作成フロー）")
-            with ui.element("section").classes("create"):
-                ui.element("div").classes("sparkle-field").props('data-count="12"')
-                _render_create_flow(ctx)
 
 
 def _render_create_flow(ctx) -> None:

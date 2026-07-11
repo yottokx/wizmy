@@ -51,6 +51,11 @@ async def test_v2_groups_list_renders_cards_and_create_flow(nicegui_smoke_app) -
     await user.should_see("グループ一覧")
     await user.should_see("星見図書館の夜会")
     await user.should_see("住人 2人 ・ セッション 1件")
+
+
+async def test_v2_group_create_page_renders_steps(nicegui_smoke_app) -> None:
+    user = nicegui_smoke_app.user
+    await user.open("/groups/new")
     # 作成フロー(旧ウィザード順の4ステップ)
     await user.should_see("住人とあなたを決める")
     await user.should_see("世界と名前を決める")
@@ -60,7 +65,7 @@ async def test_v2_groups_list_renders_cards_and_create_flow(nicegui_smoke_app) -
 
 async def test_v2_groups_create_requires_residents(nicegui_smoke_app) -> None:
     user = nicegui_smoke_app.user
-    await user.open("/groups")
+    await user.open("/groups/new")
     await user.should_see("世界と名前を決める")  # 作成フローの非同期描画完了を待つ
     user.find(marker="ui2-group-create").click()
     # 補完用プロファイル未登録のため、最初の検証で止まる

@@ -56,7 +56,7 @@ def install_drag_sort_script() -> None:
     .charagen-sortable-placeholder {{
       min-height: 72px;
       border: 1px dashed var(--accent);
-      border-radius: 12px;
+      border-radius: 6px;
       background: color-mix(in srgb, var(--accent) 10%, transparent);
       box-sizing: border-box;
     }}
@@ -307,7 +307,7 @@ def entry_card(*, sortable: bool = True) -> ui.element:
     """一覧1件分のカード(ドラッグ並べ替え対象)。"""
     card = ui.element("div").style(
         "width: 100%; background: var(--bg-2); border: 1px solid var(--line);"
-        " border-radius: 14px; padding: 14px 18px;"
+        " border-radius: 6px; padding: 14px 18px;"
         + (" cursor: grab;" if sortable else "")
     )
     return card
@@ -321,7 +321,7 @@ def badge(text: str, *, tone: str = "muted") -> ui.element:
         "ok": "color: #7fbf8e; border-color: #7fbf8e;",
         "ng": "color: #e08a8a; border-color: #e08a8a;",
     }
-    el = ui.element("span").style(
+    el = ui.element("span").classes("set-badge").style(
         "display: inline-flex; align-items: center; font-size: 11px; letter-spacing: .05em;"
         " padding: 1px 10px; border-radius: 4px; border: 1px solid; white-space: nowrap;"
         + colors.get(tone, colors["muted"])

@@ -1,14 +1,14 @@
 """
 /generation キャラクター生成(Phase 5)。モック proposal3/generation.html 準拠。
 
-- 状態A(入力)→ 状態B(生成中: ベール+章立て+ツールログ)→ 状態C(誕生)が
-  同じ場所で遷移する(モックの注記どおり)
+- 入力フォーム+フォーム下のフェーズ進捗(ForgeStrip)。完成したら:
+  新規/関連(自動保存済み)→ キャラシへ直行(確認バーを一度だけ表示)、
+  修正 → 暫定キャラシ(/generation/review/{job_id})で差分確認
 - モード3種(新規/既存キャラを修正/関連キャラを生成)・プリセット・
-  カスタム選択肢(設定の option_lists)・LLMプロファイル選択・停止・復帰
-- 新規/関連はサービス側で自動保存(旧UIと同じ)。修正は承認 diff で上書き
+  カスタム選択肢(設定の option_lists)・LLMプロファイル選択・停止
 - シート/一覧からの送出プロトコル `gen_mode` / `gen_char_id` を旧UIと共有
-- 復帰: `ui2_active_generation`(scope "global")→ get_job、
-  無ければ get_latest_active_job(旧UI発のジョブも拾う)
+- 復帰: 実行中ジョブのみ(`ui2_active_generation` scope "global" →
+  無ければ get_latest_active_job)。完了済みジョブは再生しない
 """
 
 from __future__ import annotations
@@ -19,8 +19,7 @@ import html
 from nicegui import app, ui
 
 from ...app_context import get_context
-from ...core.character.markdown import parse_markdown_to_sheet, sheet_from_markdown_preserving
-from ...core.character.schemas import CharacterSheet, GenerationMeta
+from ...core.character.schemas import CharacterSheet
 from ...core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS, WORLD_OPTIONS
 from ...core.character_generation.schemas import (
     GenerationMode,
@@ -32,15 +31,13 @@ from ...services.character_generation import GenerationJob
 from ...ui.state import get_vault_password
 from ..components.portrait import face_crop_style
 from ..components.sparkle import sparkle_field
-from ..generation_logic import build_generation_log, fact_chips
 from ..generation_ui import (
+    GEN_CONFIRM_KEY,
     GENERATION_CSS,
-    ForgePanel,
-    open_modify_approve_dialog,
+    ForgeStrip,
     open_sheet_dialog,
     recall_active_generation,
     remember_active_generation,
-    render_born,
 )
 from ..group_setup import (
     PICKER_CSS,
@@ -51,7 +48,6 @@ from ..group_setup import (
     profile_options_for_context,
 )
 from ..scaffold import p3_page
-from ..sheet_logic import strip_outer_quotes
 
 _MODE_LABELS: list[tuple[str, str]] = [
     ("new", "新規生成"),
@@ -101,10 +97,6 @@ async def ui2_generation_page() -> None:
                 return
 
             ask = ui.element("section").classes("ask")
-            forge = ui.element("section").classes("forge")
-            born = ui.element("section").classes("born")
-            forge.set_visibility(False)
-            born.set_visibility(False)
 
         # ---------------- 状態 ----------------
         view = {"mode": preset_mode or "new"}
@@ -113,18 +105,8 @@ async def ui2_generation_page() -> None:
             "related": preset_char if preset_mode == "related" else None,
         }
         fields: dict[str, object] = {}
-        current: dict = {
-            "job_id": "",
-            "request": None,
-            "profile": None,
-            "base_char": None,
-            "result": None,
-            "sheet": "",
-            "saved": None,
-        }
         watching = {"id": ""}
         starting = {"flag": False}
-        prompted_review: set[str] = set()
 
         # ---------------- 状態A: 入力 ----------------
         with ask:
@@ -148,7 +130,11 @@ async def ui2_generation_page() -> None:
                         .mark("ui2-gen-profile")
                     )
             with ui.element("div").classes("go"):
-                p3_button("生成する", lambda: _on_generate(), classes="btn primary").mark("ui2-gen-start")
+                start_btn = p3_button("生成する", lambda: _on_generate(), classes="btn primary").mark(
+                    "ui2-gen-start"
+                )
+            strip_box = ui.element("div").classes("gen-strip")
+            strip_box.set_visibility(False)
 
         mode_chips: dict[str, ui.element] = {}
         with modes_row:
@@ -298,221 +284,54 @@ async def ui2_generation_page() -> None:
         _sync_mode_chips()
         _render_form()
 
-        # ---------------- 状態B: 生成中 ----------------
+        # ---------------- 生成進捗(フォーム下) ----------------
 
         async def _on_stop() -> None:
-            if current["job_id"]:
-                ctx.generation.stop(str(current["job_id"]))
+            if watching["id"]:
+                ctx.generation.stop(str(watching["id"]))
 
-        def _back_to_ask() -> None:
-            forge.set_visibility(False)
-            born.set_visibility(False)
-            ask.set_visibility(True)
+        def _hide_strip() -> None:
+            strip_box.set_visibility(False)
 
-        forge_panel = ForgePanel(_on_stop, _back_to_ask)
-        with forge:
-            forge_panel.build()
+        forge_strip = ForgeStrip(_on_stop, _hide_strip)
+        with strip_box:
+            forge_strip.build()
 
-        # ---------------- 状態C: 誕生 ----------------
-
-        def _restart_with(mode_key: str, sheet: CharacterSheet) -> None:
-            bases[mode_key] = sheet
-            _set_mode(mode_key)
-            _back_to_ask()
-
-        def _download_sheet() -> None:
-            sheet_md = str(current.get("sheet") or "")
-            if sheet_md:
-                ui.download(sheet_md.encode("utf-8"), "character_sheet.md")
-
-        def _download_log() -> None:
-            result = current.get("result")
-            if not result:
-                return
-            mode_value = getattr(getattr(current.get("request"), "mode", None), "value", "generate")
-            ui.download(
-                build_generation_log(
-                    result,
-                    mode_value,
-                    str(current.get("sheet") or ""),
-                    current.get("request"),
-                    current.get("profile"),
-                ).encode("utf-8"),
-                "generation_log.txt",
-            )
-
-        async def _retake() -> None:
-            request = current.get("request")
-            if request is None:
-                return
-            base_char = current.get("base_char")
-            await _start_job(request, base_char.id if base_char else "")
-
-        def _render_born_result(job: GenerationJob, result) -> None:
-            sheet_md = str(current.get("sheet") or result.sheet_markdown)
-            saved: CharacterSheet | None = current.get("saved")
-            # 未保存(修正の承認前・保存失敗)でも生成Markdownから表示情報を組み立てる
-            display = saved if saved is not None else parse_markdown_to_sheet(sheet_md, "preview")
-            name = display.name
-            oc = display.occupation
-            if display.age:
-                oc = f"{oc} ・ {display.age}" if oc else display.age
-            intro = strip_outer_quotes(display.self_intro)
-            facts = fact_chips(
-                world=display.world,
-                occupation=display.occupation,
-                age=display.age,
-                voice_image=display.voice_image,
-                quality_status=result.quality_status,
-            )
-            is_modify = job.request.mode == GenerationMode.MODIFY
-            save_note = ""
-            save_note_error = False
-            if is_modify:
-                save_note = f"更新済み: {saved.name}" if saved is not None else "まだ上書きしていません(差分を確認して上書きできます)"
-            elif saved is not None:
-                save_note = f"保存済み: {saved.name}"
-            elif job.save_error_message:
-                save_note = f"保存に失敗しました: {job.save_error_message}"
-                save_note_error = True
-
-            def _ops() -> None:
-                saved_now: CharacterSheet | None = current.get("saved")
-                if is_modify and saved_now is None:
-                    p3_button(
-                        "差分を確認して上書き",
-                        lambda: _open_modify_review(job, result, force=True),
-                        classes="btn primary",
-                    ).mark("ui2-gen-open-diff")
-                if saved_now is not None:
-                    p3_button(
-                        "シートを開く",
-                        lambda: ui.navigate.to(f"/characters/{saved_now.id}"),
-                        classes="btn primary",
-                    ).mark("ui2-gen-open-sheet")
-                    p3_button(
-                        "チャットをはじめる",
-                        lambda: ui.navigate.to(f"/characters/{saved_now.id}/chat"),
-                    )
-                    p3_button("修正して続ける", lambda: _restart_with("modify", saved_now), classes="btn quiet")
-                    p3_button("知りあいを生成", lambda: _restart_with("related", saved_now), classes="btn quiet")
-                p3_button("リテイク", _retake, classes="btn quiet", title="同じ指示でもう一度生成する")
-                p3_button("全文を表示", lambda: open_sheet_dialog(sheet_md), classes="btn quiet").mark(
-                    "ui2-gen-full-sheet"
-                )
-                p3_button("書き出し(.md)", _download_sheet, classes="btn quiet")
-                p3_button("詳細ログ", _download_log, classes="btn quiet")
-                p3_button("新しく作る", lambda: _back_to_ask(), classes="btn quiet")
-
-            render_born(
-                born,
-                name=name,
-                oc=oc,
-                intro=intro,
-                facts=facts,
-                save_note=save_note,
-                save_note_error=save_note_error,
-                build_ops=_ops,
-            )
-            forge.set_visibility(False)
-            born.set_visibility(True)
-
-        # ---------------- 修正承認 diff ----------------
-
-        async def _ensure_modify_base(job: GenerationJob) -> CharacterSheet | None:
-            base = current.get("base_char")
-            if isinstance(base, CharacterSheet):
-                return base
-            if not job.base_character_id:
-                return None
-            base = await ctx.characters.get(job.base_character_id)
-            current["base_char"] = base
-            return base
-
-        async def _open_modify_review(job: GenerationJob, result, *, force: bool = False) -> None:
-            if current.get("saved") is not None:
-                return
-            if not force and job.id in prompted_review:
-                return
-            base = await _ensure_modify_base(job)
-            if base is None:
-                ui.notify("修正元キャラクターを復元できないため、承認ダイアログを開けません。", type="warning")
-                return
-            prompted_review.add(job.id)
-
-            async def _save_approved() -> None:
-                updated = sheet_from_markdown_preserving(base, result.sheet_markdown)
-                updated.generation_meta = GenerationMeta(
-                    llm_profile_name=job.profile.name,
-                    model_id=job.profile.model_id,
-                    temperature=job.profile.temperature if not job.profile.reasoning_enabled else None,
-                    reasoning_enabled=job.profile.reasoning_enabled,
-                    mode=result.mode.value,
-                    tool_count=result.tool_count,
-                    quality_status=result.quality_status,
-                    quality_score=result.quality_score,
-                )
-                try:
-                    saved = await ctx.characters.save(updated)
-                except Exception as err:
-                    ui.notify(f"保存に失敗しました: {err}", type="negative")
-                    return
-                current["saved"] = saved
-                ctx.generation.mark_job_saved(job.id, saved.id, saved.name)
-                ui.notify(f"「{saved.name}」を上書き保存しました", type="positive")
-                _render_born_result(job, result)
-
-            open_modify_approve_dialog(
-                name=base.name,
-                old_markdown=base.raw_markdown,
-                new_markdown=result.sheet_markdown,
-                on_approve=_save_approved,
-            )
+        def _set_running(running: bool) -> None:
+            if running:
+                start_btn.props("disabled")
+            else:
+                start_btn.props(remove="disabled")
 
         # ---------------- ジョブ実行・復帰 ----------------
 
         async def _prepare_job_view(job: GenerationJob) -> None:
-            current.update(
-                {
-                    "job_id": job.id,
-                    "request": job.request,
-                    "profile": job.profile,
-                    "base_char": None,
-                    "result": None,
-                    "sheet": "",
-                    "saved": None,
-                }
-            )
             if job.profile.id in profile_options:
                 profile_select.set_value(job.profile.id)
-            forge_panel.reset()
-            if job.base_character_id:
-                current["base_char"] = await ctx.characters.get(job.base_character_id)
-            ask.set_visibility(False)
-            born.set_visibility(False)
-            forge.set_visibility(True)
+            forge_strip.reset()
+            strip_box.set_visibility(True)
+            _set_running(True)
 
         async def _handle_event(job: GenerationJob, event) -> None:
-            forge_panel.handle_event(event)
-            if event.type == ProgressEventType.SHEET_READY:
-                current["sheet"] = str(event.data or "")
-            elif event.type == ProgressEventType.DONE:
+            forge_strip.handle_event(event)
+            if event.type == ProgressEventType.DONE:
                 result = event.data
                 if result and result.success:
-                    current["result"] = result
-                    current["sheet"] = result.sheet_markdown
                     if job.request.mode == GenerationMode.MODIFY:
-                        if job.saved_character_id:
-                            current["saved"] = await ctx.characters.get(job.saved_character_id)
-                        _render_born_result(job, result)
-                        if current.get("saved") is None:
-                            await _open_modify_review(job, result)
+                        ui.navigate.to(f"/generation/review/{job.id}")
+                    elif job.saved_character_id:
+                        # 保存済みキャラのシートへ直行し、確認バーを一度だけ出す
+                        app.storage.user[GEN_CONFIRM_KEY] = {
+                            "char_id": job.saved_character_id,
+                            "job_id": job.id,
+                        }
+                        ui.navigate.to(f"/characters/{job.saved_character_id}")
                     else:
-                        if job.saved_character_id:
-                            current["saved"] = await ctx.characters.get(job.saved_character_id)
-                        elif job.save_error_message:
-                            ui.notify(f"保存に失敗しました: {job.save_error_message}", type="negative")
-                        _render_born_result(job, result)
+                        ui.notify(
+                            f"保存に失敗しました: {job.save_error_message or '不明なエラー'}",
+                            type="negative",
+                            timeout=8000,
+                        )
                 elif result:
                     ui.notify(result.error_message or "生成に失敗しました。", type="negative")
             elif event.type == ProgressEventType.ERROR:
@@ -536,6 +355,10 @@ async def ui2_generation_page() -> None:
             finally:
                 if watching["id"] == job.id:
                     watching["id"] = ""
+                    try:
+                        _set_running(False)
+                    except RuntimeError:
+                        pass
 
         async def _start_job(request: GenerationRequest, base_character_id: str) -> None:
             profile = ctx.api_config.get_llm_profile(str(profile_select.value or ""))
@@ -626,7 +449,9 @@ async def ui2_generation_page() -> None:
             job_id, scope = recall_active_generation()
             job = None
             if job_id and scope == "global":
-                job = ctx.generation.get_job(job_id)
+                candidate = ctx.generation.get_job(job_id)
+                if candidate is not None and candidate.is_active:
+                    job = candidate
             if job is None:
                 latest = ctx.generation.get_latest_active_job()
                 # グループ発として記憶されているジョブは箱庭側で復帰する

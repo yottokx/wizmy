@@ -28,6 +28,8 @@ from ...core.character.schemas import CharacterSheet
 from ...core.conversation.group_setup import sanitize_handle
 from ...core.group_chat.schemas import GroupMember
 from ..components.portrait import image_object_position, media_url, raw_img
+from ..generation_logic import build_generation_log
+from ..generation_ui import GEN_CONFIRM_KEY
 from ..group_setup import chip_button, p3_button
 from ..scaffold import p3_page
 from ..sheet_logic import (
@@ -148,6 +150,28 @@ _PAGE_CSS = """
 .vmode button.on { background: var(--panel-2); color: var(--text); }
 .sheet-head .grow { flex: 1; }
 .meta-note { font-size: 11px; color: var(--muted); }
+.meta-note .log-link {
+  border: none; background: none; padding: 0; margin-left: 6px;
+  color: var(--peri); font-size: inherit; cursor: pointer;
+}
+.meta-note .log-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* 関係性(この住人が関わるもの) */
+.rel-list { display: flex; flex-direction: column; gap: 12px; }
+.rel-item .rel-nm { font-size: 12.5px; font-weight: 600; letter-spacing: .06em; }
+.rel-item .rel-tx { font-size: 12.5px; color: var(--muted); line-height: 1.8; white-space: pre-wrap; }
+
+/* 生成直後の確認バー(一度だけ表示) */
+.gen-confirm-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 80;
+  display: flex; gap: 14px; align-items: center; justify-content: center;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line-2);
+}
+.gen-confirm-bar .msg-t { font-size: 13.5px; letter-spacing: .04em; }
 
 .sec { position: relative; padding: 20px 0 20px 52px; border-top: 1px solid var(--line); }
 .sec:first-of-type { border-top: none; }
@@ -318,6 +342,28 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                     with ui.element("div").classes("portrait-ph"):
                         ui.html(html.escape((_sheet().name or "?")[:1]))
 
+        def _participant_name(key: str) -> str:
+            if key.startswith("member:"):
+                other_id = key.split(":", 1)[1]
+                other = next((m for m in group.members if m.id == other_id), None)
+                return other.character.name if other is not None else "(削除済みの住人)"
+            if key.startswith("user:"):
+                persona = group.user_persona
+                if persona is not None:
+                    return persona.display_name or persona.name or "あなた"
+                return "あなた"
+            return key
+
+        def _relationship_rows() -> list[tuple[str, str]]:
+            key = f"member:{member_id}"
+            rows: list[tuple[str, str]] = []
+            for relationship in group.relationships:
+                if relationship.participant_a_key == key:
+                    rows.append((_participant_name(relationship.participant_b_key), relationship.description))
+                elif relationship.participant_b_key == key:
+                    rows.append((_participant_name(relationship.participant_a_key), relationship.description))
+            return rows
+
         def _render_side_body() -> None:
             sheet = _sheet()
             current = _member()
@@ -344,6 +390,20 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
                     )
                     p3_button("修正して生成", lambda: _send_to_group_generation("modify"))
                     p3_button("知りあいを生成", lambda: _send_to_group_generation("related"), classes="btn quiet")
+
+                # ---- 関係性(この住人が関わるもの) ----
+                relationship_rows = _relationship_rows()
+                if relationship_rows:
+                    with ui.element("div").classes("blk"):
+                        with ui.element("div").classes("lbl"):
+                            ui.html("関係性")
+                        with ui.element("div").classes("rel-list"):
+                            for other_name, description in relationship_rows:
+                                with ui.element("div").classes("rel-item"):
+                                    with ui.element("div").classes("rel-nm"):
+                                        ui.html(html.escape(other_name))
+                                    with ui.element("div").classes("rel-tx"):
+                                        ui.html(html.escape(description))
 
                 # ---- 画像 ----
                 with ui.element("div").classes("blk"):
@@ -409,8 +469,28 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
             meta = sheet.generation_meta
             if meta.model_id:
                 parts.append(f"生成: {meta.model_id}")
+            gen_job = ctx.generation.find_job_for_character(member_id)
             with meta_note:
                 ui.html(html.escape(" ・ ".join(parts)))
+                if gen_job is not None and gen_job.result is not None:
+                    log_btn = ui.element("button").classes("log-link").props(
+                        'title="この生成のブレインストーミングログ等を書き出す"'
+                    )
+                    with log_btn:
+                        ui.html("・ 詳細ログ")
+                    log_btn.on(
+                        "click",
+                        lambda job=gen_job: ui.download(
+                            build_generation_log(
+                                job.result,
+                                job.request.mode.value,
+                                job.result.sheet_markdown,
+                                job.request,
+                                job.profile,
+                            ).encode("utf-8"),
+                            "group_generation_log.txt",
+                        ),
+                    )
 
         def _render_section_body(body: str) -> None:
             kind = classify_body(body)
@@ -541,6 +621,40 @@ async def ui2_group_member_page(group_id: str, member_id: str) -> None:
             _render_sections()
 
         _refresh_all()
+
+        # ---------------- 生成直後の確認バー(popで一度だけ) ----------------
+
+        confirm = app.storage.user.pop(GEN_CONFIRM_KEY, None)
+        if isinstance(confirm, dict) and str(confirm.get("char_id") or "") == member_id:
+            bar = ui.element("div").classes("gen-confirm-bar").mark("ui2-gen-confirm-bar")
+            deciding = {"flag": False}
+
+            async def _drop_generated() -> None:
+                if deciding["flag"]:
+                    return
+                deciding["flag"] = True
+                removed = await ctx.group_chats.remove_member(group.id, member_id)
+                if removed is not None:
+                    ui.notify(f"「{_sheet().name}」をこの世界から削除しました", type="info")
+                    ui.navigate.to(f"/groups/{group.id}")
+                else:
+                    deciding["flag"] = False
+                    ui.notify("削除に失敗しました", type="negative")
+
+            def _keep_generated() -> None:
+                bar.set_visibility(False)
+
+            with bar:
+                with ui.element("span").classes("msg-t"):
+                    ui.html("この住人を保存しますか?(すでに保存済みです)")
+                keep_btn = ui.element("button").classes("btn primary").mark("ui2-gen-keep")
+                with keep_btn:
+                    ui.html("はい(そのまま)")
+                keep_btn.on("click", _keep_generated)
+                drop_btn = ui.element("button").classes("btn quiet").mark("ui2-gen-drop")
+                with drop_btn:
+                    ui.html("いいえ(削除)")
+                drop_btn.on("click", _drop_generated)
 
 
 @ui.page("/groups/{group_id}/persona")

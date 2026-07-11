@@ -43,8 +43,6 @@ from .vault import open_vault_dialog, vault_summary
 
 _PAGE_CSS = """
 .set-wrap { max-width: 880px; margin: 0 auto; padding: 44px 26px 40px; }
-.set-wrap h1 { font-size: 26px; letter-spacing: .3em; margin: 0 0 8px; font-weight: 600; }
-.set-lead { font-size: 13px; color: var(--muted); margin-bottom: 36px; }
 
 .sec { margin-bottom: 44px; }
 .sec h2 {
@@ -54,7 +52,7 @@ _PAGE_CSS = """
 .rows {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   overflow: hidden;
 }
 .srow { display: flex; align-items: center; gap: 18px; padding: 16px 22px; }
@@ -72,25 +70,39 @@ _PAGE_CSS = """
   .srow .end { margin-left: 0; width: 100%; justify-content: flex-end; }
 }
 
-/* ---------- 横画面: 左=設定項目 / 右=設定内容 ---------- */
+/* ---------- 横画面: 左=設定項目 / 右=設定内容 ----------
+   ページ自体はスクロールさせず、左右ペインをそれぞれ内部スクロールにする
+   (sticky だと固定位置と自然位置の差の分だけ右ペインが動いて見える) */
 @media (orientation: landscape) {
-  .set-wrap { max-width: 1360px; }
-  .set-cols { display: flex; gap: 26px; align-items: flex-start; }
-  .set-nav { width: 400px; flex: none; }
+  body { height: 100vh; height: 100dvh; overflow: hidden; }
+  #app, #q-app, .q-layout, .q-page-container, .q-page { height: 100%; min-height: 0 !important; }
+  .nicegui-content {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    min-height: 0;
+  }
+  .wz-nav { flex: none; }
+  .set-wrap { max-width: 1360px; width: 100%; flex: 1; min-height: 0; padding-bottom: 0; }
+  .set-cols { display: flex; gap: 26px; align-items: stretch; height: 100%; min-height: 0; }
+  /* padding-right はホバー反転面とスクロールバーの間の余白(バーの位置は変えない) */
+  .set-nav { width: 400px; flex: none; overflow-y: auto; min-height: 0; padding: 0 14px 30px 0; }
   .set-nav .sec { margin-bottom: 26px; }
   .set-nav .rows { background: transparent; border: none; border-radius: 0; overflow: visible; }
-  .set-nav .srow { padding: 12px 14px; border-radius: 12px; }
+  .set-nav .srow { padding: 12px 14px; border-radius: 6px; }
   .set-nav .srow + .srow { border-top: none; }
   .srow-link { cursor: pointer; transition: background .15s; }
   .srow-link:hover { background: var(--panel-2); }
   .srow-link.on { background: color-mix(in srgb, var(--accent) 10%, transparent); }
   .srow-link .end .btn { display: none; }
+  /* バッジ自体が inline style で display を持つため !important で上書きする */
+  .set-nav .set-badge { display: none !important; }
   .set-inline-title { font-size: 19px; letter-spacing: .14em; margin-bottom: 10px; }
   .set-detail {
-    display: block; flex: 1; min-width: 0;
-    padding: 0 4px 26px;
-    position: sticky; top: 76px;
-    max-height: calc(100vh - 100px);
+    display: block; flex: 1; min-width: 0; min-height: 0;
+    padding: 0 4px 30px;
     overflow-y: auto;
   }
 }
@@ -113,11 +125,6 @@ async def ui2_settings_page() -> None:
     with p3_page("設定"):
         ui.add_css(_PAGE_CSS + MEDIA_CSS)
         with ui.element("div").classes("set-wrap"):
-            with ui.element("h1").classes("serif"):
-                ui.html("設定")
-            with ui.element("div").classes("set-lead"):
-                ui.html("APIキーは暗号化して保管します。接続情報・生成・チャット・表示をここで管理します。")
-
             rows_registry: list[dict] = []
             link_rows: list[ui.element] = []
             inline_actions: list = []

@@ -27,6 +27,8 @@ from ...core.character.markdown import (
 from ...core.character.schemas import CharacterSheet
 from ..components.portrait import image_object_position, media_url, raw_img
 from ..components.sparkle import STAR_SVG
+from ..generation_logic import build_generation_log
+from ..generation_ui import GEN_CONFIRM_KEY
 from ..scaffold import p3_page
 from ..sheet_logic import (
     classify_body,
@@ -212,6 +214,25 @@ _PAGE_CSS = """
   .sec .edit-btn { opacity: .7; }
   .md-ed textarea { min-height: 50vh; }
 }
+
+/* 生成直後の確認バー(一度だけ表示) */
+.gen-confirm-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 80;
+  display: flex; gap: 14px; align-items: center; justify-content: center;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line-2);
+}
+.gen-confirm-bar .msg-t { font-size: 13.5px; letter-spacing: .04em; }
+
+/* 生成情報行の詳細ログリンク(ジョブ存命中のみ) */
+.meta-note .log-link {
+  border: none; background: none; padding: 0; margin-left: 6px;
+  color: var(--peri); font-size: inherit; cursor: pointer;
+}
+.meta-note .log-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 """
 
 
@@ -432,8 +453,28 @@ async def ui2_character_page(character_id: str) -> None:
             if meta.quality_score:
                 parts.append(f"品質 {meta.quality_score:g}")
             parts.append(f"更新 {sheet.updated_at:%Y-%m-%d}")
+            gen_job = ctx.generation.find_job_for_character(character_id)
             with meta_note:
                 ui.html(html.escape(" ・ ".join(parts)))
+                if gen_job is not None and gen_job.result is not None:
+                    log_btn = ui.element("button").classes("log-link").props(
+                        'title="この生成のブレインストーミングログ等を書き出す"'
+                    )
+                    with log_btn:
+                        ui.html("・ 詳細ログ")
+                    log_btn.on(
+                        "click",
+                        lambda job=gen_job: ui.download(
+                            build_generation_log(
+                                job.result,
+                                job.request.mode.value,
+                                job.result.sheet_markdown,
+                                job.request,
+                                job.profile,
+                            ).encode("utf-8"),
+                            "generation_log.txt",
+                        ),
+                    )
 
         def _render_section_body(body: str) -> None:
             kind = classify_body(body)
@@ -612,3 +653,31 @@ async def ui2_character_page(character_id: str) -> None:
             _render_sections()
 
         _refresh_all()
+
+        # ---------------- 生成直後の確認バー(popで一度だけ) ----------------
+
+        confirm = app.storage.user.pop(GEN_CONFIRM_KEY, None)
+        if isinstance(confirm, dict) and str(confirm.get("char_id") or "") == character_id:
+            bar = ui.element("div").classes("gen-confirm-bar").mark("ui2-gen-confirm-bar")
+            deciding = {"flag": False}
+
+            async def _drop_generated() -> None:
+                if deciding["flag"]:
+                    return
+                deciding["flag"] = True
+                deleted = await ctx.characters.delete(character_id)
+                if deleted:
+                    ui.notify(f"「{_sheet().name}」を削除しました", type="info")
+                    ui.navigate.to("/characters")
+                else:
+                    deciding["flag"] = False
+                    ui.notify("削除に失敗しました", type="negative")
+
+            def _keep_generated() -> None:
+                bar.set_visibility(False)
+
+            with bar:
+                with ui.element("span").classes("msg-t"):
+                    ui.html("このキャラクターを保存しますか?(すでに保存済みです)")
+                _p3_button("はい(そのまま)", _keep_generated, classes="btn primary").mark("ui2-gen-keep")
+                _p3_button("いいえ(削除)", _drop_generated, classes="btn quiet").mark("ui2-gen-drop")

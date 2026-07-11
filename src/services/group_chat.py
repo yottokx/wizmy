@@ -549,6 +549,30 @@ class GroupChatService:
             )
         )
 
+    async def remove_member(self, group_id: str, member_id: str) -> GroupChatRecord | None:
+        """メンバーをグループから取り除く(関わる関係性・メディアも削除)。
+
+        セッション(messages / participant_ids)には触れない。生成直後の
+        取り消しなど、まだセッションに参加していないメンバーを想定した操作。
+        """
+        group = await self.get(group_id)
+        if group is None:
+            return None
+        if all(member.id != member_id for member in group.members):
+            return None
+        members = [member for member in group.members if member.id != member_id]
+        key = f"member:{member_id}"
+        relationships = [
+            relationship
+            for relationship in group.relationships
+            if key not in (relationship.participant_a_key, relationship.participant_b_key)
+        ]
+        saved = await self._repo.save(
+            group.model_copy(update={"members": members, "relationships": relationships}, deep=True)
+        )
+        self._media_files.delete_owner_files(self._member_media_root(group_id, member_id))
+        return saved
+
     async def delete_group(self, group_id: str) -> bool:
         deleted = await self._repo.delete(group_id)
         if deleted:

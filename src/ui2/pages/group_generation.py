@@ -1,15 +1,16 @@
 """
 /groups/{group_id}/generation グループ内キャラクター生成(Phase 5)。
 
-グローバル生成(pages/generation.py)と同じ状態A/B/C+ForgePanel を共有した箱庭版。
+グローバル生成(pages/generation.py)と同じフロー構成の箱庭版。
 
 - ワールドはグループ固定(`group_world` + `omit_group_sections=True`)
-- 新規/関連は自動保存しない(`auto_save=False`)。完成後に「グループに追加」=
-  ハンドル+関係性ドラフト確認 → `add_generated_member`(旧 _open_group_save_dialog 踏襲)
-- 修正は承認 diff → `update_member_character`
+- フォーム下にフェーズ進捗(ForgeStrip)。完成したら:
+  新規/関連 → ハンドル自動生成+`add_generated_member`(関連は関係性も
+  自動生成・確認なし)→ 住人シートへ直行(確認バーを一度だけ表示)、
+  修正 → 暫定住人シート(/groups/{gid}/generation/review/{job_id})で差分確認
 - メンバー詳細からの送出プロトコル `group_gen_mode` / `group_gen_member_ids` を
   旧UIと共有
-- 復帰: `ui2_active_generation`(scope "group:{gid}")のジョブのみ拾う
+- 復帰: `ui2_active_generation`(scope "group:{gid}")の実行中ジョブのみ拾う
 """
 
 from __future__ import annotations
@@ -21,11 +22,7 @@ from typing import Any
 from nicegui import app, ui
 
 from ...app_context import get_context
-from ...core.character.markdown import (
-    base_character_markdown,
-    parse_markdown_to_sheet,
-    sheet_from_markdown_preserving,
-)
+from ...core.character.markdown import base_character_markdown, parse_markdown_to_sheet
 from ...core.character.schemas import CharacterSheet, GenerationMeta
 from ...core.character_generation.prompts import AGE_OPTIONS, GENDER_OPTIONS
 from ...core.character_generation.schemas import (
@@ -47,18 +44,15 @@ from ...services.character_generation import GenerationJob
 from ...ui.state import get_vault_password
 from ..components.portrait import face_crop_style
 from ..components.sparkle import sparkle_field
-from ..generation_logic import build_generation_log, fact_chips
 from ..generation_ui import (
+    GEN_CONFIRM_KEY,
     GENERATION_CSS,
-    ForgePanel,
-    open_modify_approve_dialog,
+    ForgeStrip,
     open_sheet_dialog,
     recall_active_generation,
     remember_active_generation,
-    render_born,
     render_sheet_sections,
 )
-from ..group_logic import HANDLE_RE
 from ..group_setup import (
     chip_button,
     default_profile_id,
@@ -67,7 +61,6 @@ from ..group_setup import (
     run_assist,
 )
 from ..scaffold import p3_page
-from ..sheet_logic import strip_outer_quotes
 
 _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 
@@ -208,10 +201,6 @@ async def ui2_group_generation_page(group_id: str) -> None:
                     ui.html(html.escape(group.world))
 
             ask = ui.element("section").classes("ask")
-            forge = ui.element("section").classes("forge")
-            born = ui.element("section").classes("born")
-            forge.set_visibility(False)
-            born.set_visibility(False)
 
         # ---------------- 状態 ----------------
         view = {"mode": preset_mode or "new"}
@@ -227,19 +216,11 @@ async def ui2_group_generation_page(group_id: str) -> None:
         }
         fields: dict[str, Any] = {}
         current: dict = {
-            "job_id": "",
-            "request": None,
-            "profile": None,
-            "result": None,
-            "sheet": "",
-            "saved_name": "",
-            "saved_member_id": "",
             "modify_member": None,
             "related_members": [],
         }
         watching = {"id": ""}
         starting = {"flag": False}
-        prompted_review: set[str] = set()
         scope = f"group:{group.id}"
 
         # ---------------- 状態A: 入力 ----------------
@@ -265,7 +246,11 @@ async def ui2_group_generation_page(group_id: str) -> None:
                     .mark("ui2-ggen-profile")
                 )
             with ui.element("div").classes("go"):
-                p3_button("生成する", lambda: _on_generate(), classes="btn primary").mark("ui2-ggen-start")
+                start_btn = p3_button("生成する", lambda: _on_generate(), classes="btn primary").mark(
+                    "ui2-ggen-start"
+                )
+            strip_box = ui.element("div").classes("gen-strip")
+            strip_box.set_visibility(False)
 
         mode_chips: dict[str, ui.element] = {}
         with modes_row:
@@ -431,294 +416,101 @@ async def ui2_group_generation_page(group_id: str) -> None:
         _sync_mode_chips()
         _render_form()
 
-        # ---------------- 状態B: 生成中 ----------------
+        # ---------------- 生成進捗(フォーム下) ----------------
 
         async def _on_stop() -> None:
-            if current["job_id"]:
-                ctx.generation.stop(str(current["job_id"]))
+            if watching["id"]:
+                ctx.generation.stop(str(watching["id"]))
 
-        def _back_to_ask() -> None:
-            forge.set_visibility(False)
-            born.set_visibility(False)
-            ask.set_visibility(True)
+        def _hide_strip() -> None:
+            strip_box.set_visibility(False)
 
-        forge_panel = ForgePanel(_on_stop, _back_to_ask)
-        with forge:
-            forge_panel.build()
+        forge_strip = ForgeStrip(_on_stop, _hide_strip)
+        with strip_box:
+            forge_strip.build()
 
-        # ---------------- 保存(グループに追加) ----------------
+        def _set_running(running: bool) -> None:
+            if running:
+                start_btn.props("disabled")
+            else:
+                start_btn.props(remove="disabled")
 
-        async def _relationship_drafts(
-            draft_sheet: CharacterSheet, base_members: list[GroupMember]
-        ) -> dict[str, str]:
-            fallback = {
-                member.id: (
-                    f"{draft_sheet.name or '新規キャラクター'}と{member.character.name}の関係性を入力してください。"
-                )
-                for member in base_members
-            }
-            if not base_members:
-                return {}
-            value = await run_assist(
-                ctx.group_chat_assist.generate_group_generation_relationship_drafts(
+        # ---------------- 完成時の自動追加(新規/関連) ----------------
+
+        def _go_member_sheet(member_id: str, job_id: str) -> None:
+            app.storage.user[GEN_CONFIRM_KEY] = {"char_id": member_id, "job_id": job_id}
+            ui.navigate.to(f"/groups/{group.id}/members/{member_id}")
+
+        async def _auto_handle(draft_sheet: CharacterSheet) -> str:
+            """ハンドルをLLMで自動生成する(作成フローの一括生成と同じ)。失敗時は名前由来。"""
+            fallback = _default_generated_handle(draft_sheet, group)
+            persona = group.user_persona
+            if persona is None:
+                return fallback
+            suggested = await run_assist(
+                ctx.group_chat_assist.generate_handles(
                     profile_id=str(profile_select.value or ""),
                     vault_password=get_vault_password(),
-                    group=group,
-                    generated_sheet=draft_sheet,
-                    base_members=base_members,
+                    characters=[draft_sheet],
+                    persona=persona,
                 ),
-                failure_message="関係性の自動生成に失敗しました。手入力で保存できます",
+                failure_message="ハンドルの自動生成に失敗したため、名前から自動設定しました",
             )
-            if value is None:
+            candidate = str(dict(suggested or {}).get(draft_sheet.id) or "")
+            if not candidate:
                 return fallback
-            parsed = dict(value or {})
-            return {member.id: parsed.get(member.id) or fallback[member.id] for member in base_members}
+            used = {member.handle.lower() for member in group.members}
+            if persona.handle:
+                used.add(persona.handle.lower())
+            return unique_handle(sanitize_handle(candidate, fallback), used)
 
-        async def _open_group_save_dialog(job: GenerationJob, result) -> None:
-            sanitized = sanitize_group_generated_markdown(str(current.get("sheet") or result.sheet_markdown))
-            draft_sheet = _generated_sheet_from_result(sanitized, ctx.characters.new_id(), job, result)
-            base_members: list[GroupMember] = list(current.get("related_members") or [])
-            relationship_drafts: dict[str, str] = {}
-            if job.request.mode == GenerationMode.RELATED and base_members:
-                ui.notify("関係性説明を生成しています...", type="info")
-                relationship_drafts = await _relationship_drafts(draft_sheet, base_members)
-
-            with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl").style(_DIALOG_CARD_STYLE):
-                ui.label("保存内容の確認").classes("text-base font-semibold")
-                ui.label("ハンドルと関係性を確認してから、この世界の住人として保存します。").classes("note")
-                handle_input = (
-                    ui.input(
-                        "ハンドル（メンション用・3〜12文字の英数字_）",
-                        value=_default_generated_handle(draft_sheet, group),
-                    )
-                    .props("outlined dense")
-                    .classes("w-full p3-ta")
-                    .mark("ui2-ggen-handle")
-                )
-
-                relationship_inputs: dict[str, Any] = {}
-                if job.request.mode == GenerationMode.RELATED and base_members:
-                    ui.label("ベースメンバーとの関係性").classes("text-sm font-semibold mt-2")
-                    for member in base_members:
-                        relationship_inputs[member.id] = (
-                            ui.textarea(
-                                _member_label(member),
-                                value=relationship_drafts.get(member.id, ""),
-                            )
-                            .props("outlined rows=3")
-                            .classes("w-full p3-ta")
-                        )
-
-                chip_button("生成シートを確認", lambda: open_sheet_dialog(sanitized, title=draft_sheet.name))
-
-                async def _save() -> None:
-                    handle = str(handle_input.value or "").strip()
-                    if not HANDLE_RE.fullmatch(handle):
-                        ui.notify("ハンドルは3〜12文字の英数字または_で入力してください", type="warning")
-                        return
-                    used = {member.handle.lower() for member in group.members}
-                    if group.user_persona is not None and group.user_persona.handle:
-                        used.add(group.user_persona.handle.lower())
-                    if handle.lower() in used:
-                        ui.notify("ハンドルが重複しています", type="warning")
-                        return
-                    for member_id, textarea in relationship_inputs.items():
-                        if not str(textarea.value or "").strip():
-                            member = member_by_id.get(member_id)
-                            ui.notify(
-                                f"{member.character.name if member else 'ベースメンバー'}との関係性を入力してください",
-                                type="warning",
-                            )
-                            return
-
-                    sheet_to_save = _generated_sheet_from_result(sanitized, draft_sheet.id, job, result)
-                    saved_member = await ctx.group_chats.add_generated_member(group.id, sheet_to_save, handle)
-                    if saved_member is None:
-                        ui.notify("この世界の住人として保存できませんでした", type="negative")
-                        return
-                    for base_member in base_members:
-                        textarea = relationship_inputs.get(base_member.id)
-                        description = str(textarea.value or "").strip() if textarea else ""
-                        if description:
-                            await ctx.group_chats.save_relationship(
-                                group.id,
-                                GroupRelationship(
-                                    id="",
-                                    participant_a_key=f"member:{saved_member.id}",
-                                    participant_b_key=f"member:{base_member.id}",
-                                    description=description,
-                                ),
-                            )
-                    ctx.generation.mark_job_saved(job.id, saved_member.id, saved_member.character.name)
-                    dlg.close()
-                    ui.notify("この世界の住人として保存しました", type="positive")
-                    ui.navigate.to(f"/groups/{group.id}/members/{saved_member.id}")
-
-                with ui.row().classes("justify-end gap-2 mt-4 w-full"):
-                    p3_button("キャンセル", dlg.close, classes="btn quiet")
-                    p3_button("保存", _save, classes="btn primary").mark("ui2-ggen-save")
-            dlg.open()
-
-        # ---------------- 修正承認 diff ----------------
-
-        async def _open_modify_review(job: GenerationJob, result, *, force: bool = False) -> None:
-            if current.get("saved_member_id"):
-                return
-            if not force and job.id in prompted_review:
-                return
-            base_member = current.get("modify_member")
-            if not isinstance(base_member, GroupMember):
-                base_member = member_by_id.get(job.base_character_id)
-            if not isinstance(base_member, GroupMember):
-                ui.notify("修正元メンバーを復元できないため、承認ダイアログを開けません。", type="warning")
-                return
-            prompted_review.add(job.id)
+        async def _auto_add_member(job: GenerationJob, result) -> None:
+            """ハンドル自動生成+住人追加。関連生成は関係性も自動生成する(確認なし)。"""
             sanitized = sanitize_group_generated_markdown(result.sheet_markdown)
-
-            async def _save_approved() -> None:
-                updated = sheet_from_markdown_preserving(base_member.character, sanitized)
-                _clear_group_sheet_sections(updated, sanitized)
-                updated.generation_meta = _generation_meta(job, result)
-                try:
-                    saved = await ctx.group_chats.update_member_character(group.id, base_member.id, updated)
-                except Exception as err:
-                    ui.notify(f"保存に失敗しました: {err}", type="negative")
-                    return
-                if saved is None:
-                    ui.notify("グループ内キャラクターが見つかりませんでした", type="negative")
-                    return
-                ctx.generation.mark_job_saved(job.id, saved.id, saved.character.name)
-                current["saved_member_id"] = saved.id
-                current["saved_name"] = saved.character.name
-                ui.notify(f"「{saved.character.name}」を上書き保存しました", type="positive")
-                _render_born_result(job, result)
-
-            open_modify_approve_dialog(
-                name=base_member.character.name,
-                old_markdown=_member_base_markdown(base_member),
-                new_markdown=sanitized,
-                on_approve=_save_approved,
-            )
-
-        # ---------------- 状態C: 誕生 ----------------
-
-        def _download_sheet() -> None:
-            sheet_md = str(current.get("sheet") or "")
-            if sheet_md:
-                ui.download(sheet_md.encode("utf-8"), "group_character_sheet.md")
-
-        def _download_log() -> None:
-            result = current.get("result")
-            if not result:
+            draft_sheet = _generated_sheet_from_result(sanitized, ctx.characters.new_id(), job, result)
+            handle = await _auto_handle(draft_sheet)
+            saved_member = await ctx.group_chats.add_generated_member(group.id, draft_sheet, handle)
+            if saved_member is None:
+                ui.notify("この世界の住人として保存できませんでした", type="negative")
                 return
-            mode_value = getattr(getattr(current.get("request"), "mode", None), "value", "generate")
-            ui.download(
-                build_generation_log(
-                    result,
-                    mode_value,
-                    str(current.get("sheet") or ""),
-                    current.get("request"),
-                    current.get("profile"),
-                ).encode("utf-8"),
-                "group_generation_log.txt",
-            )
-
-        async def _retake() -> None:
-            request = current.get("request")
-            if request is None:
-                return
-            base_member = current.get("modify_member")
-            base_id = base_member.id if isinstance(base_member, GroupMember) else ""
-            if not base_id:
-                related = current.get("related_members") or []
-                base_id = related[0].id if related else ""
-            await _start_job(request, base_id)
-
-        def _render_born_result(job: GenerationJob, result) -> None:
-            sheet_md = sanitize_group_generated_markdown(str(current.get("sheet") or result.sheet_markdown))
-            preview = parse_markdown_to_sheet(sheet_md, "preview")
-            oc = preview.occupation
-            if preview.age:
-                oc = f"{oc} ・ {preview.age}" if oc else preview.age
-            facts = fact_chips(
-                world=group.world,
-                occupation=preview.occupation,
-                age=preview.age,
-                voice_image=preview.voice_image,
-                quality_status=result.quality_status,
-            )
-            is_modify = job.request.mode == GenerationMode.MODIFY
-            saved_member_id = str(current.get("saved_member_id") or "")
-            saved_name = str(current.get("saved_name") or "")
-            if saved_member_id:
-                save_note = f"{'更新済み' if is_modify else '保存済み'}: {saved_name}"
-            elif is_modify:
-                save_note = "まだ上書きしていません(差分を確認して上書きできます)"
-            else:
-                save_note = "まだ保存されていません(ハンドルと関係性を確認して保存します)"
-
-            def _ops() -> None:
-                saved_id = str(current.get("saved_member_id") or "")
-                if not saved_id:
-                    if is_modify:
-                        p3_button(
-                            "差分を確認して上書き",
-                            lambda: _open_modify_review(job, result, force=True),
-                            classes="btn primary",
-                        ).mark("ui2-ggen-open-diff")
-                    else:
-                        p3_button(
-                            "グループに追加",
-                            lambda: _open_group_save_dialog(job, result),
-                            classes="btn primary",
-                        ).mark("ui2-ggen-add")
-                else:
-                    p3_button(
-                        "住人シートを開く",
-                        lambda: ui.navigate.to(f"/groups/{group.id}/members/{saved_id}"),
-                        classes="btn primary",
-                    )
-                    p3_button("箱庭へ戻る", lambda: ui.navigate.to(f"/groups/{group.id}"))
-                p3_button("リテイク", _retake, classes="btn quiet", title="同じ指示でもう一度生成する")
-                p3_button("全文を表示", lambda: open_sheet_dialog(sheet_md), classes="btn quiet").mark(
-                    "ui2-ggen-full-sheet"
+            base_members: list[GroupMember] = list(current.get("related_members") or [])
+            if job.request.mode == GenerationMode.RELATED and base_members:
+                ui.notify("関係性を設定しています...", type="info")
+                drafts = await run_assist(
+                    ctx.group_chat_assist.generate_group_generation_relationship_drafts(
+                        profile_id=str(profile_select.value or ""),
+                        vault_password=get_vault_password(),
+                        group=group,
+                        generated_sheet=draft_sheet,
+                        base_members=base_members,
+                    ),
+                    failure_message="関係性の自動生成に失敗しました。箱庭の「管理」から追加できます",
                 )
-                p3_button("書き出し(.md)", _download_sheet, classes="btn quiet")
-                p3_button("詳細ログ", _download_log, classes="btn quiet")
-                p3_button("新しく作る", lambda: _back_to_ask(), classes="btn quiet")
-
-            render_born(
-                born,
-                name=preview.name,
-                oc=oc,
-                intro=strip_outer_quotes(preview.self_intro),
-                facts=facts,
-                save_note=save_note,
-                save_note_error=False,
-                build_ops=_ops,
-            )
-            forge.set_visibility(False)
-            born.set_visibility(True)
+                parsed = dict(drafts or {})
+                for base_member in base_members:
+                    description = str(parsed.get(base_member.id) or "").strip()
+                    if description:
+                        await ctx.group_chats.save_relationship(
+                            group.id,
+                            GroupRelationship(
+                                id="",
+                                participant_a_key=f"member:{saved_member.id}",
+                                participant_b_key=f"member:{base_member.id}",
+                                description=description,
+                            ),
+                        )
+            ctx.generation.mark_job_saved(job.id, saved_member.id, saved_member.character.name)
+            _go_member_sheet(saved_member.id, job.id)
 
         # ---------------- ジョブ実行・復帰 ----------------
 
         def _prepare_job_view(job: GenerationJob) -> None:
-            current.update(
-                {
-                    "job_id": job.id,
-                    "request": job.request,
-                    "profile": job.profile,
-                    "result": None,
-                    "sheet": "",
-                    "saved_name": "",
-                    "saved_member_id": "",
-                }
-            )
+            current.update({"modify_member": None, "related_members": []})
             base_member = member_by_id.get(job.base_character_id)
             if job.request.mode == GenerationMode.MODIFY and base_member is not None:
                 current["modify_member"] = base_member
             if job.request.mode == GenerationMode.RELATED:
-                # リロード復帰時もベースメンバーを request から再構成する(関係性ドラフト用)
+                # リロード復帰時もベースメンバーを request から再構成する(関係性の自動生成用)
                 current["related_members"] = [
                     member_by_id[bs.id]
                     for bs in job.request.related_base_sheets
@@ -726,35 +518,22 @@ async def ui2_group_generation_page(group_id: str) -> None:
                 ]
             if job.profile.id in profile_options:
                 profile_select.set_value(job.profile.id)
-            forge_panel.reset()
-            ask.set_visibility(False)
-            born.set_visibility(False)
-            forge.set_visibility(True)
+            forge_strip.reset()
+            strip_box.set_visibility(True)
+            _set_running(True)
 
         async def _handle_event(job: GenerationJob, event) -> None:
-            forge_panel.handle_event(event)
-            if event.type == ProgressEventType.SHEET_READY:
-                current["sheet"] = sanitize_group_generated_markdown(str(event.data or ""))
-            elif event.type == ProgressEventType.DONE:
+            forge_strip.handle_event(event)
+            if event.type == ProgressEventType.DONE:
                 result = event.data
                 if result and result.success:
-                    sanitized = sanitize_group_generated_markdown(result.sheet_markdown)
-                    result.sheet_markdown = sanitized
-                    job.sheet_markdown = sanitized
-                    current["result"] = result
-                    current["sheet"] = sanitized
                     if job.request.mode == GenerationMode.MODIFY:
-                        if job.saved_character_id:
-                            current["saved_member_id"] = job.saved_character_id
-                            current["saved_name"] = job.saved_character_name
-                        _render_born_result(job, result)
-                        if not current.get("saved_member_id"):
-                            await _open_modify_review(job, result)
+                        ui.navigate.to(f"/groups/{group.id}/generation/review/{job.id}")
+                    elif job.saved_character_id:
+                        # 復帰中の再生などで既に追加済みならそのまま住人シートへ
+                        _go_member_sheet(job.saved_character_id, job.id)
                     else:
-                        if job.saved_character_id:
-                            current["saved_member_id"] = job.saved_character_id
-                            current["saved_name"] = job.saved_character_name
-                        _render_born_result(job, result)
+                        await _auto_add_member(job, result)
                 elif result:
                     ui.notify(result.error_message or "生成に失敗しました。", type="negative")
             elif event.type == ProgressEventType.ERROR:
@@ -778,6 +557,10 @@ async def ui2_group_generation_page(group_id: str) -> None:
             finally:
                 if watching["id"] == job.id:
                     watching["id"] = ""
+                    try:
+                        _set_running(False)
+                    except RuntimeError:
+                        pass
 
         async def _start_job(request: GenerationRequest, base_character_id: str) -> None:
             profile = ctx.api_config.get_llm_profile(str(profile_select.value or ""))
@@ -890,7 +673,7 @@ async def ui2_group_generation_page(group_id: str) -> None:
             job_id, stored_scope = recall_active_generation()
             if job_id and stored_scope == scope:
                 job = ctx.generation.get_job(job_id)
-                if job is not None:
+                if job is not None and job.is_active:
                     await _attach_to_job(job.id)
 
         ui.timer(0.1, _restore_active_job, once=True)

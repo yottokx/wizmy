@@ -278,7 +278,7 @@ def open_user_personas_dialog(ctx, on_change) -> None:
                 image_url = portrait_media_url(image.path) if image is not None else None
                 if image_url is not None:
                     ui.element("img").props(f'src="{image_url}"').style(
-                        "width: 56px; height: 56px; border-radius: 12px; object-fit: cover;"
+                        "width: 56px; height: 56px; border-radius: 6px; object-fit: cover;"
                         " border: 1px solid var(--line-2); flex: none;"
                     )
                 with ui.column().classes("flex-1 gap-1 min-w-0"):

@@ -140,6 +140,16 @@ class CharacterGenerationService:
         self._prune_completed_jobs()
         return any(job.is_active for job in self._jobs.values())
 
+    def find_job_for_character(self, character_id: str) -> GenerationJob | None:
+        """保存先キャラクターIDからジョブを逆引きする(ジョブ存命中のみ)。"""
+        if not character_id:
+            return None
+        self._prune_completed_jobs()
+        jobs = [job for job in self._jobs.values() if job.saved_character_id == character_id]
+        if not jobs:
+            return None
+        return max(jobs, key=lambda job: job.updated_at)
+
     def mark_job_saved(
         self,
         generation_id: str,

@@ -312,6 +312,12 @@ body {
 
 /* ---------- 縦画面ナビ: メニューボタン+ドロップダウン ---------- */
 .wz-menu-btn { display: none; }
+/* 横幅に収まらない時(改行が起きる状況)は JS が compact を付与し、
+   縦画面と同じメニューボタン表示に切り替える */
+.wz-nav { flex-wrap: nowrap; }
+.wz-nav .links a, .theme-btn { white-space: nowrap; }
+.wz-nav.wz-nav-compact .links { display: none; }
+.wz-nav.wz-nav-compact .wz-menu-btn { display: inline-flex; align-items: center; }
 .wz-nav-menu {
   background: var(--panel) !important;
   color: var(--text) !important;
@@ -333,8 +339,7 @@ body {
 @media (max-width: 700px) {
   .wz-nav { gap: 10px; padding: 5px 12px; }
   .wz-logo { height: 24px; }
-  .wz-nav .links { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .wz-nav .links a { white-space: nowrap; padding: 5px 2px; font-size: 12.5px; }
+  .wz-nav .links a { padding: 5px 2px; font-size: 12.5px; }
   .theme-btn { white-space: nowrap; padding: 4px 11px; font-size: 11.5px; }
 }
 
@@ -402,6 +407,26 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
     #  空振りすることがあり、ダークテーマでドロップダウン等が黒文字になる)
     dark_mode = ui.dark_mode(t["dark"])
     ui.add_body_html(f"<script>{apply_theme_js(theme)}</script>")
+    ui.add_body_html(
+        """
+<script>
+(function () {
+  if (window.__wzNavFitInstalled) return;
+  window.__wzNavFitInstalled = true;
+  function fit() {
+    var nav = document.querySelector('.wz-nav');
+    if (!nav) return;
+    nav.classList.remove('wz-nav-compact');
+    if (nav.scrollWidth > nav.clientWidth + 1) nav.classList.add('wz-nav-compact');
+  }
+  window.addEventListener('resize', fit);
+  window.addEventListener('load', fit);
+  setInterval(fit, 1000);
+  fit();
+})();
+</script>
+"""
+    )
 
     # ---- AIジョブドロワー(P3スキン) ----
     jobs_drawer = (

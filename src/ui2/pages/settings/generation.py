@@ -194,7 +194,7 @@ def open_options_dialog(ctx, on_change) -> None:
                     chip_button("デフォルトに戻す", lambda k=key, d=default_opts: _reset_list(k, list(d)))
                 with ui.row().classes("items-center gap-2 w-full"):
                     ui.label(_OMAKASE).classes("flex-1 text-sm").style(
-                        "padding: 8px 12px; border-radius: 10px; font-style: italic;"
+                        "padding: 8px 12px; border-radius: 6px; font-style: italic;"
                         " background: var(--bg-2); color: var(--muted); border: 1px solid var(--line);"
                     )
                     ui.label("固定").classes("text-xs").style("color: var(--muted);")

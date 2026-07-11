@@ -26,6 +26,9 @@ _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 
 _ACTIVE_GENERATION_KEY = "ui2_active_generation"
 
+# 生成→キャラシ遷移時の確認バー受け渡しキー(pop で一度だけ表示)
+GEN_CONFIRM_KEY = "ui2_gen_confirm"
+
 # モック generation.html の <style> 移植+ツールログ/プレースホルダ/共通フォーム
 GENERATION_CSS = (
     """
@@ -191,6 +194,32 @@ GENERATION_CSS = (
 .born-body .save-note { font-size: 12px; color: var(--accent); margin-bottom: 18px; letter-spacing: .04em; }
 .born-body .save-note.err { color: #e08a8a; }
 .born-ops { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+/* フォーム下のフェーズ進捗(カード無し・ヘアラインで区切る) */
+.gen-strip {
+  max-width: 660px;
+  margin: 30px auto 0;
+  position: relative; z-index: 2;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.strip-phases { display: flex; gap: 6px 20px; flex-wrap: wrap; align-items: baseline; }
+.sph { display: inline-flex; gap: 7px; align-items: baseline; font-size: 12.5px; letter-spacing: .06em; color: var(--muted); }
+.sph .nm { white-space: nowrap; }
+.sph .no { font-family: "Yu Mincho", serif; color: var(--peri); font-size: 13px; }
+.sph.todo { opacity: .38; }
+.sph.now .nm { color: var(--accent); }
+.sph.now .nm::after {
+  content: "";
+  display: inline-block;
+  width: 7px; height: 13px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  margin-left: 5px;
+  animation: gen-blink 1s steps(2) infinite;
+}
+.sph.done .nm::after { content: " ✓"; color: var(--accent); font-size: 11px; }
+.gen-strip .ops { display: flex; gap: 10px; margin-top: 14px; }
 
 /* シート全文(ダイアログ内の章立て表示) */
 .gsheet { max-height: 60vh; overflow-y: auto; width: 100%; }
@@ -379,6 +408,33 @@ class ForgePanel:
         )
 
 
+class ForgeStrip(ForgePanel):
+    """フォーム直下に置く水平のフェーズ進捗。イベント処理は ForgePanel を共有する。"""
+
+    def build(self) -> None:
+        self._rows_box = ui.element("div").classes("strip-phases")
+        self._status = ui.element("div").classes("gen-status")
+        self._log_cap = ui.element("button").classes("gen-log-cap closed")
+        with self._log_cap:
+            ui.html('<span class="caret">▾</span><span>ブレインストーミングログ</span>')
+        self._log_cap.on("click", self._toggle_log)
+        self._log = ui.element("div").classes("gen-log closed")
+        with ui.element("div").classes("ops"):
+            self._stop_btn = p3_button("中断", self._on_stop, classes="btn quiet").mark("ui2-gen-stop")
+            self._back_btn = p3_button("閉じる", self._on_back, classes="btn quiet")
+        self.reset()
+
+    def _render_rows(self) -> None:
+        self._rows_box.clear()
+        with self._rows_box:
+            for row in self._progress.rows:
+                with ui.element("span").classes(f"sph {row.status}"):
+                    with ui.element("span").classes("no"):
+                        ui.html(kanji_number(row.no))
+                    with ui.element("span").classes("nm"):
+                        ui.html(html.escape(row.name))
+
+
 # ---------------------------------------------------------------------------
 # 状態C: 誕生
 # ---------------------------------------------------------------------------
@@ -444,10 +500,10 @@ def render_sheet_sections(markdown: str) -> None:
                 with ui.element("h3"):
                     ui.html(html.escape(section.header))
                 with ui.element("div").classes("bd"):
-                    _render_section_body(section.body)
+                    render_section_body(section.body)
 
 
-def _render_section_body(body: str) -> None:
+def render_section_body(body: str) -> None:
     kind = classify_body(body)
     if kind == "table":
         with ui.element("dl").classes("kv"):
