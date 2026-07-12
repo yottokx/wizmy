@@ -1,13 +1,13 @@
 """
 /characters/{id}/chat 1:1チャット(Phase 3)。モック proposal3/chat.html 準拠。
 
-- 描画は P3、編成は旧 `src/ui/chat/controller.py` を踏襲(呼ぶものは全部既存 services):
+- 描画は P3。呼ぶものは全部既存 services:
   ChatService(セッションCRUD)/ ChatTurnService(ターン・ナレーション・自動タイトル)/
   ChatAssistService(補完・整え・選択肢・シーン強化)/ ai_jobs(実行+リロード復帰)/
   TTSService(読み上げ)
 - ターン実行はトークンストリーミング無し: placeholder(「…」)→ AIJob →
   完了後に再描画+スナップショット保存。復帰は latest_active_job(scope) → wait
-- スラッシュコマンドは `ui2/chat_commands.py`(旧 chat/commands.py の複製)
+- スラッシュコマンドは `ui2/chat_commands.py`
 - 相手ピッカー = list_recent の character_id 集計(chat_logic.build_partner_entries)
 - セッション0件 = 初対面の空状態(自己紹介+はじめかた)。既定設定が揃っていれば
   入力からそのまま話し始められる(クイック開始)。無理なら新規セッションダイアログへ
@@ -61,7 +61,6 @@ from ...services.llm_runtime import (
     build_configured_llm,
 )
 from ...services.tts import TTSServiceError
-from ...ui.state import get_vault_password
 from ..chat_commands import (
     command_suggestions,
     input_mode_label,
@@ -78,6 +77,7 @@ from ..components.composer import COMPOSER_CSS, install_composer_gestures, rende
 from ..components.portrait import face_avatar, image_object_position, media_url, raw_img
 from ..group_setup import PICKER_CSS, open_character_pick_dialog
 from ..scaffold import p3_page
+from ..state import get_vault_password
 
 # モック chat.html の <style> 移植+P3コンポーザー/パレット/メモ/操作列の追補
 _PAGE_CSS = """
@@ -1426,7 +1426,7 @@ class Ui2ChatController:
         await self.send_message(False, submitted)
 
     async def _guide_from_long_tap(self, e) -> None:
-        """送信ボタンのロングタップ(旧UIパリティ): 入力値を指示にして /guide を送る。"""
+        """送信ボタンのロングタップ: 入力値を指示にして /guide を送る。"""
         value = str(e.args[0] or "") if isinstance(e.args, list) and e.args else str(e.args or "")
         parsed = parse_command_input(value)
         left_text = parsed[0] if parsed is not None else value

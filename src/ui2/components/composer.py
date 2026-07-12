@@ -3,7 +3,7 @@
 
 - COMPOSER_CSS: ロール埋め込み入力ボックス+上スワイプメニューのスキン
 - render_swipe_menu: 上スワイプで開くアクションメニュー(/choices /fill /tailor)
-- 上スワイプ検出・送信ボタンロングタップ(/guide)の JS(旧UI chat/components.py の移植)
+- 上スワイプ検出・送信ボタンロングタップ(/guide)の JS
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ COMPOSER_CSS = """
 .comp-input .q-field__control:before, .comp-input .q-field__control:after { display: none; }
 .comp-input textarea { color: var(--text) !important; font-size: 15px; line-height: 1.6; }
 
-/* 上スワイプメニュー(旧UIのスマホ操作) */
+/* 上スワイプメニュー */
 .p3-swipe-menu {
   background: var(--panel);
   border: 1px solid var(--line-2);

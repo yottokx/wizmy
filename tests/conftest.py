@@ -34,11 +34,8 @@ class NiceGuiSmokeApp:
 def _reload_page_modules() -> None:
     """NiceGUI の page デコレータをテストごとに登録し直す。"""
     for module_name in list(sys.modules):
-        if module_name in {"src.ui.pages", "src.ui2.pages"} or module_name.startswith(
-            ("src.ui.pages.", "src.ui2.pages.")
-        ):
+        if module_name == "src.ui2.pages" or module_name.startswith("src.ui2.pages."):
             sys.modules.pop(module_name, None)
-    importlib.import_module("src.ui.pages")
     importlib.import_module("src.ui2.pages")
 
 

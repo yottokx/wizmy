@@ -5,7 +5,7 @@ from src.core.conversation.prompts.solo import (
     build_user_completion_messages,
     chat_history_for_prompt,
 )
-from src.ui.chat.models import ChatMessagePreview
+from src.core.conversation.schemas import ChatMessagePreview
 from tests.chat_test_helpers import make_chat_settings as make_settings
 from tests.chat_test_helpers import make_chat_sheet as make_sheet
 

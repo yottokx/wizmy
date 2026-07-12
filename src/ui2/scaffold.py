@@ -5,11 +5,8 @@ P3「With」ページの共通スキャフォールド。
 - 共通CSS(テーマトークン+基本コンポーネント)の注入
 - テーマ起動JS(`ui2_theme` の永続値を反映)とテーマ切替ボタン
 - ナビゲーション(機能名ラベル+テーマ再着色ロゴ)
-- AIジョブバッジ+ジョブドロワー(旧 layout.py のパターンを P3 スキンで再実装)
+- AIジョブバッジ+ジョブドロワー
 - sparkle スクリプトの注入
-
-旧UI(`src/ui/`)には依存しない。CSS はこのページにしか注入されないため
-旧UIへの影響もない。
 """
 
 from __future__ import annotations
@@ -21,8 +18,8 @@ from dataclasses import dataclass
 from nicegui import ui
 
 from ..app_context import get_context
-from ..ui.state import is_vault_unlocked, set_vault_password
 from .components.sparkle import SPARKLE_CSS, install_sparkle_script
+from .state import is_vault_unlocked, set_vault_password
 from .theme import (
     DEFAULT_THEME,
     THEMES,

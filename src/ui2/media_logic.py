@@ -3,10 +3,8 @@
 
 - プロンプトエディタ(色分けテキストボックス)のHTML変換と
   「候補から反映」の置き換え規則
-  (旧 `character_media_image.py` から複製。§1-2 の規則により import しない)
 - ボイスキャプションの整形とシート素材の組み立て
-  (旧 `character_media_voice.py` から複製)
-- gen_server パラメータ値の型読み取り(旧 _read_gen_server_param_value 相当)
+- gen_server パラメータ値の型読み取り
 """
 
 from __future__ import annotations
@@ -131,7 +129,7 @@ def normalize_candidate_tag(value: str) -> str:
 
 
 def candidate_negative_tags(candidate: object) -> list[str]:
-    """プロンプト候補のネガティブタグ一覧を返す。旧 _candidate_negative_tags の複製。"""
+    """プロンプト候補のネガティブタグ一覧を返す。"""
     tags: list[str] = []
     negative_prompt = str(getattr(candidate, "negative_prompt", "") or "")
     tags.extend(part.strip() for part in negative_prompt.split(",") if part.strip())
@@ -147,7 +145,7 @@ def candidate_negative_tags(candidate: object) -> list[str]:
 
 
 def read_param_value(spec: dict, value: object) -> object:
-    """フォーム値をフィールド仕様に従って型変換する(旧 _read_gen_server_param_value の複製)。"""
+    """フォーム値をフィールド仕様に従って型変換する。"""
     if spec.get("nullable") and (value is None or value == ""):
         return None
 
@@ -179,7 +177,7 @@ def generated_image_size_label(image: object) -> str:
 
 
 # ---------------------------------------------------------------------------
-# ボイスキャプション(旧 character_media_voice.py から複製)
+# ボイスキャプション
 # ---------------------------------------------------------------------------
 
 _VOICE_CAPTION_LABEL_RE = re.compile(
@@ -246,7 +244,7 @@ def voice_caption_sheet_source(sheet: CharacterSheet) -> str:
 
 
 def message_content_text(message: object) -> str:
-    """LLM応答メッセージから本文テキストを取り出す(旧 _message_content_text の複製)。"""
+    """LLM応答メッセージから本文テキストを取り出す。"""
     content = getattr(message, "content", message)
     if isinstance(content, str):
         return content

@@ -14,7 +14,7 @@ from src.core.conversation.prompts.solo import (
     is_first_character_turn,
     sanitize_narration,
 )
-from src.ui.chat.models import ChatMessagePreview
+from src.core.conversation.schemas import ChatMessagePreview
 from tests.chat_test_helpers import (
     make_chat_messages,
     make_chat_settings,

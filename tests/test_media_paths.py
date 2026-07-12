@@ -14,7 +14,7 @@ from src.services.user_persona import UserPersonaService
 from src.storage.api_config_store import ApiConfigStore
 from src.storage.character_repository import CharacterRepository
 from src.storage.group_chat_repository import GroupChatRepository
-from src.ui.chat.media import image_dimensions
+from src.ui2.components.portrait import _image_dimensions
 
 UUID_RE = r"[0-9a-f]{32}"
 
@@ -85,7 +85,7 @@ def test_read_image_size_supports_webp_variants(tmp_path: Path) -> None:
     path = tmp_path / "fallback.webp"
     path.write_bytes(webp_vp8x(512, 288))
     image = CharacterImageAsset(id="image-1", path="fallback.webp")
-    assert image_dimensions(image, path) == (512, 288)
+    assert _image_dimensions(image, path) == (512, 288)
 
 
 async def test_character_service_media_paths_are_fixed(tmp_path: Path) -> None:

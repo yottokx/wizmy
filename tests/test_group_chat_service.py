@@ -48,30 +48,9 @@ from src.core.group_chat.schemas import (
 )
 from src.services.group_chat import GroupChatService
 from src.storage.group_chat_repository import GroupChatRepository
-from src.ui.group_chat.dialogs_adaptation import (
-    group_relationship_enhancement_participants as _group_relationship_enhancement_participants,
-)
-from src.ui.group_chat.dialogs_controller import _guest_prefix_completion
-from src.ui.group_chat.dialogs_group import (
-    world_source_options_for_characters as _world_source_options_for_characters,
-)
 
 
 class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
-    def test_world_source_options_include_only_characters_with_world(self) -> None:
-        options = _world_source_options_for_characters(
-            [
-                CharacterSheet(id="character-a", name="世界あり", world="共有する世界"),
-                CharacterSheet(id="character-b", name="世界なし", world=""),
-                CharacterSheet(id="character-c", name="空白のみ", world="  "),
-            ]
-        )
-
-        self.assertEqual("完全に新しいワールド", options["new"])
-        self.assertIn("character:character-a", options)
-        self.assertNotIn("character:character-b", options)
-        self.assertNotIn("character:character-c", options)
-
     def test_prepare_group_character_native_removes_world_and_preserves_metadata(self) -> None:
         original = CharacterSheet(
             id="character-1",
@@ -1019,42 +998,6 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("昔からの知り合い", section)
         self.assertNotIn("まだ距離がある", section)
 
-    def test_group_relationship_enhancement_participants_use_saved_group_keys(self) -> None:
-        group = GroupChatRecord(
-            id="group-1",
-            name="テストグループ",
-            members=[
-                GroupMember(
-                    id="member-a",
-                    handle="Alice",
-                    character=CharacterSheet(
-                        id="character-a",
-                        name="アリス",
-                        personality="落ち着いている。",
-                    ),
-                    world_entry_type="visitor",
-                    arrival_reason="依頼で来た。",
-                ),
-            ],
-            user_persona=GroupUserPersona(
-                id="persona-1",
-                handle="User",
-                name="ユーザー",
-                description="観察者。",
-                world_entry_type="native",
-            ),
-        )
-
-        participants = _group_relationship_enhancement_participants(group)
-
-        self.assertEqual("member:member-a", participants[0]["key"])
-        self.assertEqual("character", participants[0]["kind"])
-        self.assertEqual("visitor", participants[0]["world_entry_type"])
-        self.assertEqual("依頼で来た。", participants[0]["arrival_reason"])
-        self.assertEqual("user:persona-1", participants[1]["key"])
-        self.assertEqual("user_persona", participants[1]["kind"])
-        self.assertIn("観察者。", participants[1]["summary"])
-
     def test_system_event_is_included_in_group_history(self) -> None:
         history = format_group_history(
             [
@@ -1078,17 +1021,6 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn("酒場のマスター【ゲスト】: 実験の話なら、酒場の外で頼むよ。", history)
-
-    def test_guest_prefix_completion_suggests_guest_marker(self) -> None:
-        suggestion = _guest_prefix_completion("gue")
-
-        self.assertIsNotNone(suggestion)
-        assert suggestion is not None
-        self.assertEqual("guest:", suggestion["value"])
-        self.assertEqual("guest:", suggestion["label"])
-        self.assertIsNone(_guest_prefix_completion("guest:"))
-        self.assertIsNone(_guest_prefix_completion("guest:酒場のマスター"))
-        self.assertIsNone(_guest_prefix_completion("@guest"))
 
     def test_participant_settings_helpers_add_and_remove_members(self) -> None:
         settings = {"participant_ids": ["member-a"]}

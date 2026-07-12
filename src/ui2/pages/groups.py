@@ -33,7 +33,6 @@ from ...core.conversation.world_adaptation import (
     prepare_group_user_world_settings,
 )
 from ...core.group_chat.schemas import GroupChatRecord, GroupRelationship
-from ...ui.state import get_vault_password
 from ..components.busy import BusyController
 from ..components.portrait import face_avatar, image_object_position, media_url, raw_img
 from ..group_logic import (
@@ -56,6 +55,7 @@ from ..group_setup import (
     run_assist,
 )
 from ..scaffold import p3_page
+from ..state import get_vault_password
 
 _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 

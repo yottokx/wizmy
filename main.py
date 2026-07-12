@@ -14,16 +14,7 @@ from nicegui import app, ui
 
 from src.app_context import init_context
 from src.config import AppSettings, get_settings
-from src.ui.pages import (
-    character_chat_page,
-    character_detail_page,
-    characters_page,
-    generation_page,
-    group_chat_detail_page,
-    group_chat_page,
-    settings_page,
-)
-from src.ui.server_noise import (
+from src.server_noise import (
     install_asyncio_disconnect_handler,
     install_disconnect_noise_filters,
 )

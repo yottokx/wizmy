@@ -4,14 +4,14 @@ from src.core.character.schemas import CharacterSheet, FaceRect
 from src.core.chat.schemas import ChatMode, UserPersona
 from src.core.conversation.history import chat_settings_from_dict, chat_settings_to_dict
 from src.core.conversation.schemas import ChatSessionSettings
-from src.core.conversation.solo import render_mode_for_sheet
-from src.services.user_persona import UserPersonaService
-from src.storage.api_config_store import ApiConfigStore
-from src.ui.chat.components import (
+from src.core.conversation.solo import (
     USER_PERSONA_SOURCE_CHARACTER,
     USER_PERSONA_SOURCE_PERSONA,
-    user_persona_from_character_sheet,
+    render_mode_for_sheet,
 )
+from src.services.user_persona import UserPersonaService
+from src.storage.api_config_store import ApiConfigStore
+from src.ui2.chat_logic import user_persona_from_character_sheet
 
 
 def test_user_persona_display_name_falls_back_to_name() -> None:

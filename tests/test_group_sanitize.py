@@ -9,6 +9,7 @@ from src.core.conversation.history import (
     last_dialog_message,
     latest_group_message_preview,
     optional_int,
+    session_time_label,
 )
 from src.core.conversation.sanitize import (
     clean_arrival_reason_response,
@@ -22,7 +23,6 @@ from src.core.conversation.sanitize import (
     sanitize_group_narration,
 )
 from src.core.conversation.schemas import ChatDebugInfo
-from src.ui.group_chat import rendering as group_rendering
 from tests.group_chat_test_helpers import make_group_chat
 
 
@@ -151,7 +151,7 @@ def test_debug_from_dict_and_optional_int_ignore_bool_tokens() -> None:
     assert optional_int("bad") is None
 
 
-def test_group_time_label_matches_chat_yesterday(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_session_time_label_yesterday(monkeypatch: pytest.MonkeyPatch) -> None:
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None) -> "FixedDatetime":
@@ -159,7 +159,7 @@ def test_group_time_label_matches_chat_yesterday(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(history_module, "datetime", FixedDatetime)
 
-    assert group_rendering.time_label(datetime(2026, 7, 5, 23, 59)) == "昨日"
+    assert session_time_label(datetime(2026, 7, 5, 23, 59)) == "昨日"
 
 
 def test_group_message_preview_and_last_dialog_message_keep_current_filters() -> None:

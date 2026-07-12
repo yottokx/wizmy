@@ -6,26 +6,9 @@ from typing import Any
 import pytest
 
 from src.core.gen_server.schemas import GEN_SERVER_MODE_SDXL_IMAGE
-from src.core.llm.schemas import Endpoint
 from src.services import api_config as api_config_module
 from src.services.api_config import ApiConfigService
 from src.storage.api_config_store import ApiConfigStore
-from src.ui.pages.settings.endpoints import endpoint_with_updates
-
-
-def test_endpoint_with_updates_validates_base_url() -> None:
-    endpoint = Endpoint(id="endpoint-1", name="旧", base_url="http://localhost:11434")
-
-    updated = endpoint_with_updates(
-        endpoint,
-        name="新",
-        ep_type="openai_compat",
-        base_url="http://localhost:1234/",
-    )
-
-    assert updated.name == "新"
-    assert updated.type == "openai_compat"
-    assert updated.base_url == "http://localhost:1234"
 
 
 async def test_fetch_gen_server_models_ignores_non_dict_items_before_mode_filter(

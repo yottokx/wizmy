@@ -64,7 +64,6 @@ from ..services.llm_runtime import (
     LLMRuntimeError,
     build_configured_llm,
 )
-from ..ui.state import get_vault_password
 from .media_logic import (
     candidate_negative_tags,
     clean_voice_caption,
@@ -79,6 +78,7 @@ from .media_logic import (
     voice_caption_sheet_source,
 )
 from .sheet_logic import kanji_number
+from .state import get_vault_password
 
 # ---------------------------------------------------------------------------
 # ページ共通CSS(モック media-image.html / media-voice.html の <style> 移植)
@@ -606,7 +606,7 @@ def _create_voice_caption_llm(ctx):
 
 
 async def generate_voice_caption_from_sheet(sheet: CharacterSheet, ctx) -> str:
-    """キャラクターシートから VoiceDesign v3 用キャプションを生成する(旧実装の複製)。"""
+    """キャラクターシートから VoiceDesign v3 用キャプションを生成する。"""
     source = voice_caption_sheet_source(sheet)
     if not source:
         raise RuntimeError("キャラクターシート情報が不足しています。")

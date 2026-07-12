@@ -7,8 +7,8 @@
 - 顔フォーカスは `CharacterImageAsset.face_rect / bust_rect`(0-1比率)の
   矩形中心を CSS `object-position` に変換する(立ち絵・カード用)。
 - 丸アイコン(アバター)は `face_crop_style` で **face_rect にズーム**した
-  background スタイルを使う(旧UI `chat/media.py::cropped_background_style` の
-  計算を ui2 に複製。`<img>` の object-fit ではズームできないため div+background)。
+  background スタイルを使う(`<img>` の object-fit ではズームできないため
+  div+background)。
 """
 
 from __future__ import annotations

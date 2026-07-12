@@ -1,9 +1,7 @@
 """
 顔範囲/バストショット範囲の編集ダイアログ(P3スキン)。
 
-旧 `ui/components/character_media_image.py` の rect ダイアログと同じ
-`ui.interactive_image` + マウスドラッグ方式を ui2 用に再実装する
-(依存規則により旧UIからは import しない)。
+`ui.interactive_image` + マウスドラッグで矩形を指定する。
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 グループ作成/メンバー追加で共有するセットアップUI+LLM補助ラッパ(ui2)。
 
 - 補助LLM呼び出し(ハンドル生成・世界観補完・名前補完・適応・来訪理由・関係性)の
-  実行と通知をまとめる。呼ぶ services は旧UIと同じ `GroupChatAssistService`。
+  実行と通知をまとめる。呼ぶ services は `GroupChatAssistService`。
 - 適応(ワールドに馴染ませる)は diff プレビュー(`group_logic.diff_html`)で
   承認してから反映する(パリティ: 適応プレビューdiff)。
 - 住人ごとの参加設定ダイアログ(ハンドル/参加設定/来訪理由/適応)を
@@ -33,10 +33,10 @@ from ..services.llm_runtime import (
     PROFILE_NOT_FOUND,
     LLMRuntimeError,
 )
-from ..ui.state import get_vault_password
 from .components.busy import BusyController
 from .components.portrait import image_object_position, media_url, raw_img
 from .group_logic import diff_html
+from .state import get_vault_password
 
 _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 

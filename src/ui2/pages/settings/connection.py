@@ -10,7 +10,7 @@ from __future__ import annotations
 from nicegui import ui
 
 from ....core.llm.schemas import Endpoint, LLMProfile
-from ....ui.state import get_vault_password, is_vault_unlocked
+from ...state import get_vault_password, is_vault_unlocked
 from .common import (
     badge,
     chip_button,

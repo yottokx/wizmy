@@ -1,9 +1,4 @@
-"""スラッシュコマンドと入力モード表示を扱う純粋関数(ui2 複製)。
-
-旧UI `src/ui/chat/commands.py` とコマンド定義(`src/ui/chat/models.py` の
-`CHAT_COMMANDS`)の複製。依存規則(`ui2` は `src/ui/` の描画層を import しない)を
-守るための意図的な重複であり、旧UI削除(Phase 7)時に複製元側を消して一本化する。
-"""
+"""スラッシュコマンドと入力モード表示を扱う純粋関数。"""
 
 from __future__ import annotations
 

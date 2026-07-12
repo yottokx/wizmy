@@ -16,7 +16,6 @@ from nicegui.storage import request_contextvar
 
 _VAULT_PASSWORD_KEY = "vault_password"
 _VAULT_PASSWORD_TTL_SECONDS = 8 * 60 * 60
-_ACTIVE_GENERATION_KEY = "active_generation_id"
 
 
 @dataclass
@@ -91,25 +90,3 @@ def clear_vault_password() -> None:
 
 def is_vault_unlocked() -> bool:
     return bool(get_vault_password())
-
-
-def get_selected_generation_profile_id() -> str:
-    return app.storage.user.get("selected_generation_profile_id", "")
-
-
-def set_selected_generation_profile_id(profile_id: str) -> None:
-    app.storage.user["selected_generation_profile_id"] = profile_id
-
-
-def get_active_generation_id() -> str:
-    return app.storage.user.get(_ACTIVE_GENERATION_KEY, "")
-
-
-def set_active_generation_id(generation_id: str) -> None:
-    app.storage.user[_ACTIVE_GENERATION_KEY] = generation_id
-
-
-def clear_active_generation_id(generation_id: str | None = None) -> None:
-    if generation_id and app.storage.user.get(_ACTIVE_GENERATION_KEY) != generation_id:
-        return
-    app.storage.user.pop(_ACTIVE_GENERATION_KEY, None)

@@ -1,10 +1,9 @@
 """
 新UI「P3: With」の並行実装パッケージ。
 
-- 正式ルート(`/`・`/characters` 等)を提供する。旧UIは `/legacy` 配下に退避中。
+- 正式ルート(`/`・`/characters` 等)を提供する。
 - 旧 `/v2/...` URL は正式ルートへリダイレクトされる(pages/legacy_redirect.py)。
-- 依存規則: ui2 → services / core / storage / ui/state.py のみ。
-  `src/ui/` の他モジュールは import しない。
+- 依存規則: ui2 → services / core / storage のみ。
 """
 
 from __future__ import annotations

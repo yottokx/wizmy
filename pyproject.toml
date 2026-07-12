@@ -38,9 +38,6 @@ files = [
     "src/config.py",
     "src/app_context.py",
 ]
-exclude = [
-    "^src/ui/",
-]
 plugins = ["pydantic.mypy"]
 check_untyped_defs = true
 show_error_codes = true
@@ -66,12 +63,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"main.py" = ["F401"]
 "src/services/tts.py" = ["F401"]
-"src/ui/chat/controller.py" = ["F401"]
-"src/ui/pages/character_detail.py" = ["F841"]
-"src/ui/pages/characters.py" = ["F841"]
-"src/ui/pages/group_chat.py" = ["F841"]
 
 [tool.ruff.format]
 quote-style = "preserve"

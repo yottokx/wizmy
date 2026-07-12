@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from ....ui.state import clear_vault_password, is_vault_unlocked, set_vault_password
+from ...state import clear_vault_password, is_vault_unlocked, set_vault_password
 from .common import DIALOG_CARD_STYLE, confirm_dialog, p3_button, settings_dialog
 
 

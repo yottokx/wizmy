@@ -8,8 +8,7 @@
   新規/関連 → ハンドル自動生成+`add_generated_member`(関連は関係性も
   自動生成・確認なし)→ 住人シートへ直行(確認バーを一度だけ表示)、
   修正 → 暫定住人シート(/groups/{gid}/generation/review/{job_id})で差分確認
-- メンバー詳細からの送出プロトコル `group_gen_mode` / `group_gen_member_ids` を
-  旧UIと共有
+- メンバー詳細からの送出プロトコルは `group_gen_mode` / `group_gen_member_ids`
 - 復帰: `ui2_active_generation`(scope "group:{gid}")の実行中ジョブのみ拾う
 """
 
@@ -41,7 +40,6 @@ from ...core.conversation.group_setup import (
 )
 from ...core.group_chat.schemas import GroupChatRecord, GroupMember, GroupRelationship
 from ...services.character_generation import GenerationJob
-from ...ui.state import get_vault_password
 from ..components.portrait import face_crop_style
 from ..components.sparkle import sparkle_field
 from ..generation_ui import (
@@ -61,6 +59,7 @@ from ..group_setup import (
     run_assist,
 )
 from ..scaffold import p3_page
+from ..state import get_vault_password
 
 _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 

@@ -1,9 +1,7 @@
 """1:1チャット(ui2)の純ロジック。
 
-相手ピッカーの候補集計(HANDOFF: 相手ピッカー = list_recent の character_id 集計)と、
+相手ピッカーの候補集計(list_recent の character_id 集計)と、
 キャラクターシートをユーザー役に変換するヘルパを、描画から切り離した純関数として持つ。
-`character_persona_description` / `user_persona_from_character_sheet` は
-旧UI `src/ui/chat/components.py` の純ロジック複製(依存規則による重複。Phase 7 で一本化)。
 """
 
 from __future__ import annotations

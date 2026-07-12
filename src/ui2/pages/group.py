@@ -1,15 +1,14 @@
 """
 /groups/{id} 箱庭シェル(グループチャット・Phase 4)。モック proposal3/group.html 準拠。
 
-- 描画は P3、編成は旧 `src/ui/group_chat/controller.py` を踏襲(呼ぶ services は全部既存):
+- 描画は P3。呼ぶ services は全部既存:
   GroupChatService(グループ/セッションCRUD・メディア)/ GroupChatTurnService(話者選択+ターン)/
   GroupChatAssistService(補完・選択肢・シーン・関係性)/ ai_jobs(実行+リロード復帰)/ TTS
 - 3ペイン: 左=セッション+シーン / 中央=ストリーム+コンポーザー / 右=presence
   (立ち絵クロスフェード=components/presence.py)+この世界の住人。
 - 話者選択は服の下で `choose_next_speaker`(メンション@優先)。「次の話者候補」灯りは
   その決定的分岐を鏡写しにした group_logic.next_speaker_candidate_ids で点灯する。
-- コンポーザーは 1:1 と同構成(ロールチップ+アシストチップ+コマンドパレット。
-  Phase 3 のユーザー確定に従い、全Phase完了後にグループと合わせて一括調整)。
+- コンポーザーは 1:1 と同構成(ロールチップ+アシストチップ+コマンドパレット)。
   加えて @ メンション補完パレットを持つ。
 """
 
@@ -59,7 +58,6 @@ from ...services.llm_runtime import (
     build_configured_llm,
 )
 from ...services.tts import TTSServiceError
-from ...ui.state import get_vault_password
 from ..chat_commands import command_suggestions, parse_command_input, resolve_chat_command
 from ..components.busy import BusyController
 from ..components.composer import COMPOSER_CSS, install_composer_gestures, render_swipe_menu
@@ -94,6 +92,7 @@ from ..group_setup import (
     run_assist,
 )
 from ..scaffold import p3_page
+from ..state import get_vault_password
 
 _DIALOG_CARD_STYLE = "background: var(--panel); color: var(--text);"
 
@@ -1702,7 +1701,7 @@ class Ui2GroupChatController:
         await self.send_message(False, submitted)
 
     async def _guide_from_long_tap(self, e) -> None:
-        """送信ボタンのロングタップ(旧UIパリティ): 入力値を指示にして /guide を送る。"""
+        """送信ボタンのロングタップ: 入力値を指示にして /guide を送る。"""
         value = str(e.args[0] or "") if isinstance(e.args, list) and e.args else str(e.args or "")
         parsed = parse_command_input(value)
         left_text = parsed[0] if parsed is not None else value

@@ -3,8 +3,7 @@
 
 - 進捗イベント → 「章立て」表示(モック generation.html 状態B)の状態機械
 - 完成表示(状態C)の facts チップ・品質ラベル
-- 詳細ログ生成(旧 `ui/components/generation_result.py::build_generation_log` の
-  ui2 複製。依存規則により import せず複製し、旧UI削除時に旧側を消す)
+- 詳細ログ生成(build_generation_log)
 """
 
 from __future__ import annotations

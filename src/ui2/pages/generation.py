@@ -6,7 +6,7 @@
   修正 → 暫定キャラシ(/generation/review/{job_id})で差分確認
 - モード3種(新規/既存キャラを修正/関連キャラを生成)・プリセット・
   カスタム選択肢(設定の option_lists)・LLMプロファイル選択・停止
-- シート/一覧からの送出プロトコル `gen_mode` / `gen_char_id` を旧UIと共有
+- シート/一覧からの送出プロトコルは `gen_mode` / `gen_char_id`
 - 復帰: 実行中ジョブのみ(`ui2_active_generation` scope "global" →
   無ければ get_latest_active_job)。完了済みジョブは再生しない
 """
@@ -28,7 +28,6 @@ from ...core.character_generation.schemas import (
     ProgressEventType,
 )
 from ...services.character_generation import GenerationJob
-from ...ui.state import get_vault_password
 from ..components.portrait import face_crop_style
 from ..components.sparkle import sparkle_field
 from ..generation_ui import (
@@ -48,6 +47,7 @@ from ..group_setup import (
     profile_options_for_context,
 )
 from ..scaffold import p3_page
+from ..state import get_vault_password
 
 _MODE_LABELS: list[tuple[str, str]] = [
     ("new", "新規生成"),
@@ -67,7 +67,7 @@ def _generation_default_profile_id(ctx, options: dict[str, str]) -> str:
 async def ui2_generation_page() -> None:
     ctx = get_context()
 
-    # シート/一覧からの送出プロトコル(旧UIと共有)
+    # シート/一覧からの送出プロトコル
     preset_mode = str(app.storage.user.pop("gen_mode", "") or "")
     preset_char_id = str(app.storage.user.pop("gen_char_id", "") or "")
     preset_char = await ctx.characters.get(preset_char_id) if preset_char_id else None

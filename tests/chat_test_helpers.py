@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.core.character.schemas import CharacterSheet
-from src.ui.chat.models import ChatMessagePreview, ChatSessionSettings
+from src.core.conversation.schemas import ChatMessagePreview, ChatSessionSettings
 
 
 def make_chat_sheet() -> CharacterSheet:

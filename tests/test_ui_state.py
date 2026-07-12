@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.ui import state
+from src.ui2 import state
 
 
 @pytest.fixture(autouse=True)

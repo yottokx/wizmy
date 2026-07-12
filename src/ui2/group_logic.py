@@ -3,7 +3,6 @@
 
 参加者の整形・ハンドル検証・次の話者候補の推定・適応差分HTMLなど、
 描画から切り離してテストできる関数を持つ。
-旧UI `src/ui/group_chat/` の同等ロジックの ui2 版(依存規則により複製・整理)。
 """
 
 from __future__ import annotations
