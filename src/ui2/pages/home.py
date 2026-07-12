@@ -42,7 +42,7 @@ _PAGE_CSS = """
 /* 立ち絵 — 画面の主役。UIより先に「その子がいる」 */
 .stage {
   position: absolute;
-  top: 0; right: 0; bottom: 0;
+  top: 0; left: 0; bottom: 0;
   width: 52%;
   pointer-events: none;
 }
@@ -55,10 +55,10 @@ _PAGE_CSS = """
   object-position: center 12%;
   opacity: 0;
   transition: opacity .6s ease;
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 32%),
+  -webkit-mask-image: linear-gradient(to left, transparent 0%, #000 32%),
                       linear-gradient(to top, transparent 0%, #000 26%);
   -webkit-mask-composite: source-in;
-  mask-image: linear-gradient(to right, transparent 0%, #000 32%);
+  mask-image: linear-gradient(to left, transparent 0%, #000 32%);
 }
 .stage img.on { opacity: 1; }
 .stage::after {
@@ -72,7 +72,8 @@ _PAGE_CSS = """
   position: relative;
   z-index: 2;
   max-width: 600px;
-  padding: 9vh 0 0 6vw;
+  margin-left: auto;
+  padding: 9vh 6vw 0 0;
 }
 .greet .date { color: var(--muted); font-size: 13px; letter-spacing: .22em; }
 .greet .name {
@@ -90,7 +91,8 @@ _PAGE_CSS = """
 .companions {
   position: relative;
   z-index: 2;
-  margin: 7vh 0 0 6vw;
+  max-width: 600px;
+  margin: 7vh 6vw 0 auto;
 }
 .companions .lbl { font-size: 12px; letter-spacing: .28em; color: var(--muted); margin-bottom: 12px; }
 .companions .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
@@ -159,10 +161,10 @@ _PAGE_CSS = """
     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 24%);
     mask-image: linear-gradient(to bottom, transparent 0%, #000 24%);
   }
-  .greet { padding: 5vh 6vw 0; max-width: none; }
+  .greet { padding: 5vh 6vw 0; max-width: none; margin-left: 0; }
   .greet .name { font-size: 32px; }
   .greet .bubble { font-size: 14.5px; }
-  .companions { margin-top: 5vh; }
+  .companions { margin: 5vh 6vw 0; max-width: none; }
   .companions img.avatar, .companions .more { width: 50px; height: 50px; }
   .bookmarks { padding-top: 6vh; }
   .bm-row { grid-template-columns: 1fr; }

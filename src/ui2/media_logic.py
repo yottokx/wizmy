@@ -1,18 +1,18 @@
 """
 メディア編集ページ(Phase 6)の純ロジック。
 
-- プロンプトのタグ分解/結合と「候補から反映」の置き換え規則
-  (旧 `character_media_image.py` の _replace_generated_prompt_html 相当を
-  タグ提供元(プロファイル由来 / 候補由来)の見える化として再設計)
+- プロンプトエディタ(色分けテキストボックス)のHTML変換と
+  「候補から反映」の置き換え規則
+  (旧 `character_media_image.py` から複製。§1-2 の規則により import しない)
 - ボイスキャプションの整形とシート素材の組み立て
-  (旧 `character_media_voice.py` から複製。§1-2 の規則により import しない)
+  (旧 `character_media_voice.py` から複製)
 - gen_server パラメータ値の型読み取り(旧 _read_gen_server_param_value 相当)
 """
 
 from __future__ import annotations
 
+import html as html_module
 import re
-from dataclasses import dataclass, field
 
 from ..core.character.schemas import CharacterSheet
 
@@ -48,43 +48,79 @@ def dedupe_tags(tags: list[str]) -> list[str]:
     return result
 
 
-@dataclass
-class PromptTagBox:
-    """提供元つきのプロンプトタグ集合。
+# ---------------------------------------------------------------------------
+# プロンプトエディタ(色分けテキストボックス)のHTML変換
+# 候補由来の部分は <span data-wizmy-generated-prompt> で色分けされ、
+# 候補を再適用するとその部分だけが置き換わる
+# ---------------------------------------------------------------------------
 
-    - base: プロファイル由来+手入力タグ
-    - generated: 「候補から反映」されたタグ(候補を再適用すると丸ごと置き換わる。
-      旧UIの _replace_generated_prompt_html と同じ挙動の見える化)
-    """
+_GENERATED_PROMPT_RE = re.compile(
+    r"<(?:span|strong)\b(?=[^>]*(?:data-wizmy-generated-prompt|wizmy-generated-prompt))[^>]*>"
+    r".*?</(?:span|strong)>\s*",
+    re.IGNORECASE | re.DOTALL,
+)
 
-    base: list[str] = field(default_factory=list)
-    generated: list[str] = field(default_factory=list)
+_GENERATED_NEGATIVE_PROMPT_RE = re.compile(
+    r"<(?:span|strong)\b(?=[^>]*(?:data-wizmy-generated-negative-prompt|wizmy-generated-negative-prompt))[^>]*>"
+    r".*?</(?:span|strong)>\s*",
+    re.IGNORECASE | re.DOTALL,
+)
 
-    @classmethod
-    def from_profile(cls, prompt: str) -> "PromptTagBox":
-        return cls(base=dedupe_tags(split_prompt_tags(prompt)))
 
-    def add(self, text: str) -> None:
-        for tag in split_prompt_tags(text):
-            if _tag_key(tag) not in {_tag_key(t) for t in self.base + self.generated}:
-                self.base.append(tag)
+def prompt_text_to_editor_html(value: str) -> str:
+    lines = str(value or "").splitlines()
+    if not lines:
+        return ""
+    return "<br>".join(html_module.escape(line) for line in lines)
 
-    def remove(self, tag: str, *, generated: bool) -> None:
-        target = self.generated if generated else self.base
-        key = _tag_key(tag)
-        for item in list(target):
-            if _tag_key(item) == key:
-                target.remove(item)
 
-    def apply_candidate(self, candidate_prompt: str) -> None:
-        """候補プロンプトを反映する(候補由来タグだけを置き換える)。"""
-        base_keys = {_tag_key(t) for t in self.base}
-        self.generated = [
-            tag for tag in dedupe_tags(split_prompt_tags(candidate_prompt)) if _tag_key(tag) not in base_keys
-        ]
+def editor_html_to_prompt(value: str) -> str:
+    text = str(value or "")
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(?:p|div|li|h[1-6])>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html_module.unescape(text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return " ".join(lines).strip()
 
-    def prompt(self) -> str:
-        return join_prompt_tags(self.base + self.generated)
+
+def _replace_generated_editor_html(
+    current_html: str,
+    generated_prompt: str,
+    *,
+    marker: str,
+    css_class: str,
+    pattern: re.Pattern[str],
+) -> str:
+    body = pattern.sub("", str(current_html or ""), count=1).lstrip()
+    has_existing_prompt = bool(editor_html_to_prompt(body))
+    generated_text = generated_prompt.strip()
+    if not generated_text:
+        return body
+    if has_existing_prompt:
+        generated_text = f"{generated_text}, "
+    generated_html = f'<span {marker}="1" class="{css_class}">{prompt_text_to_editor_html(generated_text)}</span>'
+    return f"{generated_html}{body}"
+
+
+def replace_generated_prompt_html(current_html: str, generated_prompt: str) -> str:
+    return _replace_generated_editor_html(
+        current_html,
+        generated_prompt,
+        marker="data-wizmy-generated-prompt",
+        css_class="wizmy-generated-prompt",
+        pattern=_GENERATED_PROMPT_RE,
+    )
+
+
+def replace_generated_negative_prompt_html(current_html: str, generated_prompt: str) -> str:
+    return _replace_generated_editor_html(
+        current_html,
+        generated_prompt,
+        marker="data-wizmy-generated-negative-prompt",
+        css_class="wizmy-generated-negative-prompt",
+        pattern=_GENERATED_NEGATIVE_PROMPT_RE,
+    )
 
 
 def normalize_candidate_tag(value: str) -> str:

@@ -66,12 +66,16 @@ from ..services.llm_runtime import (
 )
 from ..ui.state import get_vault_password
 from .media_logic import (
-    PromptTagBox,
     candidate_negative_tags,
     clean_voice_caption,
+    editor_html_to_prompt,
     generated_image_size_label,
+    join_prompt_tags,
     message_content_text,
+    prompt_text_to_editor_html,
     read_param_value,
+    replace_generated_negative_prompt_html,
+    replace_generated_prompt_html,
     voice_caption_sheet_source,
 )
 from .sheet_logic import kanji_number
@@ -98,16 +102,13 @@ MEDIA_CSS = """
 
 .panel {
   position: relative;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 26px;
-  padding: 28px;
+  padding: 6px 0 10px;
   overflow: hidden;
 }
 
 /* ---------- 画像: いま ---------- */
 .img-now { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 30px; }
-.img-main { position: relative; border-radius: 20px; overflow: hidden; aspect-ratio: 3 / 4; background: var(--bg-2); }
+.img-main { position: relative; border-radius: 6px; overflow: hidden; aspect-ratio: 3 / 4; background: var(--bg-2); }
 .img-main img { width: 100%; height: 100%; object-fit: cover; object-position: center 8%; }
 .img-main .main-ph {
   width: 100%; height: 100%;
@@ -129,7 +130,7 @@ MEDIA_CSS = """
 
 .th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
 .th {
-  position: relative; border-radius: 12px; overflow: hidden;
+  position: relative; border-radius: 6px; overflow: hidden;
   aspect-ratio: 3 / 4; border: 1px solid var(--line-2);
   background: var(--bg-2); cursor: pointer;
 }
@@ -158,44 +159,42 @@ MEDIA_CSS = """
 .th.add:hover { color: var(--text); border-color: var(--accent); }
 
 /* ---------- 生成ワークスペース ---------- */
-.ws { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 30px; }
+.ws { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 30px; }
+.gen-side { min-width: 0; display: flex; flex-direction: column; }
+.gen-run { display: flex; gap: 10px; align-items: center; }
+.gen-run .p3-fd { flex: 1; min-width: 0; }
+.gen-run .btn { flex: none; }
 .tools { min-width: 0; }
 .tools .frow { margin-bottom: 14px; }
 .tools .fl { display: block; font-size: 11px; letter-spacing: .14em; color: var(--muted); margin-bottom: 6px; }
 
 /* Quasar 部品の P3 スキン(シートページの .p3-ta と同系) */
 .p3-fd { width: 100%; }
-.p3-fd .q-field__control { background: var(--bg-2) !important; border-radius: 12px; }
+.p3-fd .q-field__control { background: var(--bg-2) !important; border-radius: 6px; }
 .p3-fd .q-field__control:before { border-color: var(--line-2) !important; }
 .p3-fd textarea, .p3-fd input, .p3-fd .q-field__native { color: var(--text) !important; }
 
-/* プロンプト = タグの箱 */
-.tagbox {
+/* プロンプト = 色分けテキストボックス(候補由来だけ色が付く) */
+.p3-editor {
+  width: 100%;
   background: var(--bg-2);
-  border: 1px solid var(--line-2);
-  border-radius: 14px;
-  padding: 10px 12px;
-  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-  min-height: 74px;
-  cursor: text;
+  border: 1px solid var(--line-2) !important;
+  border-radius: 6px;
+  transition: border-color .18s;
 }
-.tagbox:focus-within { border-color: var(--peri); }
-.tagbox .tg {
-  font-size: 12px; letter-spacing: .02em;
-  border: 1px solid var(--line-2); border-radius: 4px;
-  padding: 2px 10px; color: var(--text);
-  background: color-mix(in srgb, var(--peri) 10%, transparent);
-  cursor: pointer; white-space: nowrap;
+.p3-editor .q-editor__toolbar, .p3-editor .q-editor__toolbars-container { display: none !important; }
+.p3-editor .q-editor__content {
+  min-height: 88px;
+  padding: 10px 14px !important;
+  color: var(--text) !important;
+  font-size: 13px;
+  line-height: 1.9 !important;
 }
-.tagbox .tg:hover { border-color: var(--negative, #e08a8a); text-decoration: line-through; }
-.tagbox .tg.gen { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: var(--accent); }
-.tagbox .tg.neg { background: transparent; color: var(--muted); }
-.tagbox input {
-  flex: 1; min-width: 110px;
-  background: transparent; border: none; outline: none;
-  color: var(--text); font-size: 12.5px;
-}
-.tagbox input::placeholder { color: var(--muted); }
+.p3-editor .q-editor__content:focus { outline: none; }
+.p3-editor:focus-within { border-color: var(--accent) !important; }
+.p3-editor-negative .q-editor__content { min-height: 60px; }
+.p3-editor .wizmy-generated-prompt { color: var(--accent); font-weight: 600; }
+.p3-editor .wizmy-generated-negative-prompt { color: var(--negative, #e08a8a); font-weight: 600; }
 .tagnote { font-size: 11px; color: var(--muted); margin-top: 6px; }
 .tagnote .sw { display: inline-block; width: 9px; height: 9px; border-radius: 3px; vertical-align: -1px; margin: 0 4px 0 10px; }
 
@@ -220,12 +219,12 @@ details.params[open] summary::before { content: "▾ "; }
 .cands { min-width: 0; display: flex; flex-direction: column; }
 .cands .cttl { font-size: 15px; letter-spacing: .18em; color: var(--muted); margin-bottom: 14px; }
 .cand-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-.cand-view { position: relative; border-radius: 20px; overflow: hidden; background: var(--bg-2); border: 1px solid var(--line); }
+.cand-view { position: relative; border-radius: 6px; overflow: hidden; background: var(--bg-2); border: 1px solid var(--line); }
 .cand-view img { width: 100%; max-height: 560px; object-fit: contain; display: block; margin: 0 auto; }
 .cand-bar { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
 .cand-bar .meta { font-size: 12px; color: var(--muted); word-break: break-all; }
 .cand-empty {
-  border: 1px dashed var(--line-2); border-radius: 20px;
+  border: 1px dashed var(--line-2); border-radius: 6px;
   min-height: 320px; display: grid; place-items: center;
   color: var(--muted); font-size: 13px;
   text-align: center; padding: 20px;
@@ -237,14 +236,14 @@ details.params[open] summary::before { content: "▾ "; }
 .vplayer {
   flex: 1; min-width: 280px;
   background: var(--bg-2); border: 1px solid var(--line-2);
-  border-radius: 16px; padding: 10px 14px;
+  border-radius: 6px; padding: 10px 14px;
 }
 .vfile { font-size: 11.5px; color: var(--muted); word-break: break-all; width: 100%; margin-top: 10px; }
 
 .vd-cands .vrow {
   display: flex; align-items: center; gap: 14px;
   background: var(--bg-2); border: 1px solid var(--line-2);
-  border-radius: 16px; padding: 12px 16px; margin-bottom: 10px;
+  border-radius: 6px; padding: 12px 16px; margin-bottom: 10px;
 }
 .vd-cands .vrow .no { color: var(--peri); font-family: "Yu Mincho", serif; flex: none; }
 .vd-cands .vrow .vplayer { padding: 4px 8px; min-width: 0; border: none; background: transparent; }
@@ -252,10 +251,8 @@ details.params[open] summary::before { content: "▾ "; }
 .cap-row .p3-fd { flex: 1; }
 .ckb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin: 12px 0 0; }
 
-/* ---------- TTS設定(行リスト) ---------- */
-.tts-rows { border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--bg-2); }
-.tts-row { display: flex; align-items: center; gap: 16px; padding: 13px 18px; flex-wrap: wrap; }
-.tts-row + .tts-row { border-top: 1px solid var(--line); }
+/* ---------- TTS設定(行リスト・罫線なし) ---------- */
+.tts-row { display: flex; align-items: center; gap: 16px; padding: 9px 4px; flex-wrap: wrap; }
 .tts-row .t { font-size: 13px; font-weight: 600; letter-spacing: .04em; width: 130px; flex: none; }
 .tts-row .d { font-size: 11px; color: var(--muted); width: 100%; }
 .tts-row .end { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
@@ -266,7 +263,7 @@ details.params[open] summary::before { content: "▾ "; }
 /* ============ 縦画面・スマホ ============ */
 @media (max-width: 900px) {
   .wrap { padding: 24px 16px 24px; }
-  .panel { padding: 20px 16px; }
+  .panel { padding: 4px 0 8px; }
   .img-now, .ws { grid-template-columns: 1fr; gap: 22px; }
   .img-main { max-width: 300px; margin: 0 auto; width: 100%; }
   .pgrid { grid-template-columns: 1fr; }
@@ -826,8 +823,6 @@ def render_image_workspace(
         }
         initial_prompt = selected_profile.prompt or default_prompt
         state: dict[str, Any] = {
-            "prompt": PromptTagBox.from_profile(initial_prompt),
-            "negative": PromptTagBox.from_profile(selected_profile.negative_prompt),
             "candidates": [],
             "generated": [],
             "selected_index": 0,
@@ -839,39 +834,10 @@ def render_image_workspace(
         candidates_btn: ui.element | None = None
 
         with ui.element("div").classes("tools"):
-            with ui.element("div").classes("frow"):
-                with ui.element("span").classes("fl"):
-                    ui.html("画像生成プロファイル")
-                profile_select = (
-                    ui.select(
-                        options={p.id: p.name or "無題のプロファイル" for p in profiles},
-                        value=selected_profile.id,
-                    )
-                    .props("outlined dense")
-                    .classes("p3-fd")
-                )
-
-            with ui.element("div").classes("frow"):
-                with ui.element("span").classes("fl"):
-                    ui.html("プロンプト")
-                prompt_box = ui.element("div").classes("tagbox").mark("ui2-media-prompt-box")
-                with ui.element("div").classes("tagnote"):
-                    ui.html(
-                        '<span class="sw" style="background: color-mix(in srgb, var(--peri) 30%, transparent);">'
-                        "</span>プロファイル由来・手入力"
-                        '<span class="sw" style="background: color-mix(in srgb, var(--accent) 40%, transparent);">'
-                        "</span>候補から反映(再生成で置き換わる)。タグはクリックで削除"
-                    )
-
-            with ui.element("div").classes("frow"):
-                with ui.element("span").classes("fl"):
-                    ui.html("ネガティブプロンプト")
-                negative_box = ui.element("div").classes("tagbox").style("min-height: 46px;")
-
             if not simple:
                 with ui.element("div").classes("frow"):
                     with ui.element("span").classes("fl"):
-                        ui.html("プロンプト候補(シートから提案)")
+                        ui.html("プロンプト生成プロファイル")
                     with ui.element("div").classes("cand-row"):
                         llm_select = (
                             ui.select(
@@ -882,8 +848,55 @@ def render_image_workspace(
                             .classes("p3-fd")
                             .style("flex: 1; min-width: 160px; width: auto;")
                         )
-                        candidates_btn = chip_button("候補を出す", lambda: _generate_prompt_candidates())
+                        candidates_btn = chip_button("プロンプト生成", lambda: _generate_prompt_candidates())
                     candidate_chips = ui.element("div").classes("cand-row")
+
+            with ui.element("div").classes("frow"):
+                with ui.element("span").classes("fl"):
+                    ui.html("プロンプト")
+                prompt_editor = (
+                    ui.editor(
+                        value=prompt_text_to_editor_html(initial_prompt),
+                        placeholder="画像生成プロンプト",
+                    )
+                    .classes("p3-editor")
+                    .mark("ui2-media-prompt-box")
+                )
+                with ui.element("div").classes("tagnote"):
+                    ui.html(
+                        '<span class="sw" style="background: var(--accent);"></span>'
+                        "色付きの部分は候補から反映(候補を選び直すと置き換わります)"
+                    )
+
+            with ui.element("div").classes("frow"):
+                with ui.element("span").classes("fl"):
+                    ui.html("ネガティブプロンプト")
+                negative_editor = (
+                    ui.editor(
+                        value=prompt_text_to_editor_html(selected_profile.negative_prompt),
+                        placeholder="除外したい要素",
+                    )
+                    .classes("p3-editor p3-editor-negative")
+                )
+
+        # ---- 右: 実行(プロファイル+生成)+詳細パラメータ+生成候補 ----
+
+        with ui.element("div").classes("gen-side"):
+            with ui.element("div").classes("frow"):
+                with ui.element("span").classes("fl"):
+                    ui.html("画像生成プロファイル")
+                with ui.element("div").classes("gen-run"):
+                    profile_select = (
+                        ui.select(
+                            options={p.id: p.name or "無題のプロファイル" for p in profiles},
+                            value=selected_profile.id,
+                        )
+                        .props("outlined dense")
+                        .classes("p3-fd")
+                    )
+                    generate_btn = p3_button("生成する", lambda: _generate(), classes="btn primary")
+                    generate_btn.mark("ui2-media-image-generate")
+                status = ui.element("span").classes("ws-status")
 
             with ui.element("details").classes("params"):
                 with ui.element("summary"):
@@ -915,57 +928,11 @@ def render_image_workspace(
                         else:
                             controls[key] = build_param_control(key, spec, value)
 
-            with ui.element("div").classes("ws-go"):
-                generate_btn = p3_button("生成する", lambda: _generate(), classes="btn primary")
-                generate_btn.mark("ui2-media-image-generate")
-                status = ui.element("span").classes("ws-status")
-
-        # ---- タグ箱の描画 ----
-
-        def _render_tagbox(box_el: ui.element, box: PromptTagBox, *, negative: bool) -> None:
-            box_el.clear()
-            with box_el:
-                for tag, generated in [(t, False) for t in box.base] + [(t, True) for t in box.generated]:
-                    classes = "tg"
-                    if generated:
-                        classes += " gen"
-                    if negative:
-                        classes += " neg"
-                    chip = ui.element("span").classes(classes).props('title="クリックで削除"')
-                    with chip:
-                        ui.html(html.escape(tag))
-                    chip.on(
-                        "click",
-                        lambda t=tag, g=generated: _remove_tag(box_el, box, t, generated=g, negative=negative),
-                    )
-                tag_input = ui.element("input").props('placeholder="タグを入力…(Enterで追加)"')
-                tag_input.on(
-                    "keydown.enter",
-                    js_handler=(
-                        "(e) => { const v = e.target.value.trim();"
-                        " if (v) { emit(v); e.target.value = ''; } }"
-                    ),
-                    handler=lambda e, b=box, el=box_el, neg=negative: _add_tag(el, b, str(e.args), negative=neg),
-                )
-
-        def _add_tag(box_el: ui.element, box: PromptTagBox, text: str, *, negative: bool) -> None:
-            box.add(text)
-            _render_tagbox(box_el, box, negative=negative)
-
-        def _remove_tag(box_el: ui.element, box: PromptTagBox, tag: str, *, generated: bool, negative: bool) -> None:
-            box.remove(tag, generated=generated)
-            _render_tagbox(box_el, box, negative=negative)
-
-        _render_tagbox(prompt_box, state["prompt"], negative=False)
-        _render_tagbox(negative_box, state["negative"], negative=True)
-
-        # ---- 右: 生成候補 ----
-
-        with ui.element("div").classes("cands"):
-            with ui.element("div").classes("cttl serif"):
-                ui.html("生成候補")
-            cand_tabs = ui.element("div").classes("cand-tabs")
-            cand_view = ui.element("div")
+            with ui.element("div").classes("cands").style("margin-top: 18px;"):
+                with ui.element("div").classes("cttl serif"):
+                    ui.html("生成候補")
+                cand_tabs = ui.element("div").classes("cand-tabs")
+                cand_view = ui.element("div")
 
         def _set_status(text: str) -> None:
             status.clear()
@@ -974,10 +941,8 @@ def render_image_workspace(
 
         def _apply_profile(profile: ImageGenerationProfile) -> None:
             values = image_generation_profile_values(profile)
-            state["prompt"] = PromptTagBox.from_profile(str(values.get("prompt") or "") or default_prompt)
-            state["negative"] = PromptTagBox.from_profile(str(values.get("negative_prompt") or ""))
-            _render_tagbox(prompt_box, state["prompt"], negative=False)
-            _render_tagbox(negative_box, state["negative"], negative=True)
+            prompt_editor.set_value(prompt_text_to_editor_html(str(values.get("prompt") or "") or default_prompt))
+            negative_editor.set_value(prompt_text_to_editor_html(str(values.get("negative_prompt") or "")))
             for key, spec in param_fields.items():
                 if key in controls:
                     controls[key].set_value(values.get(key, spec.get("default")))
@@ -991,8 +956,8 @@ def render_image_workspace(
 
         def _read_params() -> dict[str, object]:
             params: dict[str, object] = {
-                "prompt": state["prompt"].prompt(),
-                "negative_prompt": state["negative"].prompt(),
+                "prompt": editor_html_to_prompt(str(prompt_editor.value or "")),
+                "negative_prompt": editor_html_to_prompt(str(negative_editor.value or "")),
             }
             for key, spec in param_fields.items():
                 if key in controls:
@@ -1019,11 +984,13 @@ def render_image_workspace(
             prompt = str(getattr(candidate, "prompt", "") or "").strip()
             if not prompt:
                 return
-            state["prompt"].apply_candidate(prompt)
-            negative = state["negative"]
-            negative.apply_candidate(", ".join(candidate_negative_tags(candidate)))
-            _render_tagbox(prompt_box, state["prompt"], negative=False)
-            _render_tagbox(negative_box, state["negative"], negative=True)
+            prompt_editor.set_value(replace_generated_prompt_html(str(prompt_editor.value or ""), prompt))
+            negative_editor.set_value(
+                replace_generated_negative_prompt_html(
+                    str(negative_editor.value or ""),
+                    join_prompt_tags(candidate_negative_tags(candidate)),
+                )
+            )
 
         async def _generate_prompt_candidates() -> None:
             if llm_select is None:

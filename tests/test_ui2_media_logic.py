@@ -6,11 +6,13 @@ from types import SimpleNamespace
 
 from src.core.character.schemas import CharacterSheet
 from src.ui2.media_logic import (
-    PromptTagBox,
     candidate_negative_tags,
     clean_voice_caption,
+    editor_html_to_prompt,
     generated_image_size_label,
+    prompt_text_to_editor_html,
     read_param_value,
+    replace_generated_prompt_html,
     split_prompt_tags,
     voice_caption_sheet_source,
 )
@@ -21,37 +23,29 @@ def test_split_prompt_tags_handles_commas_and_newlines() -> None:
     assert split_prompt_tags("") == []
 
 
-def test_prompt_tag_box_from_profile_dedupes() -> None:
-    box = PromptTagBox.from_profile("1girl, solo, 1girl, Solo")
-    assert box.base == ["1girl", "solo"]
-    assert box.prompt() == "1girl, solo"
+def test_editor_html_roundtrip() -> None:
+    html_value = prompt_text_to_editor_html("1girl, solo\nfull body")
+    assert html_value == "1girl, solo<br>full body"
+    assert editor_html_to_prompt(html_value) == "1girl, solo full body"
+    assert editor_html_to_prompt("") == ""
 
 
-def test_prompt_tag_box_apply_candidate_replaces_generated_only() -> None:
-    box = PromptTagBox.from_profile("1girl, solo")
-    box.apply_candidate("silver hair, ancient library")
-    assert box.generated == ["silver hair", "ancient library"]
-    # 候補を再適用すると候補由来だけが置き換わる
-    box.apply_candidate("red hair")
-    assert box.base == ["1girl", "solo"]
-    assert box.generated == ["red hair"]
-    assert box.prompt() == "1girl, solo, red hair"
+def test_replace_generated_prompt_html_replaces_generated_only() -> None:
+    base = prompt_text_to_editor_html("1girl, solo")
+    first = replace_generated_prompt_html(base, "silver hair, ancient library")
+    assert "wizmy-generated-prompt" in first
+    assert editor_html_to_prompt(first) == "silver hair, ancient library, 1girl, solo"
+    # 候補を再適用すると候補由来だけが置き換わる(手入力・プロファイル分は保持)
+    second = replace_generated_prompt_html(first, "red hair")
+    assert editor_html_to_prompt(second) == "red hair, 1girl, solo"
+    assert second.count("wizmy-generated-prompt") == 2  # marker 属性+class の1組のみ
 
 
-def test_prompt_tag_box_apply_candidate_skips_base_duplicates() -> None:
-    box = PromptTagBox.from_profile("1girl, solo")
-    box.apply_candidate("solo, lamplight")
-    assert box.generated == ["lamplight"]
-
-
-def test_prompt_tag_box_add_and_remove() -> None:
-    box = PromptTagBox.from_profile("1girl")
-    box.add("solo, 1girl")  # 重複は追加されない
-    assert box.base == ["1girl", "solo"]
-    box.apply_candidate("lamplight")
-    box.remove("solo", generated=False)
-    box.remove("lamplight", generated=True)
-    assert box.prompt() == "1girl"
+def test_replace_generated_prompt_html_without_existing_body() -> None:
+    result = replace_generated_prompt_html("", "lamplight")
+    assert editor_html_to_prompt(result) == "lamplight"
+    # 空候補は既存の生成スパンを除去するだけ
+    assert editor_html_to_prompt(replace_generated_prompt_html(result, "")) == ""
 
 
 def test_candidate_negative_tags_merges_and_dedupes() -> None:
