@@ -124,13 +124,15 @@ class CharacterService:
         audio_bytes: bytes,
         *,
         replace_existing: bool = True,
+        prefix: str = "preview",
     ) -> Path:
         return self._media_files.save_tts_preview(
             self._character_media_root(character_id),
             audio_bytes,
             replace_existing=replace_existing,
             empty_error_message="音声データが空です。",
-            replace_glob="preview-*.wav",
+            replace_glob=f"{prefix}-*.wav",
+            prefix=prefix,
         )
 
     def save_image_preview(

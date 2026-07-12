@@ -1758,7 +1758,8 @@ def render_tts_settings(ctx, target: MediaTarget, refresh: Callable[[], None]) -
             def _save_preview(audio: bytes, job) -> dict[str, str]:
                 if target.save_tts_preview is None:
                     raise RuntimeError("音声プレビューの保存処理が設定されていません。")
-                preview_path = target.save_tts_preview(audio)
+                # ボイスデザイン候補(preview-*)を消さないよう、試し読みは専用 prefix で保存する
+                preview_path = target.save_tts_preview(audio, prefix="tryout")
                 return {"result_url": target.result_url, "preview_path": str(preview_path)}
 
             job = ctx.tts.start_synthesize_job(

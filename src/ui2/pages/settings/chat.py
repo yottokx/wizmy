@@ -18,6 +18,8 @@ from ....core.tts.options import PERSONA_GEN_SERVER_VOICE_API_VALUE
 from ...components.portrait import media_url as portrait_media_url
 from ...media_ui import (
     MediaTarget,
+    _media_without_image,
+    _unlink_media_file,
     render_image_now,
     render_image_workspace,
     render_tts_settings,
@@ -193,6 +195,19 @@ def _persona_media_target(ctx, state: dict, refresh_list) -> MediaTarget:
     async def _update_tts(settings):
         return ctx.user_personas.update_user_persona_tts_settings(persona_id, settings)
 
+    async def _delete_image(asset) -> UserPersona:
+        persona = _persona().model_copy(deep=True)
+        persona.media = _media_without_image(persona.media, asset)
+        ctx.user_personas.update_user_persona(persona)
+        _unlink_media_file(ctx.user_personas.media_path, asset.path)
+        return persona
+
+    async def _set_primary(asset_id: str) -> UserPersona:
+        persona = _persona().model_copy(deep=True)
+        persona.media.primary_image_id = asset_id
+        ctx.user_personas.update_user_persona(persona)
+        return persona
+
     return MediaTarget(
         name=_persona().display_name or "ユーザー",
         tts_id=f"user-persona-{persona_id}",
@@ -210,6 +225,8 @@ def _persona_media_target(ctx, state: dict, refresh_list) -> MediaTarget:
         save_image_preview=lambda image_bytes, **kwargs: ctx.user_personas.save_user_persona_image_preview(
             persona_id, image_bytes, **kwargs
         ),
+        delete_image=_delete_image,
+        set_primary_image=_set_primary,
         save_voice=lambda upload: ctx.user_personas.save_user_persona_voice(persona_id, upload),
         save_voice_bytes=lambda audio_bytes, **kwargs: ctx.user_personas.save_user_persona_voice_bytes(
             persona_id, audio_bytes, **kwargs

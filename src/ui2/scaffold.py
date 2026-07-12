@@ -11,6 +11,7 @@ P3「With」ページの共通スキャフォールド。
 
 from __future__ import annotations
 
+import html
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -473,16 +474,17 @@ def p3_page(active: str = "") -> Iterator[P3Scaffold]:
                 result_url = str(summary.get("result_url") or "")
                 with ui.element("div").classes("wz-job"):
                     with ui.element("div").classes("head"):
-                        ui.html(str(summary["label"])).classes("name")
-                        ui.html(_JOB_STATUS_TEXT.get(status, status)).classes(f"wz-st {status}")
+                        # ラベル(キャラ名含む)・メッセージ・エラーは外部由来の文字列を含むためエスケープする
+                        ui.html(html.escape(str(summary["label"]))).classes("name")
+                        ui.html(html.escape(_JOB_STATUS_TEXT.get(status, status))).classes(f"wz-st {status}")
                     kind = str(summary.get("kind") or "")
                     if kind:
-                        ui.html(kind).classes("kind")
+                        ui.html(html.escape(kind)).classes("kind")
                     message = str(summary.get("progress_message") or "")
                     if message:
-                        ui.html(message).classes("msg")
+                        ui.html(html.escape(message)).classes("msg")
                     if summary.get("error_message"):
-                        ui.html(str(summary["error_message"])).classes("err")
+                        ui.html(html.escape(str(summary["error_message"]))).classes("err")
                     with ui.element("div").classes("ops"):
                         if result_url:
                             _quiet_button("開く", lambda url=result_url: ui.navigate.to(url))

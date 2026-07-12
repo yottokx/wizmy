@@ -130,7 +130,8 @@ def replace_markdown_section(markdown: str, header: str, body: str) -> str:
         re.MULTILINE | re.DOTALL,
     )
     if pattern.search(text):
-        return pattern.sub(section, text, count=1).strip()
+        # 本文の \ や \1 が正規表現の置換記法として解釈されないよう callable で渡す
+        return pattern.sub(lambda _match: section, text, count=1).strip()
     return f"{text}\n\n{section}".strip()
 
 

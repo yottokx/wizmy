@@ -147,12 +147,14 @@ class UserPersonaService:
         audio_bytes: bytes,
         *,
         replace_existing: bool = True,
+        prefix: str = "preview",
     ) -> Path:
         return self._media_files.save_tts_preview(
             self._user_persona_media_root(persona_id),
             audio_bytes,
             replace_existing=replace_existing,
             ignore_delete_errors=True,
+            prefix=prefix,
         )
 
     def save_user_persona_tts_playback(self, persona_id: str, audio_bytes: bytes) -> Path:
@@ -167,12 +169,14 @@ class UserPersonaService:
         audio_bytes: bytes,
         *,
         replace_existing: bool = True,
+        prefix: str = "preview",
     ) -> Path:
         return self._media_files.save_tts_preview(
             self._narrator_media_root(),
             audio_bytes,
             replace_existing=replace_existing,
             ignore_delete_errors=True,
+            prefix=prefix,
         )
 
     def save_narrator_tts_playback(self, audio_bytes: bytes) -> Path:

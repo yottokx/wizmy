@@ -141,7 +141,9 @@ async def test_character_service_media_paths_are_fixed(tmp_path: Path) -> None:
     service_media_file(service, image.path, b"generated-image")
     assert image.width == 0
     assert image.height == 64
-    assert not uploaded_image_path.exists()
+    # 画像はギャラリーへ追加され、既存画像は残る(新しい画像がメインになる)
+    assert len(saved.media.images) == 2
+    assert uploaded_image_path.exists()
 
     saved = await service.save_voice(
         "character-1",
@@ -221,6 +223,33 @@ async def test_character_service_media_paths_are_fixed(tmp_path: Path) -> None:
     assert not (data_dir / "characters" / "character-1").exists()
 
 
+async def test_tryout_tts_preview_does_not_delete_design_candidates(tmp_path: Path) -> None:
+    """試し読み(prefix="tryout")がボイスデザイン候補(preview-*)を消さない回帰テスト。"""
+    data_dir = tmp_path / "data"
+    repo = CharacterRepository(tmp_path / "characters.db")
+    await repo.initialize()
+    service = CharacterService(repo, data_dir)
+    await service.save(CharacterSheet(id="character-1", name="テストキャラ"))
+
+    candidate_1 = service.save_tts_preview("character-1", b"candidate-1", replace_existing=False)
+    candidate_2 = service.save_tts_preview("character-1", b"candidate-2", replace_existing=False)
+
+    tryout_1 = service.save_tts_preview("character-1", b"tryout-1", prefix="tryout")
+    assert candidate_1.exists()
+    assert candidate_2.exists()
+    assert_path_pattern(
+        tryout_1.resolve().relative_to(data_dir.resolve()).as_posix(),
+        rf"characters/character-1/tts/tryout-{UUID_RE}\.wav",
+    )
+
+    # 試し読み同士は置換される(自分の prefix だけを掃除する)
+    tryout_2 = service.save_tts_preview("character-1", b"tryout-2", prefix="tryout")
+    assert not tryout_1.exists()
+    assert tryout_2.exists()
+    assert candidate_1.exists()
+    assert candidate_2.exists()
+
+
 async def test_group_member_media_paths_are_fixed(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     service = GroupChatService(
@@ -289,7 +318,8 @@ async def test_group_member_media_paths_are_fixed(tmp_path: Path) -> None:
     assert image is not None
     assert_path_pattern(image.path, rf"{member_root_pattern}/images/{UUID_RE}\.png")
     service_media_file(service, image.path, b"generated-member-image")
-    assert not uploaded_image_path.exists()
+    assert len(saved.character.media.images) == 2
+    assert uploaded_image_path.exists()
 
     saved = await service.save_member_voice(
         group.id,
@@ -415,7 +445,8 @@ async def test_user_persona_service_persona_and_narrator_media_paths_are_fixed(t
     assert image is not None
     assert_path_pattern(image.path, rf"user_personas/{persona.id}/images/{UUID_RE}\.png")
     service_media_file(service, image.path, b"generated-persona-image")
-    assert not uploaded_image_path.exists()
+    assert len(saved.media.images) == 2
+    assert uploaded_image_path.exists()
 
     saved = await service.save_user_persona_voice(
         persona.id,

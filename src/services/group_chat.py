@@ -399,12 +399,14 @@ class GroupChatService:
         audio_bytes: bytes,
         *,
         replace_existing: bool = True,
+        prefix: str = "preview",
     ) -> Path:
         return self._media_files.save_tts_preview(
             self._member_media_root(group_id, member_id),
             audio_bytes,
             replace_existing=replace_existing,
             delete_only_files=True,
+            prefix=prefix,
         )
 
     def save_member_tts_playback(self, group_id: str, member_id: str, audio_bytes: bytes) -> Path:

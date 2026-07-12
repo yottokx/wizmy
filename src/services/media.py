@@ -122,7 +122,7 @@ class MediaFileService:
             width=width,
             height=height,
         )
-        return await self._replace_primary_image(owner, image)
+        return await self._append_primary_image(owner, image)
 
     async def save_image_bytes(
         self,
@@ -151,7 +151,7 @@ class MediaFileService:
             width=max(0, int(width or 0)),
             height=max(0, int(height or 0)),
         )
-        return await self._replace_primary_image(owner, image)
+        return await self._append_primary_image(owner, image)
 
     async def save_voice_upload(self, owner: MediaOwner[ResultT], upload: Any) -> ResultT:
         filename = getattr(upload, "name", "") or ""
@@ -270,12 +270,13 @@ class MediaFileService:
         ignore_delete_errors: bool = False,
         delete_only_files: bool = False,
         replace_glob: str | None = None,
+        prefix: str = "preview",
     ) -> Path:
         return self.save_temp_file(
             relative_root,
             audio_bytes,
             directory="tts",
-            prefix="preview",
+            prefix=prefix,
             suffix=".wav",
             replace_existing=replace_existing,
             empty_error_message=empty_error_message,
@@ -494,13 +495,13 @@ class MediaFileService:
             image.height = image_height
         media.primary_image_id = image.id
 
-    async def _replace_primary_image(
+    async def _append_primary_image(
         self,
         owner: MediaOwner[ResultT],
         image: CharacterImageAsset,
     ) -> ResultT:
-        old_paths = [current.path for current in owner.media.images]
-        owner.media.images = [image]
+        """画像をギャラリーへ追加し、新しい画像をメインにする(既存画像は残す)。"""
+        owner.media.images = [*owner.media.images, image]
         owner.media.primary_image_id = image.id
         try:
             saved = await self._save_owner(owner)
@@ -509,9 +510,6 @@ class MediaFileService:
             raise
         if self._save_failed(owner, saved):
             self._delete_new_file(owner, image.path)
-            return saved
-        for old_path in old_paths:
-            self._delete_old_file(owner, old_path)
         return saved
 
     async def _replace_primary_voice(

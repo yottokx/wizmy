@@ -573,7 +573,10 @@ class GroupChatServiceTest(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertIsNotNone(saved_again)
-            self.assertFalse(first_path.exists())
+            assert saved_again is not None
+            # 画像はギャラリーへ追加され、以前のグループ内画像も残る
+            self.assertEqual(3, len(saved_again.character.media.images))
+            self.assertTrue(first_path.exists())
             self.assertEqual(b"source-image", source_path.read_bytes())
 
     async def test_create_group_copies_member_and_persona_media_into_group(self) -> None:
