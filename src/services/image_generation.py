@@ -11,7 +11,6 @@ from typing import Any
 import httpx
 
 from ..core.gen_server.schemas import (
-    GEN_SERVER_MODE_SDXL_IMAGE,
     GenServerEndpoint,
     gen_server_api_root,
 )
@@ -46,24 +45,6 @@ class ImageGenerationService:
     ) -> None:
         self._api_config = api_config
         self._ai_jobs = ai_jobs
-
-    def resolve_gen_server_sdxl_endpoint(
-        self,
-        *,
-        raise_on_missing: bool = True,
-    ) -> GenServerEndpoint | None:
-        config = self._api_config.get_gen_server_config()
-        endpoint_id = config.assigned_endpoint_id(GEN_SERVER_MODE_SDXL_IMAGE)
-        if not endpoint_id:
-            if raise_on_missing:
-                raise ImageGenerationError("Wizmy-Gen-ServerのSDXL画像生成割り当てを設定してください。")
-            return None
-        endpoint = self._api_config.get_gen_server_endpoint(endpoint_id)
-        if endpoint is None:
-            if raise_on_missing:
-                raise ImageGenerationError("割り当てられたWizmy-Gen-Serverが見つかりません。")
-            return None
-        return endpoint
 
     def resolve_image_profile(
         self,

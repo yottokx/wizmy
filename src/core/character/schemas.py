@@ -121,13 +121,3 @@ class CharacterSheet(BaseModel):
     generation_meta: GenerationMeta = Field(default_factory=GenerationMeta)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
-
-    def to_display_dict(self) -> dict[str, Any]:
-        """UIでの表示用に基本情報を辞書として返す。"""
-        return {
-            "名前": self.name,
-            "年齢": self.age,
-            "性別": self.gender,
-            "職業・役割": self.occupation,
-            "出身・所属": self.origin,
-        }

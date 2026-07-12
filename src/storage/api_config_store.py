@@ -389,16 +389,6 @@ class ApiConfigStore:
         if cfg.get("chat_profile_id") == profile_id:
             cfg["chat_profile_id"] = cfg.get("generation_profile_id") or fallback_id
 
-    def move_llm_profile(self, profile_id: str, direction: int) -> None:
-        """プロファイルを上(direction=-1)または下(direction=1)に移動する。"""
-        profiles = self._data.setdefault("llm_profiles", [])
-        idx = next((i for i, p in enumerate(profiles) if p["id"] == profile_id), None)
-        if idx is None:
-            return
-        new_idx = idx + direction
-        if 0 <= new_idx < len(profiles):
-            profiles[idx], profiles[new_idx] = profiles[new_idx], profiles[idx]
-
     def reorder_llm_profiles(self, ordered_ids: list[str]) -> None:
         profiles = self._data.setdefault("llm_profiles", [])
         self._data["llm_profiles"] = _ordered_records(profiles, ordered_ids)

@@ -240,43 +240,6 @@ class DanbooruTagDictionary:
                 seen.add(record.tag)
         return [tag for _, _, tag in sorted(scored, reverse=True)[:limit]]
 
-    def search_tags_by_terms(
-        self,
-        terms: Iterable[str],
-        *,
-        limit: int = 24,
-    ) -> list[str]:
-        """LLMが出した検索語から、辞書全体のタグを機械的に探す。"""
-        raw_terms = _string_list(list(terms))
-        search_tokens = _token_set(raw_terms) - _GENERIC_TOKENS
-        if not search_tokens:
-            return []
-
-        scored: list[tuple[int, int, str]] = []
-        seen: set[str] = set()
-        for index, record in enumerate(self.records):
-            if record.tag in seen or self.should_exclude_from_prompt(record):
-                continue
-            record_token_set = record_terms(record)
-            matched = record_token_set & search_tokens
-            if not matched:
-                continue
-
-            score = len(matched) * 5
-            normalized_tag = normalize_tag(record.tag)
-            if normalized_tag in search_tokens:
-                score += 12
-            if set(record.tokens) and set(record.tokens).issubset(search_tokens):
-                score += 8
-            if record.confidence == "high":
-                score += 1
-            elif record.confidence == "low":
-                score -= 2
-            scored.append((score, -index, record.tag))
-            seen.add(record.tag)
-
-        return [tag for _, _, tag in sorted(scored, reverse=True)[:limit]]
-
     def resolve_anchor_tags(
         self,
         terms: Iterable[str],

@@ -29,8 +29,6 @@ from ..core.llm.schemas import (
     LLMProfile,
 )
 from ..core.tts.schemas import (
-    TTS_PROVIDER_IRODORI_GRADIO,
-    TTS_PROVIDER_IRODORI_SERVER,
     TTSConfig,
     TTSEndpoint,
     TTSProvider,
@@ -135,24 +133,9 @@ class ApiConfigService:
         self._store.delete_llm_profile(profile_id)
         self._store.save()
 
-    def move_llm_profile_up(self, profile_id: str) -> None:
-        self._store.move_llm_profile(profile_id, -1)
-        self._store.save()
-
-    def move_llm_profile_down(self, profile_id: str) -> None:
-        self._store.move_llm_profile(profile_id, 1)
-        self._store.save()
-
     def reorder_llm_profiles(self, ordered_ids: list[str]) -> None:
         self._store.reorder_llm_profiles(ordered_ids)
         self._store.save()
-
-    def is_api_key_set(self, endpoint_id: str, vault_pw: str | None) -> bool:
-        """指定エンドポイントのAPIキーが設定済みかを返す。"""
-        if not vault_pw or not self._store.vault.is_setup():
-            return False
-        keys = self._store.vault.load_keys(vault_pw)
-        return endpoint_id in keys
 
     def is_api_key_configured(self, endpoint_id: str) -> bool:
         """指定エンドポイントに暗号化済みAPIキーが保存されているかを返す。"""
@@ -237,18 +220,6 @@ class ApiConfigService:
 
     def get_app_llm_config(self) -> AppLLMConfig:
         return self._store.get_app_llm_config()
-
-    def set_generation_profile(self, profile_id: str) -> None:
-        config = self._store.get_app_llm_config()
-        config.generation_profile_id = profile_id
-        self._store.save_app_llm_config(config)
-        self._store.save()
-
-    def set_chat_profile(self, profile_id: str) -> None:
-        config = self._store.get_app_llm_config()
-        config.chat_profile_id = profile_id
-        self._store.save_app_llm_config(config)
-        self._store.save()
 
     def set_default_profiles(self, generation_profile_id: str, chat_profile_id: str) -> None:
         config = self._store.get_app_llm_config()
@@ -362,55 +333,6 @@ class ApiConfigService:
     def reorder_tts_endpoints(self, ordered_ids: list[str]) -> None:
         self._store.reorder_tts_endpoints(ordered_ids)
         self._store.save()
-
-    def set_default_tts_endpoint(self, endpoint_id: str) -> None:
-        config = self._store.get_tts_config()
-        if endpoint_id and not any(ep.id == endpoint_id for ep in config.endpoints):
-            return
-        config.default_endpoint_id = endpoint_id
-        self.save_tts_config(config)
-
-    def set_irodori_gradio_url(self, url: str) -> TTSConfig:
-        config = self._store.get_tts_config()
-        endpoint = next(
-            (ep for ep in config.endpoints if ep.provider == TTS_PROVIDER_IRODORI_GRADIO),
-            None,
-        )
-        if endpoint is None:
-            endpoint = TTSEndpoint(
-                id=self._store.new_id(),
-                name="Irodori-TTS Gradio",
-                provider=TTS_PROVIDER_IRODORI_GRADIO,
-                base_url=url,
-            )
-            config.endpoints.append(endpoint)
-        else:
-            endpoint = TTSEndpoint(**{**endpoint.model_dump(), "base_url": url})
-            config.endpoints = [endpoint if current.id == endpoint.id else current for current in config.endpoints]
-        config.default_endpoint_id = endpoint.id
-        self.save_tts_config(config)
-        return config
-
-    def set_irodori_tts_server_url(self, url: str) -> TTSConfig:
-        config = self._store.get_tts_config()
-        endpoint = next(
-            (ep for ep in config.endpoints if ep.provider == TTS_PROVIDER_IRODORI_SERVER),
-            None,
-        )
-        if endpoint is None:
-            endpoint = TTSEndpoint(
-                id=self._store.new_id(),
-                name="Irodori-TTS-Server",
-                provider=TTS_PROVIDER_IRODORI_SERVER,
-                base_url=url,
-            )
-            config.endpoints.append(endpoint)
-        else:
-            endpoint = TTSEndpoint(**{**endpoint.model_dump(), "base_url": url})
-            config.endpoints = [endpoint if current.id == endpoint.id else current for current in config.endpoints]
-        config.default_endpoint_id = endpoint.id
-        self.save_tts_config(config)
-        return config
 
     # ─── Wizmy-Gen-Server設定 ───
 

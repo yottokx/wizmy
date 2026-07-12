@@ -194,31 +194,6 @@ class CharacterGenerationService:
         finally:
             job._listeners.discard(notify_queue)
 
-    async def generate_stream(
-        self,
-        request: GenerationRequest,
-        profile: LLMProfile,
-        endpoint: Endpoint,
-        api_key: str | None = None,
-        generation_id: str | None = None,
-        auto_save: bool = True,
-    ) -> AsyncIterator[ProgressEvent]:
-        """
-        生成を実行し、進捗イベントを非同期ストリームで返す。
-
-        生成 ID を指定すると stop() で途中停止できる。
-        """
-        job = self.start_job(
-            request,
-            profile,
-            endpoint,
-            api_key,
-            generation_id,
-            auto_save=auto_save,
-        )
-        async for event in self.stream_events(job.id):
-            yield event
-
     async def _run_job(self, job: GenerationJob, api_key: str | None) -> None:
         job.status = GenerationJobStatus.RUNNING
         job.started_at = datetime.now()
