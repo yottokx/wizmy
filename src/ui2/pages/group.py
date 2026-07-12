@@ -275,7 +275,7 @@ html, body { overscroll-behavior: none; }
 .empty-stream .hello { color: var(--peri); font-size: 11px; letter-spacing: .34em; margin-bottom: 18px; }
 
 /* ---------- コンポーザー ---------- */
-.composer { padding: 14px 34px 20px; border-top: 1px solid var(--line); }
+.composer { padding: 7px 34px 18px; border-top: 1px solid var(--line); }
 .composer-inner { max-width: 760px; margin: 0 auto; }
 /* 入力ボックス(ロール埋め込み)とスワイプメニューは components/composer.py の COMPOSER_CSS */
 .comp-send[disabled] { opacity: .5; pointer-events: none; }
@@ -684,6 +684,8 @@ event => {
     return;
   }
   if (event.shiftKey) return;
+  // スマホ(coarse pointer)では改行キーで投稿しない(送信はボタンのみ)
+  if (window.matchMedia('(pointer: coarse)').matches) return;
   event.preventDefault();
   if (commandMatch && cmdOptions.length) {
     const active = cmdOptions[activeIndex(cmdOptions, 'p3-cmd-option-active')] || cmdOptions[0];
@@ -1126,7 +1128,12 @@ class Ui2GroupChatController:
                                     "document.querySelector('.p3-mention-palette')?.classList.add('hidden');"
                                     "}, 120); }",
                                 )
-                            self.send_btn = ui.element("button").classes("btn primary comp-send").mark("ui2-group-send")
+                            self.send_btn = (
+                                ui.element("button")
+                                .classes("btn primary comp-send")
+                                .props('title="送信(長押しで誘導)" aria-label="送信"')
+                                .mark("ui2-group-send")
+                            )
                             with self.send_btn:
                                 ui.html("送信")
                             install_composer_gestures(
@@ -2155,6 +2162,7 @@ class Ui2GroupChatController:
         self.ctx.ai_jobs.set_result_meta(job.id, {"result_url": self._result_url()})
         generated = await self._wait_for_active_group_job(job.id, failure_message="再生成に失敗しました")
         if generated:
+            self._focus_last_character()
             await self.maybe_generate_auto_title(llm)
 
     # ---- TTS ----

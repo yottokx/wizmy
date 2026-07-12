@@ -16,13 +16,24 @@ from nicegui import ui
 COMPOSER_CSS = """
 /* ロール埋め込み入力ボックス */
 .comp-row { display: flex; gap: 12px; align-items: flex-end; }
+/* ラベルは「送信」だが、ロングタップ(/guide)での文字選択・コールアウトは抑止する */
+.comp-send {
+  flex: none;
+  padding: 9px 10px;
+  font-size: 13.5px;
+  letter-spacing: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
 .comp-box {
   flex: 1; min-width: 0;
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--line-2);
   border-radius: 0;
-  padding: 6px 4px 8px;
+  padding: 3px 4px 2px;
   transition: border-color .18s;
 }
 .comp-box:focus-within { border-bottom-color: var(--accent); }
@@ -46,7 +57,7 @@ COMPOSER_CSS = """
   border: none;
   border-radius: 0;
   padding: 0;
-  min-height: 34px;
+  min-height: 24px;
   color: var(--text);
 }
 .comp-input .q-field__control:before, .comp-input .q-field__control:after { display: none; }
@@ -80,8 +91,8 @@ COMPOSER_CSS = """
 @media (max-width: 860px) {
   .comp-input textarea { font-size: 16px; }
   .comp-row { gap: 8px; }
-  .comp-box { padding: 4px 2px 6px; }
-  .comp-send { flex: none; padding: 8px 14px; font-size: 13px; }
+  .comp-box { padding: 2px 2px 2px; }
+  .comp-send { padding: 8px 9px; font-size: 13px; }
 }
 """
 

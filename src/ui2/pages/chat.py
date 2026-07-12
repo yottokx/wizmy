@@ -228,7 +228,7 @@ html, body { overscroll-behavior: none; }
 .fresh .starters { display: flex; gap: 8px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
 
 /* ---------- コンポーザー ---------- */
-.composer { padding: 14px 34px 20px; border-top: 1px solid var(--line); }
+.composer { padding: 7px 34px 18px; border-top: 1px solid var(--line); }
 .composer-inner { max-width: 760px; margin: 0 auto; }
 /* 入力ボックス(ロール埋め込み)とスワイプメニューは components/composer.py の COMPOSER_CSS */
 .comp-send[disabled] { opacity: .5; pointer-events: none; }
@@ -460,6 +460,8 @@ event => {
     return;
   }
   if (event.shiftKey) return;
+  // スマホ(coarse pointer)では改行キーで投稿しない(送信はボタンのみ)
+  if (window.matchMedia('(pointer: coarse)').matches) return;
   event.preventDefault();
   if (commandMatch && options.length) {
     const active = options[activeIndex()] || options[0];
@@ -973,7 +975,12 @@ class Ui2ChatController:
                                     lambda e: self._refresh_command_palette(str(e.value or ""))
                                 )
                                 self.input.on("keydown", self._send_from_enter, js_handler=_COMPOSER_KEYDOWN_JS)
-                            self.send_btn = ui.element("button").classes("btn primary comp-send").mark("ui2-chat-send")
+                            self.send_btn = (
+                                ui.element("button")
+                                .classes("btn primary comp-send")
+                                .props('title="送信(長押しで誘導)" aria-label="送信"')
+                                .mark("ui2-chat-send")
+                            )
                             with self.send_btn:
                                 ui.html("送信")
                             install_composer_gestures(
