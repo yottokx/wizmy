@@ -95,16 +95,99 @@ html, body { overscroll-behavior: none; }
   min-height: 0;
   overflow-x: hidden;
 }
-.wz-nav { flex: none; }
+.wz-nav, .gband { flex: none; }
+/* バンド(行1・左〜中)を取り込んだ2行グリッド。presence はナビ直下から全高 */
 .shell {
   position: relative;
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr) 330px;
+  grid-template-rows: auto minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
+.shell .gband { grid-column: 1 / 3; grid-row: 1; z-index: 1; }
+.shell .sessions { grid-column: 1; grid-row: 2; }
+.shell .stream-wrap { grid-column: 2; grid-row: 2; }
+.shell .presence { grid-column: 3; grid-row: 1 / 3; }
 
-/* ---------- 左:話し相手+セッション ---------- */
+/* ---------- ヘッダバンド(1行目セッション/2行目キャラ名) ---------- */
+.gband {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 26px;
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(ellipse 60% 140% at 85% 0%, color-mix(in srgb, var(--peri) 14%, transparent), transparent 70%),
+    var(--bg-2);
+  overflow: hidden;
+}
+/* キャラ変更ボタン(顔アイコン) */
+.pa-btn {
+  flex: none;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  padding: 0;
+  overflow: hidden;
+  background: var(--panel-2);
+  cursor: pointer;
+  transition: border-color .18s, box-shadow .18s;
+}
+.pa-btn:hover { border-color: var(--accent); box-shadow: 0 0 0 2px var(--glow); }
+.pa-btn .avatar { width: 100%; height: 100%; border: none; }
+.pa-btn .pa-ph {
+  width: 100%; height: 100%;
+  display: grid; place-items: center;
+  background: var(--panel-2); color: var(--peri);
+  font-family: "Yu Mincho", serif; font-size: 15px;
+}
+/* タイトル列。余白はすべてこの列がもらう(スペーサーを置くと幅を取り合って
+   余白があるのにタイトルが省略される) */
+.gband .ttl {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+}
+.gband .gname {
+  max-width: 100%;
+  font-size: 11px;
+  letter-spacing: .14em;
+  color: var(--muted);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sess-trigger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  background: none; border: none; padding: 0;
+  max-width: 100%;
+  min-width: 0;
+  cursor: default;
+  color: var(--text);
+  text-align: left;
+}
+.sess-trigger .st {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.sess-trigger .w { font-size: 11.5px; color: var(--muted); white-space: nowrap; flex: none; }
+.sess-trigger .caret { display: none; color: var(--muted); font-size: 10px; flex: none; }
+
+/* ---------- 左:セッション ---------- */
 .sessions {
   border-right: 1px solid var(--line);
   padding: 16px 14px 20px;
@@ -114,23 +197,6 @@ html, body { overscroll-behavior: none; }
   overflow-y: auto;
   min-height: 0;
 }
-.partner {
-  display: flex; align-items: center; gap: 12px;
-  padding: 4px 4px 14px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 12px;
-}
-.partner .avatar { width: 46px; height: 46px; object-fit: cover; flex: none; }
-.partner .pa-ph {
-  width: 46px; height: 46px; border-radius: 50%; flex: none;
-  display: grid; place-items: center;
-  background: var(--panel-2); color: var(--peri);
-  font-family: "Yu Mincho", serif; font-size: 19px;
-  border: 2px solid var(--line-2);
-}
-.partner .nm { font-size: 14px; letter-spacing: .05em; line-height: 1.4; }
-.partner .oc { font-size: 10.5px; color: var(--muted); }
-.partner .sw { margin-left: auto; flex: none; }
 .sessions .lbl { font-size: 11px; letter-spacing: .3em; color: var(--muted); padding: 0 8px 8px; }
 .sess { position: relative; padding: 10px 12px; cursor: pointer; border-left: 2px solid transparent; }
 .sess:hover { background: var(--panel); }
@@ -152,16 +218,6 @@ html, body { overscroll-behavior: none; }
 
 /* ---------- 中央:ストリーム ---------- */
 .stream-wrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.stream-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 26px;
-  border-bottom: 1px solid var(--line);
-}
-.stream-head .t { font-size: 16px; font-weight: 600; letter-spacing: .1em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stream-head .w { font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stream-head .sp { flex: 1; }
 
 .stream { flex: 1; min-height: 0; overflow-y: auto; padding: 30px 34px 20px; }
 .stream-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
@@ -309,8 +365,7 @@ html, body { overscroll-behavior: none; }
 .picker.open { display: flex; }
 .pcard.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--glow); }
 
-/* 履歴ボタン・キャストバー(モバイル用) */
-.hist-btn { display: none; }
+/* セッションドロワー(中間幅以下) */
 .sess-close { display: none; }
 .sessions-backdrop {
   display: none;
@@ -319,18 +374,6 @@ html, body { overscroll-behavior: none; }
   z-index: 69;
   background: color-mix(in srgb, var(--bg) 45%, transparent);
 }
-.mobile-cast {
-  display: none;
-  gap: 14px;
-  padding: 10px 16px 8px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--line);
-  -webkit-overflow-scrolling: touch;
-  align-items: center;
-}
-.mc-item { flex: none; display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 0; }
-.mc-item .avatar { width: 40px; height: 40px; object-fit: cover; }
-.mc-item .mc-nm { font-size: 11px; color: var(--muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ダイアログ・メニューのP3スキン */
 .q-menu { background: var(--panel); color: var(--text); }
@@ -342,6 +385,14 @@ html, body { overscroll-behavior: none; }
 /* ============ 中間幅 ============ */
 @media (max-width: 1180px) {
   .shell { grid-template-columns: minmax(0, 1fr) 300px; }
+  /* sessions は fixed でグリッドから抜けるため配置を詰め直す */
+  .shell .gband { grid-column: 1 / 2; }
+  .shell .stream-wrap { grid-column: 1; }
+  .shell .presence { grid-column: 2; grid-row: 1 / 3; }
+  /* セッションタイトル自体がドロワーのトリガになる */
+  .sess-trigger { cursor: pointer; }
+  .sess-trigger .caret { display: inline; }
+  .sess-trigger:hover .st, .sess-trigger:hover .caret { color: var(--accent); }
   .sessions {
     position: fixed;
     top: 55px; left: 0; bottom: 0;
@@ -369,11 +420,16 @@ html, body { overscroll-behavior: none; }
   }
   .sess-close:hover { color: var(--text); }
   .sessions.open + .sessions-backdrop { display: block; }
-  .hist-btn { display: inline-flex; }
 }
 
 /* ============ 縦画面・スマホ ============ */
 @media (max-width: 860px) {
+  /* バンドは文字とパディングを縮小 */
+  .gband { padding: 6px 10px; gap: 8px; min-width: 0; max-width: 100vw; }
+  .pa-btn { width: 30px; height: 30px; }
+  .sess-trigger .st { font-size: 13.5px; line-height: 1.35; }
+  .sess-trigger .w { display: none; }
+  .gband .gname { font-size: 10.5px; letter-spacing: .12em; line-height: 1.35; }
   .shell { display: flex; flex-direction: column; }
   /* 背景画像はヘッダを除いたクライアント領域(.shell)全体にはめ込む */
   .presence {
@@ -387,13 +443,6 @@ html, body { overscroll-behavior: none; }
   }
   .presence .pmeta { display: none; }
   .stream-wrap { position: relative; z-index: 1; flex: 1; min-height: 0; }
-  /* キャストバー・セッションヘッダは1行コンパクト */
-  .mobile-cast { display: flex; gap: 10px; padding: 6px 12px; }
-  .mc-item .avatar, .mc-item .mc-ph { width: 28px; height: 28px; font-size: 12px; }
-  .stream-head { padding: 5px 10px; gap: 8px; }
-  .stream-head .w { display: none; }
-  .stream-head .t { font-size: 13px; }
-  .hist-btn { white-space: nowrap; flex: none; padding: 4px 10px; font-size: 12px; }
   .stream { padding: 12px 12px 8px; overflow-x: hidden; }
   .stream-inner { gap: 14px; }
   .stream-inner > * + * { padding-top: 14px; }
@@ -411,12 +460,11 @@ html, body { overscroll-behavior: none; }
 
 /* ============ 低い画面(ノートPC・ウィンドウ縮小時) ============ */
 @media (max-height: 760px) {
-  .stream-head { padding: 8px 26px; }
+  .gband { padding: 6px 26px; }
   .stream { padding: 18px 34px 12px; }
   .stream-inner { gap: 12px; }
   .composer { padding: 8px 34px 12px; }
   .comp-input .q-field__control { min-height: 30px; }
-  .partner { padding: 7px 10px; margin-bottom: 8px; }
 }
 """
 
@@ -882,7 +930,43 @@ class Ui2ChatController:
 
     def render_shell(self) -> None:
         with ui.element("div").classes("shell"):
-            # ---- 左: 話し相手+セッション ----
+            # ---- バンド(行1・左〜中): キャラ変更+セッション/キャラ名の2段タイトル ----
+            with ui.element("div").classes("gband"):
+                partner_btn = (
+                    ui.element("button")
+                    .classes("pa-btn")
+                    .props('title="相手を変更"')
+                    .mark("ui2-chat-partner-change")
+                )
+                with partner_btn:
+                    if self._face_avatar() is None:
+                        with ui.element("div").classes("pa-ph"):
+                            ui.html(html.escape((self.sheet.name or "?")[:1]))
+                partner_btn.on("click", self.open_picker)
+                with ui.element("div").classes("ttl"):
+                    trigger = ui.element("button").classes("sess-trigger").props('title="セッション一覧"')
+                    with trigger:
+                        self.head_title = ui.element("span").classes("st serif").mark("ui2-chat-title")
+                        self.head_world = ui.element("span").classes("w")
+                        with ui.element("span").classes("caret"):
+                            ui.html("▾")
+                    trigger.on(
+                        "click",
+                        js_handler="() => { if (window.matchMedia('(max-width: 1180px)').matches) "
+                        "document.querySelector('.sessions')?.classList.toggle('open'); }",
+                    )
+                    with ui.element("span").classes("gname serif"):
+                        ui.html(html.escape(self.sheet.name))
+                menu_btn = ui.element("button").classes("btn quiet").mark("ui2-chat-menu")
+                with menu_btn:
+                    ui.html("⋯")
+                    with ui.menu().props('anchor="bottom right" self="top right"'):
+                        ui.menu_item("新しいセッション", on_click=lambda: self.open_new_chat_dialog())
+                        ui.menu_item("タイトル変更", on_click=self.open_rename_current_chat_dialog)
+                        ui.menu_item("システムプロンプト", on_click=self.open_system_prompt_dialog)
+                        ui.menu_item("セッション削除", on_click=self.confirm_delete_current_chat)
+
+            # ---- 左: セッション ----
             with ui.element("aside").classes("sessions"):
                 close_btn = ui.element("button").classes("sess-close").props('title="履歴を閉じる"')
                 with close_btn:
@@ -891,16 +975,6 @@ class Ui2ChatController:
                     "click",
                     js_handler="() => document.querySelector('.sessions')?.classList.remove('open')",
                 )
-                with ui.element("div").classes("partner"):
-                    if self._face_avatar() is None:
-                        with ui.element("div").classes("pa-ph"):
-                            ui.html(html.escape((self.sheet.name or "?")[:1]))
-                    with ui.element("div"):
-                        with ui.element("div").classes("nm serif"):
-                            ui.html(html.escape(self.sheet.name))
-                        with ui.element("div").classes("oc"):
-                            ui.html(html.escape(self.sheet.occupation))
-                    _p3_button("変更", self.open_picker, classes="btn quiet sw").mark("ui2-chat-partner-change")
                 with ui.element("div").classes("lbl"):
                     ui.html("セッション")
                 self.sess_list = ui.element("div").mark("ui2-chat-sessions")
@@ -918,34 +992,6 @@ class Ui2ChatController:
 
             # ---- 中央: ストリーム ----
             with ui.element("main").classes("stream-wrap"):
-                with ui.element("div").classes("stream-head"):
-                    hist = ui.element("button").classes("btn quiet hist-btn")
-                    with hist:
-                        ui.html("履歴")
-                    hist.on(
-                        "click",
-                        js_handler="() => document.querySelector('.sessions')?.classList.toggle('open')",
-                    )
-                    self.head_title = ui.element("span").classes("t serif").mark("ui2-chat-title")
-                    self.head_world = ui.element("span").classes("w")
-                    ui.element("span").classes("sp")
-                    menu_btn = ui.element("button").classes("btn quiet").mark("ui2-chat-menu")
-                    with menu_btn:
-                        ui.html("⋯")
-                        with ui.menu().props('anchor="bottom right" self="top right"'):
-                            ui.menu_item("新しいセッション", on_click=lambda: self.open_new_chat_dialog())
-                            ui.menu_item("タイトル変更", on_click=self.open_rename_current_chat_dialog)
-                            ui.menu_item("システムプロンプト", on_click=self.open_system_prompt_dialog)
-                            ui.menu_item("セッション削除", on_click=self.confirm_delete_current_chat)
-
-                # 縦画面用: 相手表示+変更
-                with ui.element("div").classes("mobile-cast"):
-                    with ui.element("button").classes("mc-item"):
-                        self._face_avatar()
-                        with ui.element("div").classes("mc-nm"):
-                            ui.html(html.escape(self.sheet.name))
-                    _p3_button("相手を変更", self.open_picker, classes="btn quiet")
-
                 with ui.element("div").classes("stream"):
                     self.stream_inner = ui.element("div").classes("stream-inner").mark("ui2-chat-stream")
 

@@ -116,31 +116,62 @@ html, body { overscroll-behavior: none; }
 }
 .wz-nav, .gband { flex: none; }
 
-/* ---------- 箱庭バンド ---------- */
+/* ---------- 箱庭バンド(1行目セッション/2行目グループ名) ---------- */
 .gband {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 22px;
-  padding: 12px 26px;
+  gap: 14px;
+  padding: 7px 26px;
   border-bottom: 1px solid var(--line);
   background:
     radial-gradient(ellipse 60% 140% at 85% 0%, color-mix(in srgb, var(--peri) 14%, transparent), transparent 70%),
     var(--bg-2);
   overflow: hidden;
 }
-.gband .gname { font-size: 19px; letter-spacing: .14em; white-space: nowrap; }
-.gband .gworld {
+/* タイトル列。余白はすべてこの列がもらう(スペーサーを置くと幅を取り合って
+   余白があるのにタイトルが省略される) */
+.gband .ttl {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
   flex: 1;
   min-width: 0;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.6;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
+.gband .gname {
+  max-width: 100%;
+  font-size: 11px;
+  letter-spacing: .14em;
+  color: var(--muted);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sess-trigger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  background: none; border: none; padding: 0;
+  max-width: 100%;
+  min-width: 0;
+  cursor: default;
+  color: var(--text);
+  text-align: left;
+}
+.sess-trigger .st {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.sess-trigger .w { font-size: 11.5px; color: var(--muted); white-space: nowrap; flex: none; }
+.sess-trigger .caret { display: none; color: var(--muted); font-size: 10px; flex: none; }
 .gband .chips { display: flex; gap: 8px; flex: none; }
 .gband .chip { cursor: default; background: color-mix(in srgb, var(--bg) 55%, transparent); }
 .gband .chip.manage { cursor: pointer; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
@@ -158,13 +189,19 @@ html, body { overscroll-behavior: none; }
 }
 .gband .back:hover { color: var(--text); border-color: var(--muted); }
 
+/* バンド(行1・左〜中)を取り込んだ2行グリッド。presence はナビ直下から全高 */
 .shell {
   position: relative;
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr) 330px;
+  grid-template-rows: auto minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
+.shell .gband { grid-column: 1 / 3; grid-row: 1; z-index: 1; }
+.shell .sessions { grid-column: 1; grid-row: 2; }
+.shell .stream-wrap { grid-column: 2; grid-row: 2; }
+.shell .presence { grid-column: 3; grid-row: 1 / 3; }
 
 /* ---------- 左:このグループのセッション ---------- */
 .sessions {
@@ -197,16 +234,6 @@ html, body { overscroll-behavior: none; }
 
 /* ---------- 中央:ストリーム ---------- */
 .stream-wrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.stream-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 26px;
-  border-bottom: 1px solid var(--line);
-}
-.stream-head .t { font-size: 15px; font-weight: 600; letter-spacing: .08em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stream-head .w { font-size: 11.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stream-head .sp { flex: 1; }
 
 .stream { flex: 1; min-height: 0; overflow-y: auto; padding: 30px 34px 20px; }
 .stream-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
@@ -479,8 +506,7 @@ html, body { overscroll-behavior: none; }
 .pick .x { color: var(--muted); cursor: pointer; margin-left: 2px; }
 .pick .x:hover { color: var(--text); }
 
-/* 履歴ボタン・キャストバー(モバイル用) */
-.hist-btn { display: none; }
+/* セッションドロワー・キャストバー(モバイル用) */
 .sess-close { display: none; }
 .sessions-backdrop {
   display: none;
@@ -512,6 +538,14 @@ html, body { overscroll-behavior: none; }
 /* ============ 中間幅 ============ */
 @media (max-width: 1180px) {
   .shell { grid-template-columns: minmax(0, 1fr) 300px; }
+  /* sessions は fixed でグリッドから抜けるため配置を詰め直す */
+  .shell .gband { grid-column: 1 / 2; }
+  .shell .stream-wrap { grid-column: 1; }
+  .shell .presence { grid-column: 2; grid-row: 1 / 3; }
+  /* セッションタイトル自体がドロワーのトリガになる */
+  .sess-trigger { cursor: pointer; }
+  .sess-trigger .caret { display: inline; }
+  .sess-trigger:hover .st, .sess-trigger:hover .caret { color: var(--accent); }
   .sessions {
     position: fixed;
     top: 55px; left: 0; bottom: 0;
@@ -538,18 +572,17 @@ html, body { overscroll-behavior: none; }
   }
   .sess-close:hover { color: var(--text); }
   .sessions.open + .sessions-backdrop { display: block; }
-  .hist-btn { display: inline-flex; }
 }
 
 /* ============ 縦画面・スマホ ============ */
 @media (max-width: 860px) {
-  /* ヘッダ(gband)は1行に圧縮: 名前は省略、情報バッジは隠して「管理」のみ残す */
-  .gband { padding: 5px 10px; gap: 8px; min-width: 0; max-width: 100vw; }
+  /* バンドは文字とパディングを縮小。管理チップは隠す(⋯メニューから開ける) */
+  .gband { padding: 6px 10px; gap: 8px; min-width: 0; max-width: 100vw; }
   .gband .back { width: 28px; height: 28px; font-size: 13px; }
-  .gband .gname { font-size: 14.5px; letter-spacing: .08em; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .gband .gworld { display: none; }
-  .gband .chips { overflow: hidden; flex: none; min-width: 0; }
-  .gband .chip { white-space: nowrap; }
+  .sess-trigger .st { font-size: 13.5px; line-height: 1.35; }
+  .sess-trigger .w { display: none; }
+  .gband .gname { font-size: 10.5px; letter-spacing: .12em; line-height: 1.35; }
+  .gband .chips { display: none; }
   .shell { display: flex; flex-direction: column; }
   /* 背景画像はヘッダを除いたクライアント領域(.shell)全体にはめ込む */
   .presence {
@@ -568,11 +601,6 @@ html, body { overscroll-behavior: none; }
   .mc-item { display: flex; align-items: center; gap: 6px; text-align: left; }
   .mc-item .avatar, .mc-item .avatar-ph { width: 28px; height: 28px; font-size: 12px; }
   .mc-item .mc-nm { margin-top: 0; font-size: 10.5px; max-width: 76px; }
-  /* セッションヘッダも1行圧縮 */
-  .stream-head { padding: 5px 10px; gap: 8px; }
-  .stream-head .t { font-size: 13px; }
-  .stream-head .w { display: none; }
-  .hist-btn { white-space: nowrap; flex: none; padding: 4px 10px; font-size: 12px; }
   .stream { padding: 12px 12px 8px; overflow-x: hidden; }
   .stream-inner { gap: 14px; }
   .stream-inner > * + * { padding-top: 14px; }
@@ -588,9 +616,7 @@ html, body { overscroll-behavior: none; }
 
 /* ============ 低い画面 ============ */
 @media (max-height: 760px) {
-  .gband { padding: 8px 26px; }
-  .gband .gworld { -webkit-line-clamp: 1; }
-  .stream-head { padding: 8px 26px; }
+  .gband { padding: 6px 26px; }
   .stream { padding: 18px 34px 12px; }
   .stream-inner { gap: 12px; }
   .composer { padding: 8px 34px 12px; }
@@ -1020,11 +1046,30 @@ class Ui2GroupChatController:
             with back:
                 ui.html("←")
             back.on("click", lambda: ui.navigate.to("/groups"))
-            with ui.element("span").classes("gname serif").mark("ui2-group-name"):
-                ui.html(html.escape(self.group.name))
-            with ui.element("span").classes("gworld"):
-                ui.html(html.escape(self.group.world))
+            with ui.element("div").classes("ttl"):
+                trigger = ui.element("button").classes("sess-trigger").props('title="セッション一覧"')
+                with trigger:
+                    self.head_title = ui.element("span").classes("st serif").mark("ui2-group-chat-title")
+                    self.head_sub = ui.element("span").classes("w")
+                    with ui.element("span").classes("caret"):
+                        ui.html("▾")
+                trigger.on(
+                    "click",
+                    js_handler="() => { if (window.matchMedia('(max-width: 1180px)').matches) "
+                    "document.querySelector('.sessions')?.classList.toggle('open'); }",
+                )
+                with ui.element("span").classes("gname serif").mark("ui2-group-name"):
+                    ui.html(html.escape(self.group.name))
             self.band_chips = ui.element("span").classes("chips")
+            menu_btn = ui.element("button").classes("btn quiet").mark("ui2-group-chat-menu")
+            with menu_btn:
+                ui.html("⋯")
+                with ui.menu().props('anchor="bottom right" self="top right"'):
+                    ui.menu_item("新しいセッション", on_click=lambda: self.open_new_chat_dialog())
+                    ui.menu_item("タイトル変更", on_click=self.open_rename_current_chat_dialog)
+                    ui.menu_item("システムプロンプト", on_click=self.open_system_prompt_dialog)
+                    ui.menu_item("セッション削除", on_click=self.confirm_delete_current_chat)
+                    ui.menu_item("グループ管理", on_click=self.open_manage_dialog)
         self.refresh_band_chips()
 
     def refresh_band_chips(self) -> None:
@@ -1044,6 +1089,9 @@ class Ui2GroupChatController:
 
     def render_shell(self) -> None:
         with ui.element("div").classes("shell"):
+            # ---- バンド(行1・左〜中) ----
+            self.render_band()
+
             # ---- 左: セッション ----
             with ui.element("aside").classes("sessions"):
                 close_btn = ui.element("button").classes("sess-close").props('title="履歴を閉じる"')
@@ -1069,26 +1117,6 @@ class Ui2GroupChatController:
 
             # ---- 中央: ストリーム ----
             with ui.element("main").classes("stream-wrap"):
-                with ui.element("div").classes("stream-head"):
-                    hist = ui.element("button").classes("btn quiet hist-btn")
-                    with hist:
-                        ui.html("履歴")
-                    hist.on(
-                        "click",
-                        js_handler="() => document.querySelector('.sessions')?.classList.toggle('open')",
-                    )
-                    self.head_title = ui.element("span").classes("t serif").mark("ui2-group-chat-title")
-                    self.head_sub = ui.element("span").classes("w")
-                    ui.element("span").classes("sp")
-                    menu_btn = ui.element("button").classes("btn quiet").mark("ui2-group-chat-menu")
-                    with menu_btn:
-                        ui.html("⋯")
-                        with ui.menu().props('anchor="bottom right" self="top right"'):
-                            ui.menu_item("新しいセッション", on_click=lambda: self.open_new_chat_dialog())
-                            ui.menu_item("タイトル変更", on_click=self.open_rename_current_chat_dialog)
-                            ui.menu_item("システムプロンプト", on_click=self.open_system_prompt_dialog)
-                            ui.menu_item("セッション削除", on_click=self.confirm_delete_current_chat)
-
                 self.mobile_cast = ui.element("div").classes("mobile-cast")
 
                 with ui.element("div").classes("stream"):
@@ -3790,5 +3818,4 @@ async def ui2_group_page(group_id: str) -> None:
 
     with p3_page("グループ"):
         ui.add_css(_PAGE_CSS + PICKER_CSS + COMPOSER_CSS)
-        controller.render_band()
         controller.render_shell()
